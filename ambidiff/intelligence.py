@@ -1,0 +1,78 @@
+"""Identificação conservadora de conteúdo editorial e sinais de bases defasadas.
+
+A existência de uma base antiga não apaga divergências estruturais/funcionais.
+Nenhuma classificação aqui implica erro de PRD ou DES.
+"""
+from __future__ import annotations
+from collections import defaultdict
+from urllib.parse import urlsplit
+import re
+from .core import normalizar, titulo_normalizado
+
+DATA_EDITORIAL = re.compile(r'\b(?:\d{1,2}[ /-])?(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-zç]*\b|\b\d{1,2}[/-]\d{1,2}[/-]20\d{2}\b', re.I)
+ROTA_EDITORIAL = re.compile(r'/(?:w/|noticias(?:/|$)|notícias(?:/|$)|blog(?:/|$)|posts?/|imprensa(?:/|$))', re.I)
+
+
+def item_editorial(item, pagina=None) -> bool:
+    # Preferir evidência contextual vinda do DOM. Nunca deduzir apenas por diferença de data.
+    if getattr(item,'natureza','') == 'editorial':return True
+    if getattr(item,'natureza','') == 'estrutura':return False
+    # Compatibilidade com páginas fabricadas sem os novos campos.
+    if pagina and ROTA_EDITORIAL.search(urlsplit(pagina.url).path):
+        return bool(getattr(item,'tipo','') in ('Texto','Imagem') and
+                    getattr(item,'posicao','') not in ('Menu de navegação','Cabeçalho','Rodapé'))
+    return False
+
+
+def separar_editoriais(comps, pa, pb, itens_a, itens_b, nomes, defasado):
+    if not defasado:return comps, []
+    ids_a={(i.tipo,normalizar(i.chave)) for i in itens_a if item_editorial(i,pa)}
+    ids_b={(i.tipo,normalizar(i.chave)) for i in itens_b if item_editorial(i,pb)}
+    regs=[];data=[]
+    for d in comps:
+        k=(d.get('tipo',''),normalizar(d.get('elemento','')))
+        src = ids_a if d.get('presente_em')==nomes[0] else ids_b
+        editorial=(k in src or
+            (d.get('tipo')=='Texto' and 'texto_a' in d and
+             (('Texto',normalizar(d['texto_a'])) in ids_a or
+              ('Texto',normalizar(d.get('texto_b',''))) in ids_b)))
+        if editorial and d.get('tipo') in ('Texto','Imagem','Opção'):
+            data.append(d)
+        else:regs.append(d)
+    return regs,data
+
+
+def agrupar_variacoes(dados, desatualizado):
+    """Produz grupos informativos por área/portal, não DIVs e não defeitos."""
+    agrupados=defaultdict(list)
+    for item in dados:
+        pagina=item.get('url_presente') or ''
+        path=urlsplit(pagina).path or '/'
+        # A mesma lista pode estar na home e /inicio, evitar grupo por cada notícia.
+        categoria='Notícias e publicações' if path=='/' or ROTA_EDITORIAL.search(path) else 'Conteúdo editorial e imagens'
+        agrupados[categoria].append(item)
+    resumo=[]
+    for titulo,rows in agrupados.items():
+        unique=[];seen=set()
+        for x in rows:
+            key=(x.get('tipo'),normalizar(x.get('elemento')),x.get('presente_em'))
+            if key not in seen:
+                seen.add(key);unique.append(x)
+        resumo.append({'categoria':titulo,'ambiente_desatualizado':desatualizado,
+             'quantidade_ocorrencias':len(rows),'quantidade_itens':len(unique),
+             'motivo':'Possível diferença de publicação/ordenação de dados entre bases. Não é defeito confirmado.',
+             'exemplos':[{'tipo':v.get('tipo'),'elemento':v.get('elemento'),
+                         'pagina':v.get('url_presente'),'ambiente':v.get('presente_em')} for v in unique[:18]]})
+    return resumo
+
+
+def sinais_extraidos(paginas,nome):
+    encontrados=[];visto=set()
+    for p in paginas.values():
+        for s in p.coleta.get('avisos_ambiente',[]):
+            key=normalizar(s)
+            if key in visto:continue
+            visto.add(key)
+            encontrados.append({'ambiente':nome,'pagina':p.url,'texto':s[:340],
+                 'interpretacao':'Possível aviso sobre ambiente ou base de dados; requer confirmação.'})
+    return encontrados[:12]
