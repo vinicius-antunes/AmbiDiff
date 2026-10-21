@@ -5,6 +5,7 @@ preventivos de tempo, memória e requisições e sinaliza quando não cobre todo
 """
 from __future__ import annotations
 
+from .progress import verificar_interrupcao, esperar
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
@@ -263,18 +264,19 @@ JS_EXTRAIR = r'''() => {
 }'''
 
 
-def coletar_aba(page, itens: list[dict], links: list[dict], log) -> None:
+def coletar_aba(page, itens: list[dict], links: list[dict], log, parar=None) -> None:
     """Interage apenas com abas detectadas, sem clicar formulários ou executar ações."""
     try:
         tabs=page.locator('[role="tab"],button[data-bs-toggle="tab"],a[data-bs-toggle="tab"]')
         for i in range(min(tabs.count(),35)):
+            verificar_interrupcao(parar)
             tab=tabs.nth(i)
             if not tab.is_visible():continue
             rotulo=(tab.inner_text(timeout=1500) or '').strip()[:80]
             if not rotulo:continue
             try:
                 tab.click(timeout=3000)
-                page.wait_for_timeout(350)
+                esperar(page,350,parar)
                 dados=page.evaluate(JS_EXTRAIR)
                 for item in dados['itens']:
                     item['local']=f'Aba "{rotulo}" → {item["local"]}'
@@ -284,18 +286,21 @@ def coletar_aba(page, itens: list[dict], links: list[dict], log) -> None:
         log(f'Aviso: algumas abas não puderam ser abertas: {str(e)[:110]}')
 
 
-def _abrir(page,url: str):
+def _abrir(page,url: str,parar=None):
     """Tenta DOM carregado e recupera resposta quando o portal renderiza lentamente."""
     try:
         return page.goto(url,wait_until='domcontentloaded',timeout=TEMPO_PAGINA_MS)
     except Exception as ex:
+        verificar_interrupcao(parar)
         # Somente timeout: se houver conteúdo aproveitável, a navegação pode ter funcionado.
         if 'Timeout' not in type(ex).__name__ and 'Timeout' not in str(ex):raise
         try:
-            dados=page.evaluate('() => ({url:location.href,n:document.body?.innerText?.trim().length||0})')
-            if url_limpa(dados['url'])==url_limpa(url) and dados['n']>=80:
+            # evaluate pode aguardar um contexto de navegação sem timeout próprio.
+            # A recuperação usa uma leitura de locator com prazo explícito.
+            if url_limpa(page.url)==url_limpa(url) and len(page.locator('body').inner_text(timeout=1000).strip())>=80:
                 return None
         except Exception: pass
+        verificar_interrupcao(parar)
         return page.goto(url,wait_until='commit',timeout=TEMPO_PAGINA_MS)
 
 
@@ -537,10 +542,10 @@ def inferir_site(pag_a:dict[str,Pagina],pag_b:dict[str,Pagina],base_a:str)->str:
     return urlsplit(base_a).hostname or 'Comparação de ambientes'
 
 
-def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False):
+def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,atividade=None):
     """v1.5: comparação pareada, com variações editoriais separadas."""
     from .paired import executar_pareado
     return executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,
                            site_nome=site_nome,evidencias_dir=evidencias_dir, auditar_externos=auditar_externos,
                            ambiente_desatualizado=ambiente_desatualizado,checkpoint=checkpoint,
-                           verificar_cliques=verificar_cliques)
+                           verificar_cliques=verificar_cliques,atividade=atividade)

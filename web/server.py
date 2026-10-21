@@ -26,16 +26,27 @@ app.config['MAX_CONTENT_LENGTH']=12*1024
 PASTA=ROOT/'relatorios';PASTA.mkdir(exist_ok=True)
 HISTORY_PATH=ROOT/'historico.json'
 LOCK=threading.RLock();PARAR=threading.Event()
-STATE={'status':'pronto','progresso':0,'logs':[],'ultimo_id':None,'erro':None,'resumo':None}
+STATE={'status':'pronto','progresso':0,'logs':[],'ultimo_id':None,'erro':None,'resumo':None,
+       'execucao_id':None,'logs_eventos':[],'log_seq':0,'interrupcao_solicitada':False,
+       'ultimo_par_processado':0,'par_atual':None,'pares_pendentes':0,
+       'etapa':'Aguardando','ultima_atividade':None}
 
 
 def atualizar(**kw):
-    with LOCK:STATE.update(kw)
+    with LOCK:
+        STATE.update(kw)
+        STATE['ultima_atividade']=datetime.now().astimezone().isoformat()
 
 
 def log(msg):
     with LOCK:
-        STATE['logs'].append(str(msg)[:700]);STATE['logs']=STATE['logs'][-200:]
+        mensagem=str(msg)[:700]
+        STATE['log_seq']+=1
+        agora=datetime.now().astimezone().isoformat()
+        STATE['logs_eventos'].append({'id':STATE['log_seq'],'mensagem':mensagem,'horario':agora})
+        STATE['logs_eventos']=STATE['logs_eventos'][-200:]
+        STATE['logs'].append(mensagem);STATE['logs']=STATE['logs'][-200:]
+        STATE['ultima_atividade']=agora
 
 
 def _hist():
@@ -53,15 +64,17 @@ def worker(params,run_id):
                            auditar_externos=params['auditar_externos'],
                            verificar_cliques=params.get('verificar_cliques',False),
                            ambiente_desatualizado=params.get('ambiente_desatualizado',''),
-                           checkpoint=lambda d:atomic_json(PASTA/f'checkpoint_{run_id}.json',d))
+                           checkpoint=lambda d:atomic_json(PASTA/f'checkpoint_{run_id}.json',d),
+                           atividade=atualizar)
         if resultado is None:
             raise RuntimeError('A varredura não produziu relatório; consulte o diagnóstico.')
+        atualizar(etapa='Salvando relatório e diagnóstico',limite_operacao_segundos=None)
         resultado['gerado_em']=datetime.now().strftime('%d/%m/%Y %H:%M:%S');resultado['id']=run_id
         chave=params['url_a'].split('//',1)[-1].split('/',1)[0].lower()+'/'+urlsplit(params['url_a']).path.strip('/')
         resultado['site_id']=hashlib.sha256(chave.encode('utf-8')).hexdigest()[:16]
         exportar(resultado,PASTA,run_id)
         exportar_diagnostico(montar_diagnostico(resultado,list(STATE.get('logs',[]))),PASTA,run_id)
-        (PASTA/f'checkpoint_{run_id}.json').unlink(missing_ok=True)
+        if not PARAR.is_set():(PASTA/f'checkpoint_{run_id}.json').unlink(missing_ok=True)
         entrada={'id':run_id,'data':resultado['gerado_em'],'site_nome':resultado['site_nome'],
                  'site_id':resultado['site_id'],'ambientes':resultado['ambientes'],
                  'situacao':resultado['situacao_analise'],
@@ -73,11 +86,12 @@ def worker(params,run_id):
         with LOCK:
             h=_hist();h.insert(0,entrada)
             atomic_json(HISTORY_PATH,h[:350])
-        atualizar(status='concluido',progresso=100,ultimo_id=run_id,erro=None,
-                  resumo={'total':entrada['total'],'paginas':entrada['paginas'],
-                          'situacao':entrada['situacao'],'nome':entrada['site_nome']})
-        log(f'Finalizado ({entrada["situacao"]}): {entrada["total"]} diferenças de conteúdo; '
-            f'{entrada["avisos"]} avisos técnicos.')
+        with LOCK:
+            atualizar(status='concluido',etapa='Finalizado',par_atual=None,progresso=100,ultimo_id=run_id,erro=None,
+                      resumo={'total':entrada['total'],'paginas':entrada['paginas'],
+                              'situacao':entrada['situacao'],'nome':entrada['site_nome']})
+            log(f'Finalizado ({entrada["situacao"]}): {entrada["total"]} diferenças de conteúdo; '
+                f'{entrada["avisos"]} avisos técnicos.')
     except Exception as ex:
         import traceback
         log('ERRO: '+str(ex)[:500])
@@ -109,17 +123,18 @@ def worker(params,run_id):
                        'paginas':parcial.get('paginas',{})})
                     atomic_json(HISTORY_PATH,h[:350])
                 log('Último checkpoint recuperado. Relatório parcial e diagnóstico salvos.')
-                atualizar(status='concluido',progresso=100,ultimo_id=run_id,erro=None)
-                cp.unlink(missing_ok=True)
+                atualizar(status='concluido',etapa='Finalizado com recuperação parcial',par_atual=None,progresso=100,ultimo_id=run_id,erro=None)
+                if not PARAR.is_set():cp.unlink(missing_ok=True)
                 return
             diag={'versao':'1.5','site_nome':params.get('site_nome',''),'situacao_analise':'erro',
                  'interrupcao':{'ocorreu':True,'motivos':{'programa':'Falha inesperada'},'pares_visitados':0,'pares_na_fila':0},
                  'falhas_por_tipo':{'FALHA_CRITICA':1},'falhas':[{'ambiente':'programa','url':'', 'erro':str(ex)[:600]}],
                  'eventos':[],'mensagens_de_execucao':list(STATE.get('logs',[])),
-                 'erro_critico':traceback.format_exc()[-2000:]}
+                 'erro_critico':traceback.format_exc()[-2000:],
+                 'acompanhamento':{k:STATE.get(k) for k in ('ultimo_par_processado','par_atual','pares_pendentes','etapa','ultima_atividade')}}
             exportar_diagnostico(diag,PASTA,run_id)
         except Exception as falha_diag:log('Falha ao gravar diagnóstico: '+str(falha_diag)[:120])
-        atualizar(status='erro',erro=str(ex)[:550],ultimo_id=run_id)
+        atualizar(status='erro',etapa='Falha',erro=str(ex)[:550],ultimo_id=run_id)
 
 
 @app.get('/')
@@ -128,7 +143,21 @@ def index():return render_template('index.html')
 
 @app.get('/api/status')
 def status():
-    with LOCK:return jsonify(STATE.copy())
+    try:cursor=max(0,int(request.args.get('apos','0')))
+    except ValueError:return jsonify(erro='Cursor de logs inválido'),400
+    with LOCK:
+        dados=STATE.copy()
+        dados['estado_execucao']=('interrupcao_solicitada' if STATE['status']=='executando' and STATE['interrupcao_solicitada'] else
+            {'executando':'executando','concluido':'finalizado','erro':'falha'}.get(STATE['status'],'aguardando'))
+        mesma=request.args.get('execucao')==STATE['execucao_id']
+        reiniciar=not mesma or cursor>STATE['log_seq']
+        if reiniciar:cursor=0
+        eventos=STATE['logs_eventos']
+        primeiro=eventos[0]['id'] if eventos else STATE['log_seq']+1
+        dados['logs_eventos']=[e for e in eventos if e['id']>cursor]
+        dados['logs_descartados']=max(0,primeiro-cursor-1)
+        dados['reiniciar_logs']=reiniciar
+        return jsonify(dados)
 
 
 @app.post('/api/comparar')
@@ -147,9 +176,12 @@ def comparar():
             if desatualizado not in ('',nome_a,nome_b):raise ValueError('Escolha um ambiente válido para a base desatualizada.')
         except (ValueError,TypeError) as e:return jsonify(erro=str(e)),400
         PARAR.clear()
-        STATE.update(status='executando',progresso=0,logs=['Iniciando Chromium...'],
-                     erro=None,resumo=None,ultimo_id=None)
         run_id=datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:6]
+        STATE.update(status='executando',progresso=0,logs=[],logs_eventos=[],log_seq=0,
+                     execucao_id=run_id,interrupcao_solicitada=False,
+                     ultimo_par_processado=0,par_atual=None,pares_pendentes=1,
+                     etapa='Iniciando Chromium',erro=None,resumo=None,ultimo_id=None)
+        log('Iniciando Chromium...')
         params=dict(url_a=url_a,url_b=url_b,nome_a=nome_a,nome_b=nome_b,site_nome=site_nome,
                     auditar_externos=(args.get('auditar_externos') is True),
                     verificar_cliques=(args.get('verificar_cliques') is True),
@@ -159,7 +191,13 @@ def comparar():
 
 
 @app.post('/api/parar')
-def parar():PARAR.set();return jsonify(ok=True)
+def parar():
+    with LOCK:
+        if STATE['status']=='executando' and not STATE['interrupcao_solicitada']:
+            PARAR.set()
+            atualizar(interrupcao_solicitada=True)
+            log('Interrupção solicitada — aguardando operação atual')
+        return jsonify(ok=True,interrupcao_solicitada=STATE['interrupcao_solicitada'])
 
 
 @app.get('/api/historico')

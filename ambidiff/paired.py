@@ -14,12 +14,13 @@ import time
 import unicodedata
 from urllib.parse import urlsplit, urljoin, unquote
 
+from .progress import Acompanhamento, InterrupcaoSolicitada, TempoParExcedido, verificar_interrupcao, esperar
 from .intelligence import separar_editoriais,agrupar_variacoes,sinais_extraidos,item_editorial
 from .diagnostics import classificar_erro
 from .visual import comparar_visuais
 from .functional import escolher_candidatos,verificar_par
 from .core import (ARQUIVOS, MAX_URLS_SEGURANCA, MAX_MINUTOS_SEGURANCA,
-                   MAX_FALHAS_CONSECUTIVAS, JS_EXTRAIR, Item, Pagina,
+                   MAX_FALHAS_CONSECUTIVAS, TEMPO_PAGINA_MS, JS_EXTRAIR, Item, Pagina,
                    _abrir, coletar_aba, comparacao, inferir_site, normalizar,
                    permitido, referencia_invalida, url_limpa, validacao_inicial,
                    _avisos, titulo_normalizado)
@@ -89,7 +90,7 @@ def refiltro(itens:list[Item])->list[Item]:
     return saida
 
 
-def _preparar_conteudo(page,log,delay=160,limite_segundos=7.0):
+def _preparar_conteudo(page,log,delay=160,limite_segundos=7.0,parar=None):
     """Ativa lazy loading com rolagem e aguarda duas amostras estáveis.
 
     Não usa networkidle (portais com telemetria fazem requisições contínuas).
@@ -97,7 +98,7 @@ def _preparar_conteudo(page,log,delay=160,limite_segundos=7.0):
     """
     inicio=time.monotonic();passos=0;limitado=False
     try:
-        page.wait_for_timeout(250)
+        esperar(page,250,parar)
         while True:
             dims=page.evaluate('''() => ({scroll:Math.max(document.body?.scrollHeight||0,
                 document.documentElement?.scrollHeight||0),win:innerHeight,y:scrollY})''')
@@ -105,10 +106,10 @@ def _preparar_conteudo(page,log,delay=160,limite_segundos=7.0):
             if passos>=35 or time.monotonic()-inicio>limite_segundos:
                 limitado=True;break
             page.evaluate('() => window.scrollBy(0, Math.max(350,innerHeight*0.80))')
-            page.wait_for_timeout(delay)
+            esperar(page,delay,parar)
             passos+=1
         page.evaluate('() => window.scrollTo(0,0)')
-        page.wait_for_timeout(250)
+        esperar(page,250,parar)
         ultimo=None;estaveis=0
         while time.monotonic()-inicio<limite_segundos+2:
             atual=page.evaluate('''() => [document.querySelectorAll('p,h1,h2,h3,h4,img,a[href]').length,
@@ -117,7 +118,7 @@ def _preparar_conteudo(page,log,delay=160,limite_segundos=7.0):
             else:estaveis=0
             if estaveis>=2:break
             ultimo=atual
-            page.wait_for_timeout(380)
+            esperar(page,380,parar)
         return {'passos_rolagem':passos,'rolagem_limitada':limitado,
                 'estavel':estaveis>=2}
     except Exception as ex:
@@ -127,15 +128,15 @@ def _preparar_conteudo(page,log,delay=160,limite_segundos=7.0):
         return {'passos_rolagem':passos,'rolagem_limitada':True,'estavel':False}
 
 
-def _extrair_page(page,url:str,trilha:list[str],log)->Pagina:
-    resumo=_preparar_conteudo(page,log)
+def _extrair_page(page,url:str,trilha:list[str],log,parar=None)->Pagina:
+    resumo=_preparar_conteudo(page,log,parar=parar)
     if not resumo['estavel'] or resumo['rolagem_limitada']:
         log('[Coleta] Página com estabilidade limitada: '+url[:100])
     dados=page.evaluate(JS_EXTRAIR)
     if not isinstance(dados,dict) or not isinstance(dados.get('itens'),list):
         raise RuntimeError('A página não retornou conteúdo HTML analisável.')
     its=list(dados['itens']);links=list(dados['links'])
-    coletar_aba(page,its,links,lambda _s:None)
+    coletar_aba(page,its,links,lambda _s:None,parar=parar)
     itens=[]
     for raw in its:
         try:itens.append(Item(**raw))
@@ -376,6 +377,7 @@ def _auditar_externos(browser,urls,parar,log):
                 texto=page.evaluate('() => document.body?.innerText?.trim().length||0')
                 result['status']='Página acessível' if texto>50 else 'Página sem conteúdo textual suficiente'
                 for link in menu[:_MAX_OPCOES_EXTERNAS]:
+                    if parar.is_set():break
                     item={'opcao':link['label'],'destino':link['url'],'situacao':'Não verificado'}
                     if urlsplit(link['url']).netloc!=p.netloc:
                         item['situacao']='Outro domínio (não acessado)';result['opcoes'].append(item);continue
@@ -399,7 +401,7 @@ def _auditar_externos(browser,urls,parar,log):
     return saida
 
 
-def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',nome_b='DES'):
+def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',nome_b='DES',atividade=None):
     """Captura duas telas por DIV, claramente identificadas por ambiente.
 
     A captura correspondente pode mostrar somente a área aproximada; ausência de
@@ -421,10 +423,13 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
             selector=r.get('seletor') or ''
             referencia_y=None
             for env in (r.get('presente_em'),r.get('nao_identificado_em')):
+                if parar.is_set():break
                 url=urls[env]
+                if atividade:atividade('Capturando '+r['id']+' '+env,12,url_atual=url)
                 try:
                     response=page.goto(url,wait_until='domcontentloaded',timeout=12000)
                     if response and response.status>=400:raise RuntimeError('HTTP '+str(response.status))
+                    if parar.is_set():break
                     page.wait_for_timeout(450)
                     found=False
                     if selector:
@@ -440,6 +445,7 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
                         page.evaluate('(y) => window.scrollTo(0,y)',referencia_y)
                         page.wait_for_timeout(200)
                     filename=f'{r["id"]}_{env}.png'
+                    if parar.is_set():break
                     page.screenshot(path=str(pasta/filename),timeout=9000,
                                     animations='disabled',full_page=False)
                     result[env]=pasta.name+'/'+filename
@@ -453,7 +459,7 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
                 qtd+=1
     finally:context.close()
 
-def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False):
+def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, atividade=None):
     from playwright.sync_api import sync_playwright
     base_a,base_b=validacao_inicial(url_a,url_b)
     fila=deque([(base_a,base_b,['Página inicial'])])
@@ -461,17 +467,35 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     visitados=set();paginas_a={};paginas_b={};brutos=[];falhas=[];pendencias=[];refs=[]
     excluded=Counter();externos=[];avisos_coleta=[];consecutivos=0;parada='';inicio=time.monotonic()
     eventos=[];editoriais=[];cliques_testados=0;MAX_CLIQUES=12;modo_defasado=ambiente_desatualizado if ambiente_desatualizado in (nome_a,nome_b) else ''
+    acompanhamento=Acompanhamento(parar,atividade)
+    def salvar_checkpoint():
+        if not checkpoint:return
+        try:
+            checkpoint({'site_nome':site_nome,'ambientes':{nome_a:base_a,nome_b:base_b},
+                'paginas':{nome_a:len(paginas_a),nome_b:len(paginas_b)},
+                'brutos':brutos,'variacoes_editoriais':editoriais,'falhas':falhas,
+                'eventos_diagnostico':eventos,'pendencias':pendencias,
+                'acompanhamento':dict(acompanhamento.dados),
+                'meta_varredura':{env:{'visitadas':len(visitados),'pendentes':len(fila),
+                    'motivo_parada':parada or 'Execução ainda em andamento',
+                    'referencias_excluidas':dict(excluded) if env==nome_a else {}} for env in (nome_a,nome_b)},
+                'ambiente_desatualizado':modo_defasado})
+        except Exception as ex:log('[Diagnóstico] Checkpoint não salvo: '+str(ex)[:110])
+    acompanhamento.informar('Iniciando Chromium',30)
     with sync_playwright() as pw:
         try:
-            browser=pw.chromium.launch(headless=True)
+            browser=pw.chromium.launch(headless=True,timeout=30000)
         except Exception:
             # Fallback para Linux de desenvolvimento, quando os binários do Playwright
             # ainda não foram instalados. O instalador Windows baixa Chromium normalmente.
             executable=shutil.which('chromium') or shutil.which('chromium-browser')
             if not executable:raise
-            browser=pw.chromium.launch(headless=True,executable_path=executable,args=['--no-sandbox'])
+            browser=pw.chromium.launch(headless=True,executable_path=executable,args=['--no-sandbox'],timeout=30000)
         ctx_a=browser.new_context(locale='pt-BR',viewport={'width':1366,'height':850},service_workers='block',accept_downloads=False)
         ctx_b=browser.new_context(locale='pt-BR',viewport={'width':1366,'height':850},service_workers='block',accept_downloads=False)
+        for contexto in (ctx_a,ctx_b):
+            contexto.set_default_timeout(5000)
+            contexto.set_default_navigation_timeout(TEMPO_PAGINA_MS)
         if _preparar_contextos:
             _preparar_contextos(ctx_a,ctx_b)
         page_a=ctx_a.new_page();page_b=ctx_b.new_page()
@@ -486,167 +510,201 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 ua,ub,trilha=fila.popleft()
                 if (ua,ub) in visitados:continue
                 visitados.add((ua,ub))
-                if e_arquivo(ua) or e_arquivo(ub):
-                    excluded['Arquivos não tratados como páginas HTML']+=1
-                    if len(eventos)<600:eventos.append({'par':len(visitados),'tipo':'ARQUIVO_NAO_HTML','urls':{nome_a:ua,nome_b:ub},'trilha':trilha,'resultado':'Ignorado sem incrementar falhas'})
-                    consecutivos=0;continue
-                log('[PARES] '+str(len(visitados))+': '+ ' → '.join(trilha[-3:]))
-                statuses=[];pares=[];houve_documento=False
-                for env,page,url in ((nome_a,page_a,ua),(nome_b,page_b,ub)):
-                    try:
-                        response=_abrir(page,url)
-                        if response and response.status>=400:raise RuntimeError('HTTP '+str(response.status))
-                        statuses.append((getattr(response,'url',None) or page.url,None))
-                    except Exception as ex:
-                        msg=str(ex)[:300]
-                        # Downloads não devem provocar 15 falhas consecutivas.
-                        if 'Download is starting' in msg or 'download is starting' in msg.lower():
-                            excluded['Downloads tratados fora da navegação HTML']+=1
-                            houve_documento=True
-                            statuses.append((url,'Arquivo para download'))
-                        else:
-                            falhas.append({'ambiente':env,'url':url,'erro':msg,**classificar_erro(msg)})
-                            if len(eventos)<600:eventos.append({'par':len(visitados),'ambiente':env,'url':url,'trilha':trilha,'erro':msg,**classificar_erro(msg)})
-                            statuses.append((url,msg))
-                final_a,err_a=statuses[0];final_b,err_b=statuses[1]
-                if err_a or err_b:
-                    if houve_documento:
-                        consecutivos=0
-                        if len(eventos)<600:eventos.append({'par':len(visitados),'tipo':'DOWNLOAD_DE_DOCUMENTO',
-                          'urls':{nome_a:ua,nome_b:ub},'resultado':'Separado da navegação HTML; não conta como falha consecutiva'})
-                    else:consecutivos+=1
-                    pendencias.append({'ambiente':nome_a+' / '+nome_b,'url':ua,'pagina':'Página não comparada',
-                        'motivo':('Download de documento fora da navegação HTML; não prova falha do site.' if houve_documento else
-                                  'Acesso a pelo menos um dos ambientes falhou. Não há evidência de conteúdo ausente.'),
-                        'caminho':' → '.join(trilha),'url_b':ub})
-                    continue
-                if not link_equivalente(final_a,final_b,base_a,base_b):
-                    brutos.append(_diff_redir_page(ua,ub,final_a,final_b,trilha,nome_a,nome_b))
-                    consecutivos=0
-                    continue
-                if not permitido(final_a,base_a) or not permitido(final_b,base_b):
-                    # Ambos podem redirecionar para exatamente a mesma página externa.
-                    if final_a==final_b:externos.append((final_a,' → '.join(trilha)))
-                    else:brutos.append(_diff_redir_page(ua,ub,final_a,final_b,trilha,nome_a,nome_b))
-                    consecutivos=0
-                    continue
+                acompanhamento.iniciar_par(len(visitados),len(fila))
+                interrompido=False
                 try:
-                    pa=_extrair_page(page_a,ua,trilha,log)
-                    pb=_extrair_page(page_b,ub,trilha,log)
-                except Exception as ex:
-                    msg='Falha de extração: '+str(ex)[:160]
-                    falhas.append({'ambiente':'AMBOS','url':ua,'erro':msg,**classificar_erro(msg)})
-                    if len(eventos)<600:eventos.append({'par':len(visitados),'ambiente':'AMBOS','url':ua,'trilha':trilha,'erro':msg,**classificar_erro(msg)})
-                    consecutivos+=1
-                    continue
-                consecutivos=0
-                for env,pag in ((nome_a,pa),(nome_b,pb)):
-                    if not pag.coleta.get('estavel') or pag.coleta.get('rolagem_limitada'):
-                        avisos_coleta.append({'ambiente':env,'url':pag.url})
-                chave=(ua,ub)
-                paginas_a[ua]=pa;paginas_b[ub]=pb
-                # 1. Compara texto/imagens/opções SEM navegar nas diferenças.
-                itens_a,itens_b,pendencias_imgs=_alinhamento_de_componentes(pa,pb,base_a,base_b)
-                if modo_defasado:
-                    for v in pendencias_imgs:
-                        if v.get('natureza')=='editorial':
-                            editoriais.append({'tipo':'Imagem','presente_em':nome_a,'elemento':v.get('elemento',''),
-                                'url_presente':pa.url,'url_comparada':pb.url})
-                        else:refs.append(v)
-                else:refs.extend(pendencias_imgs)
-                comps=comparacao(itens_a,itens_b,pa,pb,nome_a,nome_b)
-                # Muitos textos/imagens ausentes num mesmo sentido sugerem que
-                # a página pode ter terminado de renderizar após a coleta.
-                # Recoleta os DOIS ambientes antes de registrar esse conjunto.
-                one_sided=Counter(d.get('presente_em') for d in comps if d.get('tipo') in ('Texto','Imagem'))
-                if max(one_sided.values(),default=0)>=6:
-                    log('[Coleta] Diferença em bloco; realizando segunda leitura de '+ua[:85])
+                    if e_arquivo(ua) or e_arquivo(ub):
+                        excluded['Arquivos não tratados como páginas HTML']+=1
+                        if len(eventos)<600:eventos.append({'par':len(visitados),'tipo':'ARQUIVO_NAO_HTML','urls':{nome_a:ua,nome_b:ub},'trilha':trilha,'resultado':'Ignorado sem incrementar falhas'})
+                        consecutivos=0;continue
+                    log('[PARES] '+str(len(visitados))+': '+ ' → '.join(trilha[-3:]))
+                    statuses=[];pares=[];houve_documento=False
+                    for env,page,url in ((nome_a,page_a,ua),(nome_b,page_b,ub)):
+                        try:
+                            acompanhamento.informar('Navegando '+env,TEMPO_PAGINA_MS/1000,url_atual=url)
+                            acompanhamento.verificar()
+                            response=_abrir(page,url,parar=acompanhamento)
+                            acompanhamento.verificar()
+                            if response and response.status>=400:raise RuntimeError('HTTP '+str(response.status))
+                            statuses.append((getattr(response,'url',None) or page.url,None))
+                        except Exception as ex:
+                            msg=str(ex)[:300]
+                            # Downloads não devem provocar 15 falhas consecutivas.
+                            if 'Download is starting' in msg or 'download is starting' in msg.lower():
+                                excluded['Downloads tratados fora da navegação HTML']+=1
+                                houve_documento=True
+                                statuses.append((url,'Arquivo para download'))
+                            else:
+                                falhas.append({'ambiente':env,'url':url,'erro':msg,**classificar_erro(msg)})
+                                if len(eventos)<600:eventos.append({'par':len(visitados),'ambiente':env,'url':url,'trilha':trilha,'erro':msg,**classificar_erro(msg)})
+                                statuses.append((url,msg))
+                    final_a,err_a=statuses[0];final_b,err_b=statuses[1]
+                    if err_a or err_b:
+                        if houve_documento:
+                            consecutivos=0
+                            if len(eventos)<600:eventos.append({'par':len(visitados),'tipo':'DOWNLOAD_DE_DOCUMENTO',
+                              'urls':{nome_a:ua,nome_b:ub},'resultado':'Separado da navegação HTML; não conta como falha consecutiva'})
+                        else:consecutivos+=1
+                        pendencias.append({'ambiente':nome_a+' / '+nome_b,'url':ua,'pagina':'Página não comparada',
+                            'motivo':('Download de documento fora da navegação HTML; não prova falha do site.' if houve_documento else
+                                      'Acesso a pelo menos um dos ambientes falhou. Não há evidência de conteúdo ausente.'),
+                            'caminho':' → '.join(trilha),'url_b':ub})
+                        continue
+                    if not link_equivalente(final_a,final_b,base_a,base_b):
+                        brutos.append(_diff_redir_page(ua,ub,final_a,final_b,trilha,nome_a,nome_b))
+                        consecutivos=0
+                        continue
+                    if not permitido(final_a,base_a) or not permitido(final_b,base_b):
+                        # Ambos podem redirecionar para exatamente a mesma página externa.
+                        if final_a==final_b:externos.append((final_a,' → '.join(trilha)))
+                        else:brutos.append(_diff_redir_page(ua,ub,final_a,final_b,trilha,nome_a,nome_b))
+                        consecutivos=0
+                        continue
                     try:
-                        page_a.wait_for_timeout(950);page_b.wait_for_timeout(950)
-                        pa2=_extrair_page(page_a,ua,trilha,log)
-                        pb2=_extrair_page(page_b,ub,trilha,log)
-                        ai,bi,pend2=_alinhamento_de_componentes(pa2,pb2,base_a,base_b)
-                        comps2=comparacao(ai,bi,pa2,pb2,nome_a,nome_b)
-                        # A segunda leitura prevalece quando efetivamente reduz
-                        # ausências. Não trocar as páginas usadas para navegar
-                        # se a nova leitura piorou a cobertura.
-                        if len(comps2)<len(comps):
-                            pa,pb,comps=pa2,pb2,comps2
-                            if modo_defasado:
-                                refs.extend(v for v in pend2 if v.get('natureza')!='editorial')
-                            else:refs.extend(pend2)
-                    except Exception as ex:log('[Coleta] Releitura não concluída: '+str(ex)[:100])
-                itens_a,itens_b,_=_alinhamento_de_componentes(pa,pb,base_a,base_b)
-                comps,editoriais_atuais=separar_editoriais(comps,pa,pb,itens_a,itens_b,(nome_a,nome_b),modo_defasado)
-                editoriais.extend(editoriais_atuais)
-                brutos.extend(comps)
-                novos_icones,novos_layouts=comparar_visuais(page_a,page_b,pa,pb,nome_a,nome_b,bool(modo_defasado))
-                for reg in novos_icones:
-                    encontrados=[i for i in pa.itens if i.tipo=='Opção' and normalizar(i.nome)==normalizar(reg['elemento'])]
-                    if len(encontrados)==1:
-                        reg['seletor']=encontrados[0].seletor
-                        reg['posicao']=encontrados[0].posicao
-                        reg['visivel_texto']=encontrados[0].visivel_texto
-                brutos.extend(novos_icones)
-                refs.extend(novos_layouts)
-                ordens=diferencas_de_ordem(pa,pb,nome_a,nome_b)
-                if modo_defasado:
-                    # Ordem de notícias pode variar naturalmente entre bases antigas.
-                    # Menus e listas institucionais continuam no relatório principal.
-                    ordens=[d for d in ordens if d.get('natureza')!='editorial' and not any(t in normalizar(d.get('local','')) for t in ('noticia','notícia','publicaç'))]
-                brutos.extend(ordens)
-                # 2. Compara links pareados por nome/contexto.
-                pares_links=_link_pairs(pa,pb)
-                if verificar_cliques and cliques_testados<MAX_CLIQUES:
-                    for ca,cb in escolher_candidatos(pares_links,base_a,base_b,limite=min(2,MAX_CLIQUES-cliques_testados)):
-                        # A inspeção só é executada quando o usuário opta por ela.
-                        cliques_testados+=1
-                        candidato=verificar_par(browser,pa,pb,ca,cb,nome_a,nome_b,base_a,base_b,log)
-                        if candidato:brutos.append(candidato)
-                for ia,ib in pares_links:
-                    try:da,db=url_limpa(ia.destino),url_limpa(ib.destino)
-                    except (TypeError,ValueError):continue
-                    if referencia_invalida(da) or referencia_invalida(db):
-                        excluded['Referências codificadas não navegáveis']+=1;continue
-                    if not link_equivalente(da,db,base_a,base_b):
-                        if modo_defasado and (item_editorial(ia,pa) or item_editorial(ib,pb)):
-                            editoriais.append({'tipo':'Link editorial','elemento':ia.nome,
-                               'presente_em':nome_a,'url_presente':pa.url,'url_comparada':pb.url})
+                        acompanhamento.informar('Extraindo conteúdo '+nome_a,90,url_atual=ua)
+                        acompanhamento.verificar()
+                        pa=_extrair_page(page_a,ua,trilha,log,parar=acompanhamento)
+                        acompanhamento.informar('Extraindo conteúdo '+nome_b,90,url_atual=ub)
+                        acompanhamento.verificar()
+                        pb=_extrair_page(page_b,ub,trilha,log,parar=acompanhamento)
+                        acompanhamento.verificar()
+                    except Exception as ex:
+                        msg='Falha de extração: '+str(ex)[:160]
+                        falhas.append({'ambiente':'AMBOS','url':ua,'erro':msg,**classificar_erro(msg)})
+                        if len(eventos)<600:eventos.append({'par':len(visitados),'ambiente':'AMBOS','url':ua,'trilha':trilha,'erro':msg,**classificar_erro(msg)})
+                        consecutivos+=1
+                        continue
+                    consecutivos=0
+                    for env,pag in ((nome_a,pa),(nome_b,pb)):
+                        if not pag.coleta.get('estavel') or pag.coleta.get('rolagem_limitada'):
+                            avisos_coleta.append({'ambiente':env,'url':pag.url})
+                    chave=(ua,ub)
+                    paginas_a[ua]=pa;paginas_b[ub]=pb
+                    acompanhamento.informar('Comparando conteúdo',90)
+                    acompanhamento.verificar()
+                    # 1. Compara texto/imagens/opções SEM navegar nas diferenças.
+                    itens_a,itens_b,pendencias_imgs=_alinhamento_de_componentes(pa,pb,base_a,base_b)
+                    if modo_defasado:
+                        for v in pendencias_imgs:
+                            if v.get('natureza')=='editorial':
+                                editoriais.append({'tipo':'Imagem','presente_em':nome_a,'elemento':v.get('elemento',''),
+                                    'url_presente':pa.url,'url_comparada':pb.url})
+                            else:refs.append(v)
+                    else:refs.extend(pendencias_imgs)
+                    comps=comparacao(itens_a,itens_b,pa,pb,nome_a,nome_b)
+                    # Muitos textos/imagens ausentes num mesmo sentido sugerem que
+                    # a página pode ter terminado de renderizar após a coleta.
+                    # Recoleta os DOIS ambientes antes de registrar esse conjunto.
+                    one_sided=Counter(d.get('presente_em') for d in comps if d.get('tipo') in ('Texto','Imagem'))
+                    if max(one_sided.values(),default=0)>=6:
+                        log('[Coleta] Diferença em bloco; realizando segunda leitura de '+ua[:85])
+                        try:
+                            esperar(page_a,950,acompanhamento);esperar(page_b,950,acompanhamento)
+                            pa2=_extrair_page(page_a,ua,trilha,log,parar=acompanhamento)
+                            pb2=_extrair_page(page_b,ub,trilha,log,parar=acompanhamento)
+                            ai,bi,pend2=_alinhamento_de_componentes(pa2,pb2,base_a,base_b)
+                            comps2=comparacao(ai,bi,pa2,pb2,nome_a,nome_b)
+                            # A segunda leitura prevalece quando efetivamente reduz
+                            # ausências. Não trocar as páginas usadas para navegar
+                            # se a nova leitura piorou a cobertura.
+                            if len(comps2)<len(comps):
+                                pa,pb,comps=pa2,pb2,comps2
+                                if modo_defasado:
+                                    refs.extend(v for v in pend2 if v.get('natureza')!='editorial')
+                                else:refs.extend(pend2)
+                        except Exception as ex:log('[Coleta] Releitura não concluída: '+str(ex)[:100])
+                    itens_a,itens_b,_=_alinhamento_de_componentes(pa,pb,base_a,base_b)
+                    comps,editoriais_atuais=separar_editoriais(comps,pa,pb,itens_a,itens_b,(nome_a,nome_b),modo_defasado)
+                    editoriais.extend(editoriais_atuais)
+                    brutos.extend(comps)
+                    novos_icones,novos_layouts=comparar_visuais(page_a,page_b,pa,pb,nome_a,nome_b,bool(modo_defasado))
+                    for reg in novos_icones:
+                        encontrados=[i for i in pa.itens if i.tipo=='Opção' and normalizar(i.nome)==normalizar(reg['elemento'])]
+                        if len(encontrados)==1:
+                            reg['seletor']=encontrados[0].seletor
+                            reg['posicao']=encontrados[0].posicao
+                            reg['visivel_texto']=encontrados[0].visivel_texto
+                    brutos.extend(novos_icones)
+                    refs.extend(novos_layouts)
+                    ordens=diferencas_de_ordem(pa,pb,nome_a,nome_b)
+                    if modo_defasado:
+                        # Ordem de notícias pode variar naturalmente entre bases antigas.
+                        # Menus e listas institucionais continuam no relatório principal.
+                        ordens=[d for d in ordens if d.get('natureza')!='editorial' and not any(t in normalizar(d.get('local','')) for t in ('noticia','notícia','publicaç'))]
+                    brutos.extend(ordens)
+                    # 2. Compara links pareados por nome/contexto.
+                    pares_links=_link_pairs(pa,pb)
+                    if verificar_cliques and cliques_testados<MAX_CLIQUES:
+                        for ca,cb in escolher_candidatos(pares_links,base_a,base_b,limite=min(2,MAX_CLIQUES-cliques_testados)):
+                            # A inspeção só é executada quando o usuário opta por ela.
+                            cliques_testados+=1
+                            acompanhamento.informar('Teste opcional de clique: '+ca.nome[:70],20)
+                            acompanhamento.verificar()
+                            candidato=verificar_par(browser,pa,pb,ca,cb,nome_a,nome_b,base_a,base_b,log,parar=acompanhamento)
+                            if candidato:brutos.append(candidato)
+                    for ia,ib in pares_links:
+                        acompanhamento.verificar()
+                        try:da,db=url_limpa(ia.destino),url_limpa(ib.destino)
+                        except (TypeError,ValueError):continue
+                        if referencia_invalida(da) or referencia_invalida(db):
+                            excluded['Referências codificadas não navegáveis']+=1;continue
+                        if not link_equivalente(da,db,base_a,base_b):
+                            if modo_defasado and (item_editorial(ia,pa) or item_editorial(ib,pb)):
+                                editoriais.append({'tipo':'Link editorial','elemento':ia.nome,
+                                   'presente_em':nome_a,'url_presente':pa.url,'url_comparada':pb.url})
+                                continue
+                            # REGISTRA e PARA AQUI. Não enfileira nem abre o destino.
+                            brutos.append(_diff_destino(pa,pb,ia,ib,nome_a,nome_b))
                             continue
-                        # REGISTRA e PARA AQUI. Não enfileira nem abre o destino.
-                        brutos.append(_diff_destino(pa,pb,ia,ib,nome_a,nome_b))
-                        continue
-                    if e_arquivo(da) or e_arquivo(db):
-                        excluded['Documentos vinculados (não percorridos como HTML)']+=1
-                        continue
-                    if permitido(da,base_a) and permitido(db,base_b):
-                        if (da,db) not in visitados and (da,db) not in pares_enfileirados:
-                            fila.append((da,db,(trilha+[ia.nome])[-12:]))
-                            pares_enfileirados.add((da,db))
-                    elif (urlsplit(da).netloc!=urlsplit(base_a).netloc and
-                          urlsplit(db).netloc!=urlsplit(base_b).netloc):
-                        if da==db and not e_arquivo(da):externos.append((da,' → '.join(trilha+[ia.nome])))
-                    # PDFs/planilhas permanecem somente como referências (sem abrir no crawler).
-                log(f'[{nome_a}/{nome_b}] {len(paginas_a)} pares, {len(brutos)} ocorrências preliminares')
-                progresso(min(.92,len(visitados)/max(1,len(visitados)+len(fila))*.85))
-                if checkpoint and len(visitados)%20==0:
-                    try:checkpoint({'site_nome':site_nome,'ambientes':{nome_a:base_a,nome_b:base_b},
-                      'paginas':{nome_a:len(paginas_a),nome_b:len(paginas_b)},
-                      'brutos':brutos,'variacoes_editoriais':editoriais,'falhas':falhas,
-                      'eventos_diagnostico':eventos,'pendencias':pendencias,
-                      'meta_varredura':{nome_a:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':'Execução ainda em andamento','referencias_excluidas':dict(excluded)},
-                        nome_b:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':'Execução ainda em andamento','referencias_excluidas':{}}},
-                      'ambiente_desatualizado':modo_defasado})
-                    except Exception as ex:log('[Diagnóstico] Checkpoint não salvo: '+str(ex)[:110])
-                time.sleep(.04)
+                        if e_arquivo(da) or e_arquivo(db):
+                            excluded['Documentos vinculados (não percorridos como HTML)']+=1
+                            continue
+                        if permitido(da,base_a) and permitido(db,base_b):
+                            if (da,db) not in visitados and (da,db) not in pares_enfileirados:
+                                fila.append((da,db,(trilha+[ia.nome])[-12:]))
+                                pares_enfileirados.add((da,db))
+                        elif (urlsplit(da).netloc!=urlsplit(base_a).netloc and
+                              urlsplit(db).netloc!=urlsplit(base_b).netloc):
+                            if da==db and not e_arquivo(da):externos.append((da,' → '.join(trilha+[ia.nome])))
+                        # PDFs/planilhas permanecem somente como referências (sem abrir no crawler).
+                    log(f'[{nome_a}/{nome_b}] {len(paginas_a)} pares, {len(brutos)} ocorrências preliminares')
+                    progresso(min(.92,len(visitados)/max(1,len(visitados)+len(fila))*.85))
+                    parar.wait(.04)
+                except InterrupcaoSolicitada:
+                    interrompido=True
+                    fila.appendleft((ua,ub,trilha))
+                    pendencias.append({'ambiente':nome_a+' / '+nome_b,'url':ua,'url_b':ub,
+                        'motivo':'Par interrompido durante '+acompanhamento.dados['etapa']})
+                    break
+                except TempoParExcedido:
+                    interrompido=True
+                    pendencias.append({'ambiente':nome_a+' / '+nome_b,'url':ua,'url_b':ub,
+                        'motivo':'Limite de tempo do par excedido em '+acompanhamento.dados['etapa']})
+                    log('[Tempo] Par '+str(len(visitados))+': limite de tempo excedido; conteúdo parcial preservado.')
+                except Exception:
+                    interrompido=True
+                    raise
+                finally:
+                    if not interrompido:
+                        acompanhamento.concluir_par(len(fila))
+                        if len(visitados)%20==0:salvar_checkpoint()
+                    else:acompanhamento.informar(acompanhamento.dados['etapa'],pares_pendentes=len(fila))
             if parar.is_set():parada='Interrompida pelo usuário (resultado parcial preservado)'
             completos=not bool(fila or parada or falhas or pendencias or avisos_coleta)
             if parada:log('Varredura parcial: '+parada)
             divergencias=agrupar_registros(brutos)
+            acompanhamento.inicio_par=None
             if paginas_a and paginas_b and not parar.is_set():
-                _salvar_evidencias(browser,divergencias,evidencias_dir,parar,log,nome_a,nome_b)
+                acompanhamento.informar('Capturando evidências',12)
+                _salvar_evidencias(browser,divergencias,evidencias_dir,parar,log,nome_a,nome_b,atividade=acompanhamento.informar)
             progresso(.94)
+            acompanhamento.informar('Auditoria externa opcional',9)
             externos_result=_auditar_externos(browser,externos,parar,log) if auditar_externos and not parar.is_set() else []
+            if parar.is_set():
+                parada='Interrompida pelo usuário (resultado parcial preservado)'
+                completos=False
+                salvar_checkpoint()
+            acompanhamento.informar('Preparando relatório parcial' if parar.is_set() else 'Preparando relatório',pares_pendentes=len(fila))
             progresso(.98)
             metas={nome_a:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':parada,
                            'referencias_excluidas':dict(excluded)},
@@ -658,7 +716,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             return {'versao':'1.5','ambientes':{nome_a:base_a,nome_b:base_b},
                 'paginas':{nome_a:len(paginas_a),nome_b:len(paginas_b)},
                 'completo':{nome_a:completos,nome_b:completos},
-                'meta_varredura':metas,'situacao_analise':situacao,
+                'meta_varredura':metas,'situacao_analise':situacao,'acompanhamento':dict(acompanhamento.dados),
                 'falhas':falhas,'eventos_diagnostico':eventos,'ambiente_desatualizado':modo_defasado,
                 'sinais_desatualizacao':sinais_extraidos(paginas_a,nome_a)+sinais_extraidos(paginas_b,nome_b),
                 'variacoes_dados':agrupar_variacoes(editoriais,modo_defasado),

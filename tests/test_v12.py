@@ -61,7 +61,7 @@ class TestsV12(unittest.TestCase):
         class Resposta:
             status=200
             def __init__(self,url):self.url=url
-        def abrir(page,url):
+        def abrir(page,url,**kwargs):
             visitados.append(url)
             suf='um' if 'prd.test' in url else 'dois'
             base='<base href="'+url+'">'

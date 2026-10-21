@@ -92,7 +92,7 @@ class V13(unittest.TestCase):
         class R:
             status=200
             def __init__(self,url):self.url=url
-        def fake(page,url):
+        def fake(page,url,**kwargs):
             env='prd.test' if 'prd.test' in url else 'des.test'
             labels=['Editais','Pregões','Planos'] if env=='prd.test' else ['Pregões','Editais','Planos']
             links=''.join(f'<li><a href="https://{env}/{x.lower()}">{x}</a></li>' for x in labels)
@@ -112,7 +112,7 @@ class V13(unittest.TestCase):
         class R:
             status=200
             def __init__(self,url):self.url=url
-        def fake(page,url):
+        def fake(page,url,**kwargs):
             v.append(url)
             page.set_content('<html><body><nav><a href="https://prd.test/glossario">Glossário</a></nav></body></html>')
             return R(url)
