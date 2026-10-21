@@ -16,6 +16,7 @@ from flask import Flask,jsonify,render_template,request,send_from_directory
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from ambidiff.core import executar,validacao_inicial
+from ambidiff.navigation import validar_rotas
 from ambidiff.reports import exportar
 from ambidiff.diagnostics import montar_diagnostico,exportar_diagnostico
 from ambidiff.storage import (preparar_relatorio,excluir_div,excluir_execucoes,registrar_revisao,
@@ -52,6 +53,7 @@ def worker(params,run_id):
                            site_nome=params['site_nome'], evidencias_dir=PASTA/f'evidencias_{run_id}',
                            auditar_externos=params['auditar_externos'],
                            verificar_cliques=params.get('verificar_cliques',False),
+                           rotas_equivalentes=params.get('rotas_equivalentes',[]),
                            ambiente_desatualizado=params.get('ambiente_desatualizado',''),
                            checkpoint=lambda d:atomic_json(PASTA/f'checkpoint_{run_id}.json',d))
         if resultado is None:
@@ -138,6 +140,7 @@ def comparar():
         if STATE['status']=='executando':return jsonify(erro='Já existe uma comparação em andamento.'),409
         try:
             url_a,url_b=validacao_inicial(str(args.get('url_a','')).strip(),str(args.get('url_b','')).strip())
+            rotas=validar_rotas(args.get('rotas_equivalentes'),url_a,url_b)
             nome_a=re.sub(r'[^A-Za-z0-9_-]','',str(args.get('nome_a','PRD')).upper())[:12] or 'PRD'
             nome_b=re.sub(r'[^A-Za-z0-9_-]','',str(args.get('nome_b','LAB')).upper())[:12] or 'LAB'
             if nome_a==nome_b:raise ValueError('Use nomes de ambientes diferentes.')
@@ -153,7 +156,7 @@ def comparar():
         params=dict(url_a=url_a,url_b=url_b,nome_a=nome_a,nome_b=nome_b,site_nome=site_nome,
                     auditar_externos=(args.get('auditar_externos') is True),
                     verificar_cliques=(args.get('verificar_cliques') is True),
-                    ambiente_desatualizado=desatualizado)
+                    ambiente_desatualizado=desatualizado,rotas_equivalentes=rotas)
         threading.Thread(target=worker,args=(params,run_id),daemon=True).start()
         return jsonify(ok=True,id=run_id)
 

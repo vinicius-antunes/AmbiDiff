@@ -31,6 +31,12 @@
         <div class="panel form-panel"><form id="compare-form">
           <div class="field site-field"><label for="site-nome">Nome do órgão ou comparação <span>· opcional</span></label><input id="site-nome" maxlength="120" placeholder="Ex.: Portal da Transparência — SEFAZ"><small>Se deixar vazio, o programa tenta identificar o nome pelo título do portal.</small></div><div class="form-two"><div class="field"><label for="url-a">Ambiente A <span>· origem</span></label><select id="nome-a"><option value="PRD">PRD — Produção</option><option value="LAB">LAB — Laboratório</option><option value="DES">DES — Desenvolvimento</option></select><input type="url" id="url-a" required placeholder="https://producao.exemplo.gov.br/" value="https://useia.mti.mt.gov.br/"><small>Inclua a URL inicial do portal ou de uma seção.</small></div>
           <div class="field"><label for="url-b">Ambiente B <span>· comparação</span></label><select id="nome-b"><option value="LAB">LAB — Laboratório</option><option value="DES">DES — Desenvolvimento</option><option value="PRD">PRD — Produção</option></select><input type="url" id="url-b" required placeholder="https://lab.exemplo.gov.br/" value="https://useia.des.mt.gov.br/"><small>O conteúdo é analisado nos dois sentidos.</small></div></div>
+          <div class="external-settings">
+            <strong>Rotas públicas equivalentes (opcional)</strong>
+            <p>Preencha as duas URLs somente se souber que representam o mesmo conteúdo. O par será analisado além das URLs originais, sem realizar login. Use a origem de cada ambiente; rotas diferentes não serão presumidas equivalentes.</p>
+            <div class="form-two"><div class="field"><label for="rota-a">Rota equivalente no ambiente A</label><input id="rota-a" type="url" placeholder="https://producao.exemplo.gov.br/inicio"></div>
+            <div class="field"><label for="rota-b">Rota equivalente no ambiente B</label><input id="rota-b" type="url" placeholder="https://des.exemplo.gov.br/web/portal"></div></div>
+          </div>
           <div class="external-settings" id="dataset-settings">
             <label for="ambiente-desatualizado"><strong>Atualização das bases de dados</strong></label>
             <select id="ambiente-desatualizado" aria-describedby="dataset-hint">
@@ -43,7 +49,7 @@
           <div class="external-settings"><label><input id="auditar-externos" type="checkbox"> Inspecionar opções de menus em sites externos (verificação limitada)</label>
           <p>Desmarcado (padrão): compara apenas URLs e segue para a próxima opção. Marcado: também abre até 8 páginas externas com destinos iguais para uma inspeção simples, limitada a 5 opções por site.</p></div>
           <div class="external-settings"><label><input id="verificar-cliques" type="checkbox"> Testar cliques de navegação internos (opcional, limitado)</label>
-          <p>Quando ativado, o programa testa até 12 links internos de consulta/abertura em contextos isolados, bloqueando métodos diferentes de GET/HEAD. Não clica formulários nem audita destinos diferentes. Considere o resultado indício, não comprovação automática.</p></div>
+          <p>Quando ativado, o programa testa até 12 links internos de consulta/abertura em contextos isolados, bloqueando métodos diferentes de GET/HEAD. Inclui links de menus e Início; não submete formulários nem testa destinos divergentes. GET/HEAD também podem ter efeitos em sites mal implementados; use apenas links autorizados de consulta. Considere o resultado indício, não comprovação automática.</p></div>
           <div class="notice"><span>ⓘ</span><p>O AmbiDiff apenas registra diferenças observadas, sem alterar os sites nem definir qual ambiente está correto. Utilize somente em sites autorizados.</p></div>
           <div class="action-bar"><button class="primary-button" type="submit" id="run-button">▶ Iniciar comparação</button><button class="outline-button" type="button" id="stop-button" disabled>■ Interromper</button><span class="error-text" id="form-error" role="alert"></span></div>
         </form></div>
@@ -56,6 +62,7 @@
       <div class="filters panel"><input id="search-results" type="search" placeholder="Buscar DIV-0033, 33, elemento, página ou URL..."><select id="filter-side"><option value="todos">Todos os ambientes</option></select><select id="filter-type"><option value="todos">Todos os tipos</option></select><span id="visible-count">0 resultados</span></div>
       <div class="category-toolbar" id="category-toolbar" aria-label="Categorias de divergências"></div>
       <h2 class="result-section-title">Divergências por categoria</h2><div id="result-list" class="result-list"><div class="empty-state">Nenhum relatório ainda. Inicie uma comparação para visualizar resultados.</div></div><button id="load-more" class="outline-button load-more" hidden>Mostrar mais resultados</button>
+      <div class="panel secondary-results"><h2>Navegação e autenticação</h2><p class="dim-copy">Destinos observados, limitações de acesso e testes opcionais de links. Os resultados não comprovam defeitos.</p><div id="navigation-observations"></div></div>
       <div class="panel secondary-results"><h2>Variações de dados / bases desatualizadas <span id="data-count" class="mini-tag">0</span></h2>
       <p class="dim-copy">Conteúdo editorial agrupado para revisão, sem ser contado como DIV estrutural. A defasagem não prova que a diferença seja correta.</p>
       <div id="data-variations"></div></div>

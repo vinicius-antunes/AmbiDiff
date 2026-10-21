@@ -137,6 +137,9 @@ class BrowserTests(unittest.TestCase):
             def evaluate(self,code):return 40
             def screenshot(self,path,timeout,animations,full_page):Path(path).write_bytes(b'fake-image')
         class Context:
+            def route(self,pattern,handler):
+                # A captura agora instala a política de requisições de leitura.
+                assert pattern=='**/*' and callable(handler)
             def new_page(self):return Page()
             def close(self):pass
         class FakeBrowser:

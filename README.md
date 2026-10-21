@@ -84,6 +84,52 @@ Você também pode manter a v1.4 intacta e começar um histórico separado na v1
 
 ## Testes locais
 
+### Rotas iniciais diferentes e autenticação
+
+Quando um ambiente abre uma página de login (por exemplo, do Liferay), o
+AmbiDiff registra a limitação de autenticação e não compara essa página com o
+conteúdo do outro ambiente. Nenhum login é tentado. Sem pares de conteúdo
+analisados, o resultado é **inconclusivo**, com `completo: false`; havendo outros
+pares analisados e limitações pendentes, o resultado é **parcial**.
+
+No formulário, **Rotas públicas equivalentes** permite informar duas URLs cujo
+conteúdo correspondente você conhece. Esse par é analisado além das URLs
+originais e permite relacionar suas rotas descendentes. Não preencha apenas
+porque duas páginas parecem semelhantes: a equivalência é uma declaração do
+usuário. Ambas devem manter a origem (protocolo, host e porta) do respectivo
+ambiente. Não use rotas de login. Se não houver uma rota pública conhecida,
+permanece a limitação de autenticação; não há tentativa de contorná-la.
+
+A API `POST /api/comparar` aceita até 10 pares no campo opcional:
+
+```json
+{
+  "rotas_equivalentes": [
+    {"a": "https://prd.exemplo.gov.br/inicio", "b": "https://des.exemplo.gov.br/web/portal"}
+  ]
+}
+```
+
+O painel oferece um par por execução. O inventário de uma página acessível sem
+par pode registrar seus links, mas não aumenta o contador de páginas comparadas
+nem gera afirmações de conteúdo ausente no ambiente bloqueado.
+
+Os testes opcionais de cliques incluem **Início** e links de menus. Registram
+destino declarado, URL final, bloqueios e resultados inconclusivos, inclusive
+quando os dois lados não navegam. Um link para a própria página não é tratado
+como inerte apenas porque a URL não mudou. Destinos divergentes são registrados
+sem clicar neles; botões sem link e formulários não são testados. Métodos fora
+de GET/HEAD e ações reconhecidas de escrita são bloqueados na coleta e nos
+testes. A inspeção deve se limitar a links autorizados de consulta: nem mesmo
+GET garante ausência de efeitos em um servidor mal implementado.
+
+O relatório JSON, o HTML e os diagnósticos preservam as observações de navegação
+e os motivos das páginas não comparadas. Os relatos sobre **Início** no DES do
+USEIA e cliques sem resposta no PRD permanecem hipóteses para revisão; os testes
+locais usam páginas sintéticas e não confirmam defeitos nesses portais.
+
+### Executar a suíte
+
 No CMD dentro da pasta:
 
 ```cmd

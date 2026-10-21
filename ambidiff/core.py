@@ -154,6 +154,8 @@ JS_EXTRAIR = r'''() => {
     return base || (el.closest('footer')?'Rodapé':el.closest('header')?'Cabeçalho':'Conteúdo principal');
   };
   const editorialRef=el=>{
+    // A região institucional prevalece sobre a aparência editorial da URL.
+    if(el.closest('nav,header,footer,aside,[role="navigation"]'))return '';
     // Não inferir que qualquer item dentro de um <main> é notícia.
     // Buscar o cartão mais próximo com um link identificável para publicação.
     let cur=el;
@@ -537,10 +539,10 @@ def inferir_site(pag_a:dict[str,Pagina],pag_b:dict[str,Pagina],base_a:str)->str:
     return urlsplit(base_a).hostname or 'Comparação de ambientes'
 
 
-def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False):
+def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,rotas_equivalentes=None):
     """v1.5: comparação pareada, com variações editoriais separadas."""
     from .paired import executar_pareado
     return executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,
                            site_nome=site_nome,evidencias_dir=evidencias_dir, auditar_externos=auditar_externos,
                            ambiente_desatualizado=ambiente_desatualizado,checkpoint=checkpoint,
-                           verificar_cliques=verificar_cliques)
+                           verificar_cliques=verificar_cliques,rotas_equivalentes=rotas_equivalentes)

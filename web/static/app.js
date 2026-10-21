@@ -55,7 +55,7 @@ async function poll(){
     const diag=$('failure-diagnostics');diag.hidden=!(s.status==='erro' && s.ultimo_id);
     if(!diag.hidden){$('failure-json').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-json';
                      $('failure-txt').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-txt';}
-    $('running-label').textContent=({executando:'Executando',concluido:'Concluído',erro:'Erro',interrompido:'Interrompido',pronto:'Aguardando'})[s.status]||s.status;
+    $('running-label').textContent=({executando:'Executando',concluido:'Finalizado',erro:'Erro',interrompido:'Interrompido',pronto:'Aguardando'})[s.status]||s.status;
     $('stat-status').textContent=$('running-label').textContent;
     if(!busy){clearInterval(timer);timer=null;
       if(s.status==='concluido'&&s.ultimo_id){await loadHistory();await openReport(s.ultimo_id);}
@@ -65,7 +65,9 @@ async function poll(){
 }
 $('compare-form').addEventListener('submit',async e=>{
   e.preventDefault();$('form-error').textContent='';$('failure-diagnostics').hidden=true;lastLogCount=0;$('terminal').replaceChildren();$('progress-fill').style.width='0%';
-  const payload={url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:$('site-nome').value.trim(),auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
+  const rotaA=$('rota-a').value.trim(),rotaB=$('rota-b').value.trim();
+  if(!!rotaA!==!!rotaB){$('form-error').textContent='Preencha as duas rotas equivalentes ou deixe ambas vazias.';return;}
+  const payload={rotas_equivalentes:rotaA?[{a:rotaA,b:rotaB}]:[],url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:$('site-nome').value.trim(),auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
     ambiente_desatualizado:$('ambiente-desatualizado').value==='A'?$('nome-a').value: $('ambiente-desatualizado').value==='B'?$('nome-b').value:''};
   try{await api('/api/comparar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     setRunning(true);clearInterval(timer);await poll();if($('run-button').disabled)timer=setInterval(poll,1500);
@@ -292,6 +294,16 @@ function pending(d){
   if(todos.length>100)ul.append(element('li','Exibindo 100 itens. Relatório JSON contém todas as pendências.'));
   details.append(ul);box.append(details);
 }
+function navigationObservations(d){
+  const box=$('navigation-observations');box.replaceChildren();
+  for(const r of d.rotas_equivalentes||[]){const p=element('p','Equivalência declarada: ');p.append(safeLink(r.a),element('span',' / '),safeLink(r.b));box.append(p);}
+  for(const a of d.acessos||[]){const p=element('p',a.ambiente+' · '+a.tipo+' · '+a.motivo+' ');p.append(safeLink(a.url_solicitada),element('span',' → '),safeLink(a.url_final));box.append(p);}
+  for(const p of d.paginas_acessiveis_sem_par||[]){const row=element('p',p.ambiente+' · '+p.motivo+' ');row.append(safeLink(p.url));box.append(row);}
+  const links=d.links_observados||[];
+  if(links.length){const det=element('details');det.append(element('summary',links.length+' destinos de links coletados'));for(const l of links){const p=element('p',l.ambiente+' · '+l.elemento+' · '+l.local+' ');p.append(safeLink(l.destino));det.append(p);}box.append(det);}
+  for(const c of d.resultados_cliques||[]){const p=element('p',c.elemento);for(const env of Object.keys(d.ambientes||{})){const o=c[env];if(o){p.append(element('span',' · '+env+': '+o.status+' — '+o.motivo+' '),safeLink(o.url_final));}}box.append(p);}
+  if(!box.childNodes.length)box.append(element('p','Sem observações de navegação nesta execução.'));
+}
 function displayReport(){
   const d=currentReport;if(!d)return;
   $('stat-divergencias').textContent=d.divergencias.length;
@@ -309,10 +321,10 @@ function displayReport(){
   if(d.itens_editoriais_agrupados)summary.append(element('p','Variações editoriais: '+d.itens_editoriais_agrupados+' ocorrências, em '+(d.variacoes_dados||[]).length+' grupo(s) informativo(s).'));
   if(d.divergencias_ocultadas)summary.append(element('p','DIVs excluídas da exibição: '+d.divergencias_ocultadas+' · a coleta original está preservada no disco.'));
   summary.append(element('p',inconclusivo?
-    'Um ambiente não teve nenhuma página coletada. As páginas do outro ambiente NÃO são contadas como divergências. Consulte os avisos técnicos.':
+    'Nenhum par de páginas de conteúdo foi analisado. Inventários isolados não comprovam diferenças. Consulte Navegação e autenticação e as páginas não comparadas.':
     parcial?'Algumas páginas falharam ou houve interrupção preventiva. As divergências abaixo se referem apenas às páginas pareadas que puderam ser lidas.':
     'Divergências documentadas apenas nas páginas pareadas. Não determina qual ambiente está correto.'));
-  filters();refilter();dataVariations(d);staleSignals(d);technical(d);references(d);externalChecks(d);pending(d);renderFolders();
+  navigationObservations(d);filters();refilter();dataVariations(d);staleSignals(d);technical(d);references(d);externalChecks(d);pending(d);renderFolders();
 }
 async function deleteDiv(divId){
   if(!currentId)return;
