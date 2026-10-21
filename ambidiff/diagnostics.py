@@ -49,7 +49,12 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
       'divergencias_preservadas':len(resultado.get('divergencias',[])),
       'variacoes_editoriais_agrupadas':resultado.get('itens_editoriais_agrupados',0),
       'falhas_por_tipo':dict(erros_por_tipo),'falhas':falhas,
-      'eventos':eventos,'avisos':resultado.get('avisos_tecnicos',[]),
+      'eventos':eventos,'acessos':resultado.get('acessos',[]),
+      'rotas_equivalentes':resultado.get('rotas_equivalentes',[]),
+      'paginas_acessiveis_sem_par':resultado.get('paginas_acessiveis_sem_par',[]),
+      'pendencias':resultado.get('pendencias',[]),'bloqueios_rede':resultado.get('bloqueios_rede',[]),
+      'links_observados':resultado.get('links_observados',[]),
+      'resultados_cliques':resultado.get('resultados_cliques',[]),'avisos':resultado.get('avisos_tecnicos',[]),
       'mensagens_de_execucao':list(logs or [])[-250:],
       'nota':'A hipótese de causa não comprova defeito no site. Downloads não representam páginas HTML.'}
 
@@ -68,6 +73,12 @@ def exportar_diagnostico(dados:dict,pasta:Path,run_id:str)->dict:
             'Motivos de parada: '+str(dados.get('interrupcao',{}).get('motivos',{})),'',
             'TIPOS DE EVENTOS:']
     linhas.extend(f'  {k}: {v}' for k,v in dados.get('falhas_por_tipo',{}).items())
+    linhas+=['','NAVEGAÇÃO E AUTENTICAÇÃO:']
+    for acesso in dados.get('acessos',[]):linhas.append(json.dumps(acesso,ensure_ascii=False))
+    linhas+=['','PÁGINAS NÃO COMPARADAS:']
+    for pendencia in dados.get('pendencias',[]):linhas.append(json.dumps(pendencia,ensure_ascii=False))
+    linhas+=['','RESULTADOS DE CLIQUES:']
+    for clique in dados.get('resultados_cliques',[]):linhas.append(json.dumps(clique,ensure_ascii=False))
     linhas+=['','FALHAS:']
     for f in dados.get('falhas',[]):
         info=classificar_erro(f.get('erro',''))
