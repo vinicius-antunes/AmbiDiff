@@ -136,6 +136,19 @@ function renderNext(){
     review.type='button';review.title='Marcar esta ocorrência como validada por inspeção manual';
     review.addEventListener('click',()=>reviewDiv(d.id,d.revisao_manual==='confirmada'?'pendente':'confirmada'));
     head.append(review);
+    const classification=element('select');classification.setAttribute('aria-label','Reclassificar '+d.id);
+    for(const [value,label] of [['automatica','Automática'],['relevante','Relevante'],['baixa','Baixa relevância'],['editorial','Editorial'],['inconclusivo','Inconclusivo']]){
+      const option=element('option',label);option.value=value;classification.append(option);
+    }
+    classification.value=d.classificacao_manual||'automatica';
+    classification.addEventListener('change',async()=>{
+      try{for(const id of (d.ids_agrupados||[d.id])){await api('/api/relatorio/'+encodeURIComponent(currentId)+'/divergencias/'+encodeURIComponent(id)+'/relevancia',{method:'PUT',body:JSON.stringify({classe:classification.value})});}await openReport(currentId);}
+      catch(e){alert('Falha ao reclassificar: '+e.message);}
+    });
+    head.append(element('span',d.classificacao||'relevante','result-chip'),classification);
+    if(d.ids_agrupados?.length>1)head.append(element('span','IDs: '+d.ids_agrupados.join(', '),'result-chip'));
+    card.append(element('p',d.motivo_relevancia||''));
+    card.title=d.motivo_relevancia||'';
     const copy=element('button','Copiar ID','copy-id-button');copy.type='button';copy.title='Copiar '+d.id;copy.addEventListener('click',()=>copyId(d.id,copy));head.append(copy);
     const trash=element('button','🗑','trash-button');trash.type='button';trash.title='Excluir '+d.id+' deste relatório';
     trash.setAttribute('aria-label','Excluir '+d.id);
@@ -201,6 +214,7 @@ function refilter(){
   const q=$('search-results').value.trim().toLocaleLowerCase('pt-BR'),side=$('filter-side').value,type=$('filter-type').value;
   const searchedId=normalizedDivSearch(q);
   filtered=currentReport.divergencias.filter(d=>
+    ($('show-all-differences').checked||!['baixa','editorial'].includes(d.classificacao))&&
     (searchedId?d.id===searchedId:
       (selectedCategory==='todas'||d.categoria===selectedCategory)&&
       (side==='todos'||d.presente_em===side)&&(type==='todos'||d.tipo===type)&&
@@ -208,10 +222,11 @@ function refilter(){
   $('visible-count').textContent=filtered.length+' divergência(s) agrupada(s)';$('result-list').replaceChildren();renderedCount=0;
   if(filtered.length)renderNext();else $('result-list').append(element('div','Nenhuma divergência nesta categoria ou filtro.','empty-state'));
 }
+$('show-all-differences').addEventListener('change',refilter);
 $('search-results').addEventListener('input',refilter);
 $('filter-side').addEventListener('change',refilter);$('filter-type').addEventListener('change',refilter);
 $('load-more').addEventListener('click',renderNext);
-document.querySelectorAll('[data-export]').forEach(b=>b.addEventListener('click',()=>{if(currentId)window.location.href='/download/'+currentId+'/'+b.dataset.export;}));
+document.querySelectorAll('[data-export]').forEach(b=>b.addEventListener('click',()=>{if(currentId)window.location.href='/download/'+currentId+'/'+b.dataset.export+($('export-scope').value==='completo'?'?completo=1':'');}));
 async function reviewDiv(divId,situacao){
   if(!currentId)return;
   try{
@@ -313,16 +328,17 @@ function smartResults(d){
 }
 function displayReport(){
   const d=currentReport;if(!d)return;
-  $('stat-divergencias').textContent=d.divergencias.length;
+  $('stat-divergencias').textContent=d.divergencias.filter(r=>!['baixa','editorial'].includes(r.classificacao)).length;
   const vals=Object.values(d.paginas||{});$('stat-a').textContent=vals[0]??0;$('stat-b').textContent=vals[1]??0;
-  $('nav-count').textContent=d.divergencias.length;
+  $('nav-count').textContent=$('stat-divergencias').textContent;
   document.querySelectorAll('[data-export]').forEach(b=>b.disabled=!!(b.dataset.export.startsWith('diagnostico-') && d.versao!=='1.5'));
   const summary=$('report-summary');summary.hidden=false;summary.replaceChildren();
   const inconclusivo=d.situacao_analise==='inconclusivo',parcial=d.situacao_analise==='parcial';
   summary.classList.toggle('important-warning',inconclusivo||parcial);
   const titulo=inconclusivo?'COMPARAÇÃO INCONCLUSIVA':parcial?'VERIFICAÇÃO PARCIAL':'COMPARAÇÃO CONCLUÍDA';
   summary.append(element('strong',titulo+' · '+(d.site_nome||'Portal')));
-  summary.append(element('p','Ocorrências originais: '+(d.ocorrencias_brutas??d.divergencias.length)+' · divergências exibidas: '+d.divergencias.length));
+  summary.append(element('p','Ocorrências originais: '+(d.ocorrencias_brutas??d.divergencias.length)+' · prioritárias: '+$('stat-divergencias').textContent+' · grupos disponíveis: '+d.divergencias.length));
+  summary.append(element('p','Baixa relevância e editoriais ficam fora da lista principal. Use Mostrar todas as diferenças para consultar. Inconclusivos continuam visíveis.'));
   if(d.verificacao_cliques_ativa)summary.append(element('p','Testes opcionais de cliques: '+(d.cliques_testados||0)+' link(s) inspecionados. Resultados podem ser inconclusivos.'));
   if(d.ambiente_desatualizado)summary.append(element('p','Base informada como desatualizada: '+d.ambiente_desatualizado+'. Diferenças editoriais separadas de divergências estruturais.'));
   if(d.itens_editoriais_agrupados)summary.append(element('p','Variações editoriais: '+d.itens_editoriais_agrupados+' ocorrências, em '+(d.variacoes_dados||[]).length+' grupo(s) informativo(s).'));

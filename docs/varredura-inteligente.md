@@ -143,7 +143,7 @@ em um servidor mal implementado. Use somente URLs autorizadas de consulta.
 
 JSON, HTML, interface e diagnósticos distinguem equivalências estáticas,
 inconclusivos, documentos, variações editoriais, divergências e inspeções profundas
-omitidas. O CSV de divergências mantém sua finalidade e formato da v1.5; os
+omitidas. O CSV de divergências mantém sua finalidade; a extensão de relevância acrescenta colunas de classificação (ver [filtro de relevância](filtro-relevancia.md)); os
 registros documentais e de cobertura completos estão no JSON/HTML/diagnósticos.
 
 O modo inteligente marca resultado parcial quando há inspeções profundas

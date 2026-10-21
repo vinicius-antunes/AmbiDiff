@@ -198,21 +198,42 @@ def revisar_div(run_id,div_id):
     except (KeyError,FileNotFoundError):return jsonify(erro='Relatório ou DIV não encontrada.'),404
 
 
+@app.put('/api/relatorio/<run_id>/divergencias/<div_id>/relevancia')
+def relevancia(run_id,div_id):
+    from ambidiff.storage import reclassificar
+    if not valid_run(run_id):return jsonify(erro='ID inválido'),400
+    try:
+        with LOCK:
+            if STATE['status']=='executando':return jsonify(erro='Aguarde a conclusão.'),409
+            reclassificar(PASTA,run_id,div_id,(request.get_json(silent=True) or {}).get('classe'))
+        return jsonify(ok=True)
+    except ValueError as e:return jsonify(erro=str(e)),400
+    except (KeyError,FileNotFoundError):return jsonify(erro='Relatório ou DIV não encontrada.'),404
+
+
 @app.get('/download/<run_id>/<ext>')
 def baixar(run_id,ext):
     if not valid_run(run_id) or ext not in ('csv','json','html','diagnostico-json','diagnostico-txt'):
         return jsonify(erro='Arquivo inválido'),400
     try:
-        if ext in ('diagnostico-json','diagnostico-txt'):
+        if ext=='diagnostico-json':
+            with LOCK:
+                dados=preparar_relatorio(PASTA,run_id)
+                path=PASTA/f'diagnostico_{run_id}.json'
+                diag=json.loads(path.read_text(encoding='utf-8')) if path.exists() else montar_diagnostico(dados)
+                diag.update(diferencas_completas=dados['divergencias'],editoriais=dados.get('editoriais_preservados',[]),resumo_relevancia=dados.get('resumo_relevancia',{}))
+            response=jsonify(diag)
+            response.headers['Content-Disposition']=f'attachment; filename="diagnostico_{run_id}.json"'
+            return response
+        if ext=='diagnostico-txt':
             nome=(f'diagnostico_{run_id}.json' if ext=='diagnostico-json' else f'log_{run_id}.txt')
             return send_from_directory(PASTA,nome,as_attachment=True)
         # Recria a exportação filtrada sem alterar o relatório bruto.
         with LOCK:
             dados=preparar_relatorio(PASTA,run_id)
-            if dados['divergencias_ocultadas'] or dados.get('revisoes_manuais'):
-                exportar(dados,PASTA,'filtrado_'+run_id)
-                nome=f'comparacao_filtrado_{run_id}.{ext}'
-            else:nome=f'comparacao_{run_id}.{ext}'
+            if request.args.get('completo')=='1':dados['exportacao_completa']=True
+            exportar(dados,PASTA,'filtrado_'+run_id)
+            nome=f'comparacao_filtrado_{run_id}.{ext}'
         return send_from_directory(PASTA,nome,as_attachment=True)
     except FileNotFoundError:return jsonify(erro='Relatório não encontrado'),404
 

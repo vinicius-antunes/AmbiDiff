@@ -144,3 +144,10 @@ AmbiDiff-v1.5/
 ```
 
 Esta ferramenta serve como apoio a QA e não substitui testes manuais dos achados relevantes.
+
+## Filtro de relevância e diferenças SVG
+
+A lista principal prioriza diferenças estruturais, funcionais e institucionais.
+Diferenças somente técnicas de SVG ficam disponíveis em **Mostrar todas as diferenças**,
+sem presumir equivalência visual. Há reclassificação manual e exportação principal ou
+completa. Veja [critérios, formatos e limitações](docs/filtro-relevancia.md).

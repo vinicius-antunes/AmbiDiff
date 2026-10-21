@@ -65,7 +65,17 @@ def comparar_visuais(page_a,page_b,pa,pb,nome_a='PRD',nome_b='DES',defasado=Fals
                   'situacao':'Código do ícone diferente — revisão visual',
                   'descricao':f'O controle "{ia["nome"]}" existe nos dois ambientes, mas seu ícone '
                               f'({ia["formato"]}) tem representação HTML diferente em {nome_a} e {nome_b}. '
-                              'Isso sugere alteração de ícone, mas requer confirmação visual.'})
+                              'A diferença de código não comprova impacto visual nem equivalência visual.'})
+        if bool(ia.get('formato')) != bool(ib.get('formato')):
+            icones.append({'tipo':'Ícone','categoria':'Ícones e aparência',
+                'presente_em':nome_a if ia.get('formato') else nome_b,
+                'nao_identificado_em':nome_b if ia.get('formato') else nome_a,
+                'pagina':pa.titulo,'url_presente':pa.url if ia.get('formato') else pb.url,
+                'url_comparada':pb.url if ia.get('formato') else pa.url,
+                'elemento':ia['nome'],'local':ia.get('local',''),'caminho':' → '.join(pa.trilha),
+                'situacao':'Ícone não identificado em um dos controles',
+                'diferenca_estrutural':True,
+                'descricao':'O controle existe nos dois ambientes, mas somente um contém ícone reconhecido no DOM. Revisar; não determina qual está correto.'})
         # Somente deslocamentos muito grandes (não diferenças de 2-10 px).
         # Em conteúdo editorial defasado, a altura da lista desloca o restante.
         if defasado or len(layouts)>=5:continue

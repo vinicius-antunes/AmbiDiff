@@ -32,6 +32,8 @@ def classificar_erro(erro:str)->dict:
 
 
 def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
+    from .relevance import preparar
+    resultado=preparar(resultado)
     eventos=resultado.get('eventos_diagnostico',[])
     falhas=resultado.get('falhas',[])
     erros_por_tipo=Counter()
@@ -40,7 +42,7 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
         if e.get('tipo')=='DOWNLOAD_DE_DOCUMENTO':erros_por_tipo['DOWNLOAD_DE_DOCUMENTO']+=1
     metas=resultado.get('meta_varredura',{})
     motivos={env:d.get('motivo_parada','') for env,d in metas.items() if d.get('motivo_parada')}
-    return {'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
+    return {'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_preservados',[]),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
       'site_nome':resultado.get('site_nome',''),'ambientes':resultado.get('ambientes',{}),
       'situacao_analise':resultado.get('situacao_analise','inconclusivo'),
       'modo_varredura':resultado.get('modo_varredura','atual'),
