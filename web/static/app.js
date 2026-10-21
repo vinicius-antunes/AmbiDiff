@@ -16,6 +16,27 @@ $('go-compare').addEventListener('click',()=>nav('comparar'));
 $('go-history').addEventListener('click',()=>nav('historico'));
 async function api(url,options){const r=await fetch(url,options);let d=await r.json();if(!r.ok)throw Error(d.erro||'Falha na comunicação.');return d;}
 function setRunning(b){$('run-button').disabled=b;$('stop-button').disabled=!b;$('running-label').textContent=b?'Executando...':'Aguardando';}
+function formatDuration(seconds){
+  const n=Math.max(0,Math.floor(seconds));
+  const h=Math.floor(n/3600),m=Math.floor(n%3600/60),sec=n%60;
+  if(h)return h+'h '+String(m).padStart(2,'0')+'min';
+  return m?m+'min '+String(sec).padStart(2,'0')+'s':sec+'s';
+}
+function updateProgressInfo(s){
+  const percent=Math.max(0,Math.min(100,Number(s.progresso)||0));
+  $('progress-fill').style.width=percent+'%';
+  $('progress-percent').textContent=percent+'%';
+  $('progress-track').setAttribute('aria-valuenow',String(percent));
+  $('progress-elapsed').textContent='Decorrido: '+(typeof s.tempo_decorrido_segundos==='number'?formatDuration(s.tempo_decorrido_segundos):'—');
+  if(s.status==='executando'){
+    if(typeof s.tempo_restante_segundos==='number')$('progress-eta').textContent='Restante estimado: ~'+formatDuration(s.tempo_restante_segundos);
+    else if(percent>=85)$('progress-eta').textContent='Etapas finais: sem previsão confiável';
+    else $('progress-eta').textContent=typeof s.tempo_decorrido_segundos==='number'&&s.tempo_decorrido_segundos<30?'Restante: calculando...':'Restante: estimativa indisponível';
+  }else if(s.status==='concluido')$('progress-eta').textContent='Execução encerrada';
+  else if(s.status==='erro')$('progress-eta').textContent='Execução encerrada com erro';
+  else if(s.status==='interrompido')$('progress-eta').textContent='Execução interrompida';
+  else $('progress-eta').textContent='Restante: aguardando início';
+}
 function printLogs(logs){
   if(logs.length<lastLogCount){$('terminal').replaceChildren();lastLogCount=0;}
   if(!lastLogCount)$('terminal').replaceChildren();
@@ -50,7 +71,7 @@ async function openReport(id){
 }
 async function poll(){
   try{
-    const s=await api('/api/status');$('progress-fill').style.width=s.progresso+'%';printLogs(s.logs||[]);
+    const s=await api('/api/status');updateProgressInfo(s);printLogs(s.logs||[]);
     const busy=s.status==='executando';setRunning(busy);
     const diag=$('failure-diagnostics');diag.hidden=!(s.status==='erro' && s.ultimo_id);
     if(!diag.hidden){$('failure-json').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-json';
@@ -64,8 +85,8 @@ async function poll(){
   }catch(e){clearInterval(timer);timer=null;setRunning(false);$('form-error').textContent=e.message;}
 }
 $('compare-form').addEventListener('submit',async e=>{
-  e.preventDefault();$('form-error').textContent='';$('failure-diagnostics').hidden=true;lastLogCount=0;$('terminal').replaceChildren();$('progress-fill').style.width='0%';
-  const payload={url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:$('site-nome').value.trim(),auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
+  e.preventDefault();$('form-error').textContent='';$('failure-diagnostics').hidden=true;lastLogCount=0;$('terminal').replaceChildren();updateProgressInfo({progresso:0,status:'executando',tempo_decorrido_segundos:0,tempo_restante_segundos:null});
+  const payload={varredura_inteligente:$('varredura-inteligente').checked,url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:$('site-nome').value.trim(),auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
     ambiente_desatualizado:$('ambiente-desatualizado').value==='A'?$('nome-a').value: $('ambiente-desatualizado').value==='B'?$('nome-b').value:''};
   try{await api('/api/comparar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     setRunning(true);clearInterval(timer);await poll();if($('run-button').disabled)timer=setInterval(poll,1500);
@@ -136,6 +157,19 @@ function renderNext(){
     review.type='button';review.title='Marcar esta ocorrência como validada por inspeção manual';
     review.addEventListener('click',()=>reviewDiv(d.id,d.revisao_manual==='confirmada'?'pendente':'confirmada'));
     head.append(review);
+    const classification=element('select');classification.setAttribute('aria-label','Reclassificar '+d.id);
+    for(const [value,label] of [['automatica','Automática'],['relevante','Relevante'],['baixa','Baixa relevância'],['editorial','Editorial'],['inconclusivo','Inconclusivo']]){
+      const option=element('option',label);option.value=value;classification.append(option);
+    }
+    classification.value=d.classificacao_manual||'automatica';
+    classification.addEventListener('change',async()=>{
+      try{for(const id of (d.ids_agrupados||[d.id])){await api('/api/relatorio/'+encodeURIComponent(currentId)+'/divergencias/'+encodeURIComponent(id)+'/relevancia',{method:'PUT',body:JSON.stringify({classe:classification.value})});}await openReport(currentId);}
+      catch(e){alert('Falha ao reclassificar: '+e.message);}
+    });
+    head.append(element('span',d.classificacao||'relevante','result-chip'),classification);
+    if(d.ids_agrupados?.length>1)head.append(element('span','IDs: '+d.ids_agrupados.join(', '),'result-chip'));
+    card.append(element('p',d.motivo_relevancia||''));
+    card.title=d.motivo_relevancia||'';
     const copy=element('button','Copiar ID','copy-id-button');copy.type='button';copy.title='Copiar '+d.id;copy.addEventListener('click',()=>copyId(d.id,copy));head.append(copy);
     const trash=element('button','🗑','trash-button');trash.type='button';trash.title='Excluir '+d.id+' deste relatório';
     trash.setAttribute('aria-label','Excluir '+d.id);
@@ -201,6 +235,7 @@ function refilter(){
   const q=$('search-results').value.trim().toLocaleLowerCase('pt-BR'),side=$('filter-side').value,type=$('filter-type').value;
   const searchedId=normalizedDivSearch(q);
   filtered=currentReport.divergencias.filter(d=>
+    ($('show-all-differences').checked||!['baixa','editorial'].includes(d.classificacao))&&
     (searchedId?d.id===searchedId:
       (selectedCategory==='todas'||d.categoria===selectedCategory)&&
       (side==='todos'||d.presente_em===side)&&(type==='todos'||d.tipo===type)&&
@@ -208,10 +243,11 @@ function refilter(){
   $('visible-count').textContent=filtered.length+' divergência(s) agrupada(s)';$('result-list').replaceChildren();renderedCount=0;
   if(filtered.length)renderNext();else $('result-list').append(element('div','Nenhuma divergência nesta categoria ou filtro.','empty-state'));
 }
+$('show-all-differences').addEventListener('change',refilter);
 $('search-results').addEventListener('input',refilter);
 $('filter-side').addEventListener('change',refilter);$('filter-type').addEventListener('change',refilter);
 $('load-more').addEventListener('click',renderNext);
-document.querySelectorAll('[data-export]').forEach(b=>b.addEventListener('click',()=>{if(currentId)window.location.href='/download/'+currentId+'/'+b.dataset.export;}));
+document.querySelectorAll('[data-export]').forEach(b=>b.addEventListener('click',()=>{if(currentId)window.location.href='/download/'+currentId+'/'+b.dataset.export+($('export-scope').value==='completo'?'?completo=1':'');}));
 async function reviewDiv(divId,situacao){
   if(!currentId)return;
   try{
@@ -292,27 +328,47 @@ function pending(d){
   if(todos.length>100)ul.append(element('li','Exibindo 100 itens. Relatório JSON contém todas as pendências.'));
   details.append(ul);box.append(details);
 }
+function smartResults(d){
+  const box=$('smart-results');box.replaceChildren();
+  box.append(element('p','Modo: '+(d.modo_varredura||'atual')));
+  const o=d.otimizacao||{},m=d.metricas||{};
+  if(m.tempo_total_segundos!==undefined)box.append(element('p','Tempo medido: '+m.tempo_total_segundos+' s · '+JSON.stringify(m.contagens||{})));
+  box.append(element('p',o.nota||'Relatório anterior sem medições de equivalência.'));
+  function lista(titulo,rows){
+    const det=element('details');det.append(element('summary',titulo+' ('+rows.length+')'));
+    for(const x of rows){const p=element('p',x.elemento||x.categoria||x.classificacao||'Registro');
+      p.append(element('span',' · '+(x.classificacao||x.motivo||x.nivel||'')));
+      for(const k of ['url_a','url_b','destino_a','destino_b','destino'])if(x[k])p.append(element('br'),safeLink(x[k]));
+      if(x.a||x.b)p.append(element('pre',JSON.stringify({a:x.a,b:x.b},null,2)));
+      det.append(p);}box.append(det);
+  }
+  lista('Equivalências estáticas observadas',o.equivalencias_verificadas||[]);
+  lista('Equivalências inconclusivas — comparação normal mantida',o.equivalencias_inconclusivas||[]);
+  lista('Inspeções profundas omitidas',o.inspecoes_profundas_omitidas||[]);
+  lista('Checagem rápida de documentos',d.documentos_verificados||[]);
+}
 function displayReport(){
   const d=currentReport;if(!d)return;
-  $('stat-divergencias').textContent=d.divergencias.length;
+  $('stat-divergencias').textContent=d.divergencias.filter(r=>!['baixa','editorial'].includes(r.classificacao)).length;
   const vals=Object.values(d.paginas||{});$('stat-a').textContent=vals[0]??0;$('stat-b').textContent=vals[1]??0;
-  $('nav-count').textContent=d.divergencias.length;
+  $('nav-count').textContent=$('stat-divergencias').textContent;
   document.querySelectorAll('[data-export]').forEach(b=>b.disabled=!!(b.dataset.export.startsWith('diagnostico-') && d.versao!=='1.5'));
   const summary=$('report-summary');summary.hidden=false;summary.replaceChildren();
   const inconclusivo=d.situacao_analise==='inconclusivo',parcial=d.situacao_analise==='parcial';
   summary.classList.toggle('important-warning',inconclusivo||parcial);
   const titulo=inconclusivo?'COMPARAÇÃO INCONCLUSIVA':parcial?'VERIFICAÇÃO PARCIAL':'COMPARAÇÃO CONCLUÍDA';
   summary.append(element('strong',titulo+' · '+(d.site_nome||'Portal')));
-  summary.append(element('p','Ocorrências originais: '+(d.ocorrencias_brutas??d.divergencias.length)+' · divergências exibidas: '+d.divergencias.length));
+  summary.append(element('p','Ocorrências originais: '+(d.ocorrencias_brutas??d.divergencias.length)+' · prioritárias: '+$('stat-divergencias').textContent+' · grupos disponíveis: '+d.divergencias.length));
+  summary.append(element('p','Baixa relevância e editoriais ficam fora da lista principal. Use Mostrar todas as diferenças para consultar. Inconclusivos continuam visíveis.'));
   if(d.verificacao_cliques_ativa)summary.append(element('p','Testes opcionais de cliques: '+(d.cliques_testados||0)+' link(s) inspecionados. Resultados podem ser inconclusivos.'));
   if(d.ambiente_desatualizado)summary.append(element('p','Base informada como desatualizada: '+d.ambiente_desatualizado+'. Diferenças editoriais separadas de divergências estruturais.'));
   if(d.itens_editoriais_agrupados)summary.append(element('p','Variações editoriais: '+d.itens_editoriais_agrupados+' ocorrências, em '+(d.variacoes_dados||[]).length+' grupo(s) informativo(s).'));
   if(d.divergencias_ocultadas)summary.append(element('p','DIVs excluídas da exibição: '+d.divergencias_ocultadas+' · a coleta original está preservada no disco.'));
   summary.append(element('p',inconclusivo?
     'Um ambiente não teve nenhuma página coletada. As páginas do outro ambiente NÃO são contadas como divergências. Consulte os avisos técnicos.':
-    parcial?'Algumas páginas falharam ou houve interrupção preventiva. As divergências abaixo se referem apenas às páginas pareadas que puderam ser lidas.':
+    parcial?(d.modo_varredura==='inteligente'?'Cobertura limitada: há conteúdo sem inspeção profunda, documentos sem comparação integral ou pendências. Consulte Equivalência, documentos e cobertura.':'Algumas páginas falharam ou houve interrupção preventiva. As divergências abaixo se referem apenas às páginas pareadas que puderam ser lidas.'):
     'Divergências documentadas apenas nas páginas pareadas. Não determina qual ambiente está correto.'));
-  filters();refilter();dataVariations(d);staleSignals(d);technical(d);references(d);externalChecks(d);pending(d);renderFolders();
+  smartResults(d);filters();refilter();dataVariations(d);staleSignals(d);technical(d);references(d);externalChecks(d);pending(d);renderFolders();
 }
 async function deleteDiv(divId){
   if(!currentId)return;
@@ -407,7 +463,7 @@ async function loadHistory(){
 }
 async function init(){
   await loadHistory();
-  try{const s=await api('/api/status');
+  try{const s=await api('/api/status');updateProgressInfo(s);
     if(s.status==='executando'){nav('comparar');setRunning(true);timer=setInterval(poll,1500);await poll();}
     else if(s.ultimo_id){await openReport(s.ultimo_id);nav('dashboard');}
   }catch(e){console.error(e);}

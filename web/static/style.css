@@ -74,3 +74,4 @@
 
 #failure-diagnostics[hidden]{display:none}
 #failure-diagnostics a{color:#c6a9ff}
+.progress-stats{display:flex;align-items:center;flex-wrap:wrap;gap:10px 24px;padding-top:12px;padding-bottom:4px;color:var(--sub);font-size:12px}.progress-stats strong{color:var(--purple2);font-size:15px;font-variant-numeric:tabular-nums}.progress-stats span{font-variant-numeric:tabular-nums}#progress-eta{margin-left:auto;text-align:right}@media(max-width:680px){#progress-eta{margin-left:0;text-align:left}}

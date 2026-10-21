@@ -1,0 +1,331 @@
+{
+  "cenario": "Portais sintéticos HTTP locais; notícias com mesma estrutura e DES defasado declarado; sem capturas opcionais",
+  "artigos_por_ambiente": 8,
+  "repeticoes": 3,
+  "execucoes": [
+    {
+      "repeticao": 1,
+      "modo": "atual",
+      "tempo_parede_segundos": 25.360457,
+      "requisicoes_servidor": 18,
+      "metricas": {
+        "tempo_total_segundos": 25.201659,
+        "tempos_segundos": {
+          "navegacao": 0.557901,
+          "preparacao": 22.971082,
+          "extracao": 0.458569,
+          "comparacao": 0.000735,
+          "segunda_leitura": 0,
+          "links": 0.000437,
+          "cliques": 0,
+          "documentos": 0,
+          "verificacao_template": 0,
+          "capturas": 3e-06,
+          "auditoria": 1e-06
+        },
+        "contagens": {
+          "requisicoes_navegador": 18,
+          "requisicoes_documentos": 0,
+          "requisicoes_api_externa": 0,
+          "bytes_documentos_lidos": 0,
+          "verificacoes_reaproveitadas": 0,
+          "documentos_reaproveitados": 0,
+          "documentos_nao_verificados": 0,
+          "preparacoes_profundas_evitadas": 0,
+          "operacoes_navegacao": 18,
+          "operacoes_preparacao": 18,
+          "operacoes_extracao": 18,
+          "operacoes_comparacao": 9,
+          "operacoes_links": 9,
+          "urls_duplicadas": 9,
+          "operacoes_capturas": 1,
+          "operacoes_auditoria": 1,
+          "paginas_visitadas": 18,
+          "paginas_coletadas": 18,
+          "pares_documentos_avaliados": 0,
+          "requisicoes_total": 18
+        },
+        "nota_requisicoes": "Eventos observados pelo Playwright e pedidos HTTP de metadados; não mede DNS/TLS nem todo tráfego interno do navegador."
+      },
+      "paginas": {
+        "PRD": 9,
+        "DES": 9
+      },
+      "situacao": "concluido",
+      "paginas_sem_inspecao_profunda": 0,
+      "divergencias": 0
+    },
+    {
+      "repeticao": 1,
+      "modo": "inteligente",
+      "tempo_parede_segundos": 13.04733,
+      "requisicoes_servidor": 20,
+      "metricas": {
+        "tempo_total_segundos": 12.919792,
+        "tempos_segundos": {
+          "navegacao": 0.586086,
+          "preparacao": 7.660072,
+          "extracao": 0.202321,
+          "comparacao": 0.002079,
+          "segunda_leitura": 0,
+          "links": 0.000415,
+          "cliques": 0,
+          "documentos": 0.002718,
+          "verificacao_template": 0.108203,
+          "capturas": 4e-06,
+          "auditoria": 1e-06
+        },
+        "contagens": {
+          "requisicoes_navegador": 18,
+          "requisicoes_documentos": 2,
+          "requisicoes_api_externa": 0,
+          "bytes_documentos_lidos": 0,
+          "verificacoes_reaproveitadas": 16,
+          "documentos_reaproveitados": 8,
+          "documentos_nao_verificados": 0,
+          "preparacoes_profundas_evitadas": 12,
+          "operacoes_navegacao": 18,
+          "operacoes_verificacao_template": 17,
+          "operacoes_preparacao": 6,
+          "operacoes_extracao": 18,
+          "operacoes_comparacao": 9,
+          "operacoes_links": 9,
+          "urls_duplicadas": 9,
+          "operacoes_documentos": 1,
+          "operacoes_capturas": 1,
+          "operacoes_auditoria": 1,
+          "paginas_visitadas": 18,
+          "paginas_coletadas": 18,
+          "pares_documentos_avaliados": 1,
+          "requisicoes_total": 20
+        },
+        "nota_requisicoes": "Eventos observados pelo Playwright e pedidos HTTP de metadados; não mede DNS/TLS nem todo tráfego interno do navegador."
+      },
+      "paginas": {
+        "PRD": 9,
+        "DES": 9
+      },
+      "situacao": "parcial",
+      "paginas_sem_inspecao_profunda": 12,
+      "divergencias": 0
+    },
+    {
+      "repeticao": 2,
+      "modo": "inteligente",
+      "tempo_parede_segundos": 12.943852,
+      "requisicoes_servidor": 20,
+      "metricas": {
+        "tempo_total_segundos": 12.827707,
+        "tempos_segundos": {
+          "navegacao": 0.537511,
+          "preparacao": 7.644731,
+          "extracao": 0.190555,
+          "comparacao": 0.001988,
+          "segunda_leitura": 0,
+          "links": 0.000467,
+          "cliques": 0,
+          "documentos": 0.002055,
+          "verificacao_template": 0.103671,
+          "capturas": 4e-06,
+          "auditoria": 1e-06
+        },
+        "contagens": {
+          "requisicoes_navegador": 18,
+          "requisicoes_documentos": 2,
+          "requisicoes_api_externa": 0,
+          "bytes_documentos_lidos": 0,
+          "verificacoes_reaproveitadas": 16,
+          "documentos_reaproveitados": 8,
+          "documentos_nao_verificados": 0,
+          "preparacoes_profundas_evitadas": 12,
+          "operacoes_navegacao": 18,
+          "operacoes_verificacao_template": 17,
+          "operacoes_preparacao": 6,
+          "operacoes_extracao": 18,
+          "operacoes_comparacao": 9,
+          "operacoes_links": 9,
+          "urls_duplicadas": 9,
+          "operacoes_documentos": 1,
+          "operacoes_capturas": 1,
+          "operacoes_auditoria": 1,
+          "paginas_visitadas": 18,
+          "paginas_coletadas": 18,
+          "pares_documentos_avaliados": 1,
+          "requisicoes_total": 20
+        },
+        "nota_requisicoes": "Eventos observados pelo Playwright e pedidos HTTP de metadados; não mede DNS/TLS nem todo tráfego interno do navegador."
+      },
+      "paginas": {
+        "PRD": 9,
+        "DES": 9
+      },
+      "situacao": "parcial",
+      "paginas_sem_inspecao_profunda": 12,
+      "divergencias": 0
+    },
+    {
+      "repeticao": 2,
+      "modo": "atual",
+      "tempo_parede_segundos": 25.274354,
+      "requisicoes_servidor": 18,
+      "metricas": {
+        "tempo_total_segundos": 25.172792,
+        "tempos_segundos": {
+          "navegacao": 0.560665,
+          "preparacao": 22.966855,
+          "extracao": 0.452558,
+          "comparacao": 0.000677,
+          "segunda_leitura": 0,
+          "links": 0.000405,
+          "cliques": 0,
+          "documentos": 0,
+          "verificacao_template": 0,
+          "capturas": 6e-06,
+          "auditoria": 1e-06
+        },
+        "contagens": {
+          "requisicoes_navegador": 18,
+          "requisicoes_documentos": 0,
+          "requisicoes_api_externa": 0,
+          "bytes_documentos_lidos": 0,
+          "verificacoes_reaproveitadas": 0,
+          "documentos_reaproveitados": 0,
+          "documentos_nao_verificados": 0,
+          "preparacoes_profundas_evitadas": 0,
+          "operacoes_navegacao": 18,
+          "operacoes_preparacao": 18,
+          "operacoes_extracao": 18,
+          "operacoes_comparacao": 9,
+          "operacoes_links": 9,
+          "urls_duplicadas": 9,
+          "operacoes_capturas": 1,
+          "operacoes_auditoria": 1,
+          "paginas_visitadas": 18,
+          "paginas_coletadas": 18,
+          "pares_documentos_avaliados": 0,
+          "requisicoes_total": 18
+        },
+        "nota_requisicoes": "Eventos observados pelo Playwright e pedidos HTTP de metadados; não mede DNS/TLS nem todo tráfego interno do navegador."
+      },
+      "paginas": {
+        "PRD": 9,
+        "DES": 9
+      },
+      "situacao": "concluido",
+      "paginas_sem_inspecao_profunda": 0,
+      "divergencias": 0
+    },
+    {
+      "repeticao": 3,
+      "modo": "atual",
+      "tempo_parede_segundos": 25.206513,
+      "requisicoes_servidor": 18,
+      "metricas": {
+        "tempo_total_segundos": 25.092591,
+        "tempos_segundos": {
+          "navegacao": 0.560784,
+          "preparacao": 22.969829,
+          "extracao": 0.458633,
+          "comparacao": 0.000869,
+          "segunda_leitura": 0,
+          "links": 0.000493,
+          "cliques": 0,
+          "documentos": 0,
+          "verificacao_template": 0,
+          "capturas": 5e-06,
+          "auditoria": 1e-06
+        },
+        "contagens": {
+          "requisicoes_navegador": 18,
+          "requisicoes_documentos": 0,
+          "requisicoes_api_externa": 0,
+          "bytes_documentos_lidos": 0,
+          "verificacoes_reaproveitadas": 0,
+          "documentos_reaproveitados": 0,
+          "documentos_nao_verificados": 0,
+          "preparacoes_profundas_evitadas": 0,
+          "operacoes_navegacao": 18,
+          "operacoes_preparacao": 18,
+          "operacoes_extracao": 18,
+          "operacoes_comparacao": 9,
+          "operacoes_links": 9,
+          "urls_duplicadas": 9,
+          "operacoes_capturas": 1,
+          "operacoes_auditoria": 1,
+          "paginas_visitadas": 18,
+          "paginas_coletadas": 18,
+          "pares_documentos_avaliados": 0,
+          "requisicoes_total": 18
+        },
+        "nota_requisicoes": "Eventos observados pelo Playwright e pedidos HTTP de metadados; não mede DNS/TLS nem todo tráfego interno do navegador."
+      },
+      "paginas": {
+        "PRD": 9,
+        "DES": 9
+      },
+      "situacao": "concluido",
+      "paginas_sem_inspecao_profunda": 0,
+      "divergencias": 0
+    },
+    {
+      "repeticao": 3,
+      "modo": "inteligente",
+      "tempo_parede_segundos": 13.267506,
+      "requisicoes_servidor": 20,
+      "metricas": {
+        "tempo_total_segundos": 13.12935,
+        "tempos_segundos": {
+          "navegacao": 0.676557,
+          "preparacao": 7.712034,
+          "extracao": 0.257158,
+          "comparacao": 0.001825,
+          "segunda_leitura": 0,
+          "links": 0.000413,
+          "cliques": 0,
+          "documentos": 0.00261,
+          "verificacao_template": 0.117871,
+          "capturas": 5e-06,
+          "auditoria": 1e-06
+        },
+        "contagens": {
+          "requisicoes_navegador": 18,
+          "requisicoes_documentos": 2,
+          "requisicoes_api_externa": 0,
+          "bytes_documentos_lidos": 0,
+          "verificacoes_reaproveitadas": 16,
+          "documentos_reaproveitados": 8,
+          "documentos_nao_verificados": 0,
+          "preparacoes_profundas_evitadas": 12,
+          "operacoes_navegacao": 18,
+          "operacoes_verificacao_template": 17,
+          "operacoes_preparacao": 6,
+          "operacoes_extracao": 18,
+          "operacoes_comparacao": 9,
+          "operacoes_links": 9,
+          "urls_duplicadas": 9,
+          "operacoes_documentos": 1,
+          "operacoes_capturas": 1,
+          "operacoes_auditoria": 1,
+          "paginas_visitadas": 18,
+          "paginas_coletadas": 18,
+          "pares_documentos_avaliados": 1,
+          "requisicoes_total": 20
+        },
+        "nota_requisicoes": "Eventos observados pelo Playwright e pedidos HTTP de metadados; não mede DNS/TLS nem todo tráfego interno do navegador."
+      },
+      "paginas": {
+        "PRD": 9,
+        "DES": 9
+      },
+      "situacao": "parcial",
+      "paginas_sem_inspecao_profunda": 12,
+      "divergencias": 0
+    }
+  ],
+  "medianas_segundos": {
+    "atual": 25.274354,
+    "inteligente": 13.04733
+  },
+  "reducao_percentual_observada": 48.38,
+  "limite": "Resultados locais não estimam desempenho ou equivalência de portais reais. O modo inteligente tem cobertura profunda menor e adiciona checagem documental."
+}

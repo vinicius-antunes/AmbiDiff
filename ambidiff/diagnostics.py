@@ -32,6 +32,8 @@ def classificar_erro(erro:str)->dict:
 
 
 def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
+    from .relevance import preparar
+    resultado=preparar(resultado)
     eventos=resultado.get('eventos_diagnostico',[])
     falhas=resultado.get('falhas',[])
     erros_por_tipo=Counter()
@@ -40,9 +42,12 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
         if e.get('tipo')=='DOWNLOAD_DE_DOCUMENTO':erros_por_tipo['DOWNLOAD_DE_DOCUMENTO']+=1
     metas=resultado.get('meta_varredura',{})
     motivos={env:d.get('motivo_parada','') for env,d in metas.items() if d.get('motivo_parada')}
-    return {'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
+    return {'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_preservados',[]),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
       'site_nome':resultado.get('site_nome',''),'ambientes':resultado.get('ambientes',{}),
       'situacao_analise':resultado.get('situacao_analise','inconclusivo'),
+      'modo_varredura':resultado.get('modo_varredura','atual'),
+      'metricas':resultado.get('metricas',{}),'otimizacao':resultado.get('otimizacao',{}),
+      'documentos_verificados':resultado.get('documentos_verificados',[]),
       'interrupcao':{'ocorreu':bool(motivos),'motivos':motivos,
           'pares_visitados':max((x.get('visitadas',0) for x in metas.values()),default=0),
           'pares_na_fila':max((x.get('pendentes',0) for x in metas.values()),default=0)},
@@ -68,6 +73,9 @@ def exportar_diagnostico(dados:dict,pasta:Path,run_id:str)->dict:
             'Motivos de parada: '+str(dados.get('interrupcao',{}).get('motivos',{})),'',
             'TIPOS DE EVENTOS:']
     linhas.extend(f'  {k}: {v}' for k,v in dados.get('falhas_por_tipo',{}).items())
+    linhas+=['','MÉTRICAS E COBERTURA:',json.dumps(dados.get('metricas',{}),ensure_ascii=False),
+             json.dumps(dados.get('otimizacao',{}),ensure_ascii=False),
+             'DOCUMENTOS (SOMENTE METADADOS):',json.dumps(dados.get('documentos_verificados',[]),ensure_ascii=False)]
     linhas+=['','FALHAS:']
     for f in dados.get('falhas',[]):
         info=classificar_erro(f.get('erro',''))

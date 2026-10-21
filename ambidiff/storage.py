@@ -41,7 +41,9 @@ def atomic_json(path:Path,data)->None:
 
 
 def ler_original(root:Path,run_id:str)->dict:
-    return json.loads(original_path(root,run_id).read_text(encoding='utf-8'))
+    report=json.loads(original_path(root,run_id).read_text(encoding='utf-8'))
+    report['divergencias']=[member for row in report.get('divergencias',[]) for member in (row.get('registros_agrupados') or [row])]
+    return report
 
 
 def ler_exclusoes(root:Path,run_id:str)->set[str]:
@@ -63,7 +65,9 @@ def preparar_relatorio(root:Path,run_id:str)->dict:
     report['revisoes_manuais']=rev
     for row in report['divergencias']:
         if row.get('id') in rev:row['revisao_manual']=rev[row['id']]
-    return report
+    from .relevance import preparar
+    manual=root/f'relevancia_{run_id}.json'
+    return preparar(report,json.loads(manual.read_text(encoding="utf-8")) if manual.exists() else {})
 
 
 def excluir_div(root:Path,run_id:str,div_id:str,lock:threading.RLock|None=None)->dict:
@@ -116,7 +120,7 @@ def excluir_execucoes(root:Path,hist_path:Path,run_ids:list[str],lock:threading.
                 for ext in ('json','csv','html'):
                     (root/f'{prefix}{rid}.{ext}').unlink(missing_ok=True)
             _overlay(root,rid).unlink(missing_ok=True)
-            for name in ('revisoes_', 'diagnostico_', 'log_', 'checkpoint_'):
+            for name in ('relevancia_', 'revisoes_', 'diagnostico_', 'log_', 'checkpoint_'):
                 for ext in ('json','txt'):
                     (root/f'{name}{rid}.{ext}').unlink(missing_ok=True)
             ev=root/f'evidencias_{rid}'
@@ -128,3 +132,16 @@ def excluir_execucoes(root:Path,hist_path:Path,run_ids:list[str],lock:threading.
     if lock is not None:
         with lock:return delete()
     return delete()
+
+
+def reclassificar(root,run_id,div_id,classe):
+    from .relevance import CLASSES
+    if classe not in (*CLASSES,'automatica'):raise ValueError('Classificação inválida.')
+    original=ler_original(root,run_id)
+    if div_id not in {r.get('id') for r in original.get('divergencias',[])}:raise KeyError(div_id)
+    path=root/f'relevancia_{run_id}.json'
+    overlay=json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    if classe=='automatica':overlay.pop(div_id,None)
+    else:overlay[div_id]=classe
+    atomic_json(path,overlay)
+    return preparar_relatorio(root,run_id)
