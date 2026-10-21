@@ -195,6 +195,10 @@ AmbiDiff-v1.5/
 
 Esta ferramenta serve como apoio a QA e não substitui testes manuais dos achados relevantes.
 
+### Indicadores de acompanhamento durante a execução
+
+O painel agora apresenta o **percentual aproximado** do progresso, o **tempo decorrido** e, quando há amostras recentes suficientes, uma **estimativa de tempo restante**. Se a fila crescer, o ritmo ficar instável ou a varredura estiver nas etapas finais, a previsão pode ficar indisponível. O percentual reflete o avanço estimado do percurso e **não** confirma que a cobertura estrutural foi completa. A implementação ainda requer validação funcional no Windows e com portais autorizados.
+
 ## Desempenho: meta de reduzir em 50% o tempo da varredura
 
 Registramos um plano técnico de otimização com a medição real da SEFAZ, gargalos possíveis, segurança das verificações, benchmark comparável e inclusão futura dos campos `iniciado_em`, `finalizado_em` e `duracao_segundos` nos JSONs. **A meta ainda não foi validada em portal real**.
