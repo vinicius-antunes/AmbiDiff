@@ -52,6 +52,7 @@ def worker(params,run_id):
                            site_nome=params['site_nome'], evidencias_dir=PASTA/f'evidencias_{run_id}',
                            auditar_externos=params['auditar_externos'],
                            verificar_cliques=params.get('verificar_cliques',False),
+                           varredura_inteligente=params.get('varredura_inteligente',False),
                            ambiente_desatualizado=params.get('ambiente_desatualizado',''),
                            checkpoint=lambda d:atomic_json(PASTA/f'checkpoint_{run_id}.json',d))
         if resultado is None:
@@ -61,10 +62,11 @@ def worker(params,run_id):
         resultado['site_id']=hashlib.sha256(chave.encode('utf-8')).hexdigest()[:16]
         exportar(resultado,PASTA,run_id)
         exportar_diagnostico(montar_diagnostico(resultado,list(STATE.get('logs',[]))),PASTA,run_id)
-        (PASTA/f'checkpoint_{run_id}.json').unlink(missing_ok=True)
+        if not PARAR.is_set():
+            (PASTA/f'checkpoint_{run_id}.json').unlink(missing_ok=True)
         entrada={'id':run_id,'data':resultado['gerado_em'],'site_nome':resultado['site_nome'],
                  'site_id':resultado['site_id'],'ambientes':resultado['ambientes'],
-                 'situacao':resultado['situacao_analise'],
+                 'situacao':resultado['situacao_analise'],'modo_varredura':resultado.get('modo_varredura','atual'),
                  'total':len(resultado['divergencias']), 'ocorrencias_brutas':resultado.get('ocorrencias_brutas',len(resultado['divergencias'])),
                  'avisos':sum(r['quantidade'] for r in resultado['avisos_tecnicos']),
                  'paginas':resultado['paginas'],
@@ -153,6 +155,7 @@ def comparar():
         params=dict(url_a=url_a,url_b=url_b,nome_a=nome_a,nome_b=nome_b,site_nome=site_nome,
                     auditar_externos=(args.get('auditar_externos') is True),
                     verificar_cliques=(args.get('verificar_cliques') is True),
+                    varredura_inteligente=(args.get('varredura_inteligente') is True),
                     ambiente_desatualizado=desatualizado)
         threading.Thread(target=worker,args=(params,run_id),daemon=True).start()
         return jsonify(ok=True,id=run_id)

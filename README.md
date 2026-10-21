@@ -84,6 +84,33 @@ Você também pode manter a v1.4 intacta e começar um histórico separado na v1
 
 ## Testes locais
 
+### Varredura inteligente (opcional)
+
+O formulário permite selecionar **Varredura inteligente (otimizada)**. Desmarcada,
+mantém o modo atual. A opção acrescenta evidências de equivalência estática,
+reutilização de componentes, checagem rápida de documentos por cabeçalhos e
+limitações de cobertura no relatório.
+
+Notícias pareadas continuam recebendo navegação e inspeção estrutural. Somente
+templates estáticos comprovados por duas amostras profundas, sem scripts ou
+marcadores conhecidos de interação/lazy loading, podem dispensar preparação
+profunda quando a defasagem tiver sido declarada. Páginas institucionais e
+diferenças estruturais não são dispensadas por essa regra. ÁUDIOS exclusivo na
+CGE continua sendo divergência.
+
+Metadados semelhantes de documentos não comprovam arquivos idênticos. Inspeções
+profundas omitidas e documentos sem comparação integral limitam a cobertura; o
+modo inteligente não os apresenta como varredura totalmente completa. O CSV
+continua dedicado às divergências; JSON, HTML e diagnósticos incluem as novas
+categorias.
+
+Consulte [arquitetura, limites, benchmark e conflitos de integração](docs/varredura-inteligente.md).
+Para reproduzir o benchmark com portais sintéticos locais:
+
+```cmd
+.venv\Scripts\python.exe scripts\benchmark_smart.py --articles 8 --repetitions 3
+```
+
 No CMD dentro da pasta:
 
 ```cmd

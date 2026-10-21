@@ -97,6 +97,8 @@ class Item:
     imagem_link: bool = False
     natureza: str = ''
     entidade: str = ''
+    funcao: str = ''
+    estrutura: str = ''
 
 
 @dataclass
@@ -180,7 +182,11 @@ JS_EXTRAIR = r'''() => {
     if(nome&&nome.length>=2)out.push({tipo,nome,chave,local:ctx(el),destino,
       posicao:posicao(el),seletor:selector(el),visivel_texto:textoVisivel,
       imagem_link:el.tagName==='A'&&!textoVisivel&&!!el.querySelector('img'),
-      natureza:editorialRef(el)?'editorial':'estrutura',entidade:editorialRef(el)});
+      natureza:editorialRef(el)?'editorial':'estrutura',entidade:editorialRef(el),
+      funcao:el.getAttribute('role')||(el.tagName==='A'?'link':el.tagName.toLowerCase()),
+      estrutura:[el.tagName,el.getAttribute('role')||'',el.getAttribute('type')||'',
+        el.hasAttribute('disabled'),el.getAttribute('aria-haspopup')||'',el.getAttribute('target')||'',
+        [...el.children].map(x=>x.tagName).join(','),el.hasAttribute('onclick')?'dinamico':'estatico'].join('|')});
   };
   for(const el of document.querySelectorAll('h1,h2,h3,h4,p')){
     if(!visivel(el)||isCookie(el)||el.closest('header,footer,nav,[role="navigation"]'))continue;
@@ -537,10 +543,10 @@ def inferir_site(pag_a:dict[str,Pagina],pag_b:dict[str,Pagina],base_a:str)->str:
     return urlsplit(base_a).hostname or 'Comparação de ambientes'
 
 
-def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False):
+def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,varredura_inteligente=False):
     """v1.5: comparação pareada, com variações editoriais separadas."""
     from .paired import executar_pareado
     return executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,
                            site_nome=site_nome,evidencias_dir=evidencias_dir, auditar_externos=auditar_externos,
                            ambiente_desatualizado=ambiente_desatualizado,checkpoint=checkpoint,
-                           verificar_cliques=verificar_cliques)
+                           verificar_cliques=verificar_cliques,varredura_inteligente=varredura_inteligente)

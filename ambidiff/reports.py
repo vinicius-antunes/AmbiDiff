@@ -95,6 +95,8 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
         rid=esc(dados['id'])
         if (pasta/f'diagnostico_{dados["id"]}.json').exists():
             diag_links=f'<p><a href="diagnostico_{rid}.json">Diagnóstico JSON</a> · <a href="log_{rid}.txt">Log TXT</a></p>'
+    smart_html=esc(json.dumps({'metricas':dados.get('metricas',{}),'otimizacao':dados.get('otimizacao',{}),
+        'documentos_verificados':dados.get('documentos_verificados',[])},ensure_ascii=False,indent=2))
     doc=f'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>AmbiDiff · {esc(dados.get('site_nome',''))}</title><style>
     body{{font:14px/1.65 system-ui,Arial;background:#10111c;color:#ededf5;max-width:1100px;margin:auto;padding:30px}}
@@ -119,6 +121,7 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
     <div class="notice">URLs distintas para a mesma opção são registradas como divergências e esses destinos não são explorados. Diferenças não determinam qual ambiente está correto. {esc('A varredura não foi concluída em todas as páginas.' if state!='concluido' else '')}</div>
     <label for="search-div"><b>Pesquisar divergência por ID (DIV-0033, 0033, 33) ou texto:</b></label>
     <input type="search" id="search-div" class="search-div" placeholder="Ex.: DIV-0033 ou Radar">
+    <h2>Equivalência, documentos e cobertura</h2><p>Equivalência estática não comprova funcionamento. Metadados não comprovam arquivos idênticos. Inspeções profundas omitidas limitam a cobertura.</p><details><summary>Resultados e métricas do modo {esc(dados.get("modo_varredura","atual"))}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{smart_html}</pre></details>
     <h2>Variações de dados (base defasada: {esc(dados.get('ambiente_desatualizado') or 'não informada')})</h2>{variance_html or '<p>Sem variações editoriais classificadas.</p>'}
     <h2>Divergências agrupadas por categoria</h2>{''.join(cards) or '<p>Nenhuma divergência encontrada nas páginas verificadas.</p>'}
     <h2>Auditoria limitada de páginas externas iguais</h2>{external or '<p>Nenhuma.</p>'}

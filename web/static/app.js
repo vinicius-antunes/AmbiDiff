@@ -65,7 +65,7 @@ async function poll(){
 }
 $('compare-form').addEventListener('submit',async e=>{
   e.preventDefault();$('form-error').textContent='';$('failure-diagnostics').hidden=true;lastLogCount=0;$('terminal').replaceChildren();$('progress-fill').style.width='0%';
-  const payload={url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:$('site-nome').value.trim(),auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
+  const payload={varredura_inteligente:$('varredura-inteligente').checked,url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:$('site-nome').value.trim(),auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
     ambiente_desatualizado:$('ambiente-desatualizado').value==='A'?$('nome-a').value: $('ambiente-desatualizado').value==='B'?$('nome-b').value:''};
   try{await api('/api/comparar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     setRunning(true);clearInterval(timer);await poll();if($('run-button').disabled)timer=setInterval(poll,1500);
@@ -292,6 +292,25 @@ function pending(d){
   if(todos.length>100)ul.append(element('li','Exibindo 100 itens. Relatório JSON contém todas as pendências.'));
   details.append(ul);box.append(details);
 }
+function smartResults(d){
+  const box=$('smart-results');box.replaceChildren();
+  box.append(element('p','Modo: '+(d.modo_varredura||'atual')));
+  const o=d.otimizacao||{},m=d.metricas||{};
+  if(m.tempo_total_segundos!==undefined)box.append(element('p','Tempo medido: '+m.tempo_total_segundos+' s · '+JSON.stringify(m.contagens||{})));
+  box.append(element('p',o.nota||'Relatório anterior sem medições de equivalência.'));
+  function lista(titulo,rows){
+    const det=element('details');det.append(element('summary',titulo+' ('+rows.length+')'));
+    for(const x of rows){const p=element('p',x.elemento||x.categoria||x.classificacao||'Registro');
+      p.append(element('span',' · '+(x.classificacao||x.motivo||x.nivel||'')));
+      for(const k of ['url_a','url_b','destino_a','destino_b','destino'])if(x[k])p.append(element('br'),safeLink(x[k]));
+      if(x.a||x.b)p.append(element('pre',JSON.stringify({a:x.a,b:x.b},null,2)));
+      det.append(p);}box.append(det);
+  }
+  lista('Equivalências estáticas observadas',o.equivalencias_verificadas||[]);
+  lista('Equivalências inconclusivas — comparação normal mantida',o.equivalencias_inconclusivas||[]);
+  lista('Inspeções profundas omitidas',o.inspecoes_profundas_omitidas||[]);
+  lista('Checagem rápida de documentos',d.documentos_verificados||[]);
+}
 function displayReport(){
   const d=currentReport;if(!d)return;
   $('stat-divergencias').textContent=d.divergencias.length;
@@ -310,9 +329,9 @@ function displayReport(){
   if(d.divergencias_ocultadas)summary.append(element('p','DIVs excluídas da exibição: '+d.divergencias_ocultadas+' · a coleta original está preservada no disco.'));
   summary.append(element('p',inconclusivo?
     'Um ambiente não teve nenhuma página coletada. As páginas do outro ambiente NÃO são contadas como divergências. Consulte os avisos técnicos.':
-    parcial?'Algumas páginas falharam ou houve interrupção preventiva. As divergências abaixo se referem apenas às páginas pareadas que puderam ser lidas.':
+    parcial?(d.modo_varredura==='inteligente'?'Cobertura limitada: há conteúdo sem inspeção profunda, documentos sem comparação integral ou pendências. Consulte Equivalência, documentos e cobertura.':'Algumas páginas falharam ou houve interrupção preventiva. As divergências abaixo se referem apenas às páginas pareadas que puderam ser lidas.'):
     'Divergências documentadas apenas nas páginas pareadas. Não determina qual ambiente está correto.'));
-  filters();refilter();dataVariations(d);staleSignals(d);technical(d);references(d);externalChecks(d);pending(d);renderFolders();
+  smartResults(d);filters();refilter();dataVariations(d);staleSignals(d);technical(d);references(d);externalChecks(d);pending(d);renderFolders();
 }
 async function deleteDiv(divId){
   if(!currentId)return;

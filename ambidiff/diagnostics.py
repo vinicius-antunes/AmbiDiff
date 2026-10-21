@@ -43,6 +43,9 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
     return {'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
       'site_nome':resultado.get('site_nome',''),'ambientes':resultado.get('ambientes',{}),
       'situacao_analise':resultado.get('situacao_analise','inconclusivo'),
+      'modo_varredura':resultado.get('modo_varredura','atual'),
+      'metricas':resultado.get('metricas',{}),'otimizacao':resultado.get('otimizacao',{}),
+      'documentos_verificados':resultado.get('documentos_verificados',[]),
       'interrupcao':{'ocorreu':bool(motivos),'motivos':motivos,
           'pares_visitados':max((x.get('visitadas',0) for x in metas.values()),default=0),
           'pares_na_fila':max((x.get('pendentes',0) for x in metas.values()),default=0)},
@@ -68,6 +71,9 @@ def exportar_diagnostico(dados:dict,pasta:Path,run_id:str)->dict:
             'Motivos de parada: '+str(dados.get('interrupcao',{}).get('motivos',{})),'',
             'TIPOS DE EVENTOS:']
     linhas.extend(f'  {k}: {v}' for k,v in dados.get('falhas_por_tipo',{}).items())
+    linhas+=['','MÉTRICAS E COBERTURA:',json.dumps(dados.get('metricas',{}),ensure_ascii=False),
+             json.dumps(dados.get('otimizacao',{}),ensure_ascii=False),
+             'DOCUMENTOS (SOMENTE METADADOS):',json.dumps(dados.get('documentos_verificados',[]),ensure_ascii=False)]
     linhas+=['','FALHAS:']
     for f in dados.get('falhas',[]):
         info=classificar_erro(f.get('erro',''))
