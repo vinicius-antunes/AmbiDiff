@@ -16,6 +16,27 @@ $('go-compare').addEventListener('click',()=>nav('comparar'));
 $('go-history').addEventListener('click',()=>nav('historico'));
 async function api(url,options){const r=await fetch(url,options);let d=await r.json();if(!r.ok)throw Error(d.erro||'Falha na comunicação.');return d;}
 function setRunning(b){$('run-button').disabled=b;$('stop-button').disabled=!b;$('running-label').textContent=b?'Executando...':'Aguardando';}
+function formatDuration(seconds){
+  const n=Math.max(0,Math.floor(seconds));
+  const h=Math.floor(n/3600),m=Math.floor(n%3600/60),sec=n%60;
+  if(h)return h+'h '+String(m).padStart(2,'0')+'min';
+  return m?m+'min '+String(sec).padStart(2,'0')+'s':sec+'s';
+}
+function updateProgressInfo(s){
+  const percent=Math.max(0,Math.min(100,Number(s.progresso)||0));
+  $('progress-fill').style.width=percent+'%';
+  $('progress-percent').textContent=percent+'%';
+  $('progress-track').setAttribute('aria-valuenow',String(percent));
+  $('progress-elapsed').textContent='Decorrido: '+(typeof s.tempo_decorrido_segundos==='number'?formatDuration(s.tempo_decorrido_segundos):'—');
+  if(s.status==='executando'){
+    if(typeof s.tempo_restante_segundos==='number')$('progress-eta').textContent='Restante estimado: ~'+formatDuration(s.tempo_restante_segundos);
+    else if(percent>=85)$('progress-eta').textContent='Etapas finais: sem previsão confiável';
+    else $('progress-eta').textContent=typeof s.tempo_decorrido_segundos==='number'&&s.tempo_decorrido_segundos<30?'Restante: calculando...':'Restante: estimativa indisponível';
+  }else if(s.status==='concluido')$('progress-eta').textContent='Execução encerrada';
+  else if(s.status==='erro')$('progress-eta').textContent='Execução encerrada com erro';
+  else if(s.status==='interrompido')$('progress-eta').textContent='Execução interrompida';
+  else $('progress-eta').textContent='Restante: aguardando início';
+}
 function printLogs(logs){
   if(logs.length<lastLogCount){$('terminal').replaceChildren();lastLogCount=0;}
   if(!lastLogCount)$('terminal').replaceChildren();
@@ -50,7 +71,7 @@ async function openReport(id){
 }
 async function poll(){
   try{
-    const s=await api('/api/status');$('progress-fill').style.width=s.progresso+'%';printLogs(s.logs||[]);
+    const s=await api('/api/status');updateProgressInfo(s);printLogs(s.logs||[]);
     const busy=s.status==='executando';setRunning(busy);
     const diag=$('failure-diagnostics');diag.hidden=!(s.status==='erro' && s.ultimo_id);
     if(!diag.hidden){$('failure-json').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-json';
@@ -64,7 +85,7 @@ async function poll(){
   }catch(e){clearInterval(timer);timer=null;setRunning(false);$('form-error').textContent=e.message;}
 }
 $('compare-form').addEventListener('submit',async e=>{
-  e.preventDefault();$('form-error').textContent='';$('failure-diagnostics').hidden=true;lastLogCount=0;$('terminal').replaceChildren();$('progress-fill').style.width='0%';
+  e.preventDefault();$('form-error').textContent='';$('failure-diagnostics').hidden=true;lastLogCount=0;$('terminal').replaceChildren();updateProgressInfo({progresso:0,status:'executando',tempo_decorrido_segundos:0,tempo_restante_segundos:null});
   const payload={varredura_inteligente:$('varredura-inteligente').checked,url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:$('site-nome').value.trim(),auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
     ambiente_desatualizado:$('ambiente-desatualizado').value==='A'?$('nome-a').value: $('ambiente-desatualizado').value==='B'?$('nome-b').value:''};
   try{await api('/api/comparar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -442,7 +463,7 @@ async function loadHistory(){
 }
 async function init(){
   await loadHistory();
-  try{const s=await api('/api/status');
+  try{const s=await api('/api/status');updateProgressInfo(s);
     if(s.status==='executando'){nav('comparar');setRunning(true);timer=setInterval(poll,1500);await poll();}
     else if(s.ultimo_id){await openReport(s.ultimo_id);nav('dashboard');}
   }catch(e){console.error(e);}
