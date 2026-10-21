@@ -7,6 +7,7 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 import re
 from .core import normalizar,permitido
+from .progress import verificar_interrupcao, esperar
 
 PERMITIDOS=re.compile(r'(?:consultar|acessar|abrir|visualizar|saiba mais|detalhes|conferir|legisla[cç][aã]o)',re.I)
 PROIBIDOS=re.compile(r'(?:logout|logoff|exclu|remov|delet|apagar|delete|unsubscribe|sair|download|baixar)',re.I)
@@ -27,8 +28,9 @@ def escolher_candidatos(pares,base_a,base_b,limite=2):
     return escolhidos
 
 
-def _um_clique(browser,pagina,item,base):
+def _um_clique(browser,pagina,item,base,parar=None):
     from .paired import e_arquivo
+    verificar_interrupcao(parar)
     origem=urlsplit(base).netloc
     contexto=browser.new_context(locale='pt-BR',viewport={'width':1366,'height':850},
                                   service_workers='block',accept_downloads=False)
@@ -45,6 +47,7 @@ def _um_clique(browser,pagina,item,base):
     try:
         resposta=pagina_teste.goto(pagina.url,wait_until='domcontentloaded',timeout=10000)
         if resposta and resposta.status>=400:return 'inconclusivo'
+        verificar_interrupcao(parar)
         loc=pagina_teste.locator(item.seletor).first
         if not loc.count() or not loc.is_visible(timeout=1500):return 'inconclusivo'
         href=loc.evaluate('e => (e.tagName==="A"?e.href:"")')
@@ -52,7 +55,7 @@ def _um_clique(browser,pagina,item,base):
         antes=pagina_teste.url
         try:loc.click(timeout=3200,no_wait_after=True)
         except Exception:return 'inconclusivo'
-        pagina_teste.wait_for_timeout(1100)
+        esperar(pagina_teste,1100,parar)
         url_final=pagina_teste.url
         # Popup para o mesmo domínio é navegação válida.
         if any(p.url!= 'about:blank' and urlsplit(p.url).netloc==origem for p in nova_aba):return 'navegou'
@@ -62,9 +65,9 @@ def _um_clique(browser,pagina,item,base):
     finally:contexto.close()
 
 
-def verificar_par(browser,pa,pb,ia,ib,nome_a,nome_b,base_a,base_b,log):
-    a=_um_clique(browser,pa,ia,base_a)
-    b=_um_clique(browser,pb,ib,base_b)
+def verificar_par(browser,pa,pb,ia,ib,nome_a,nome_b,base_a,base_b,log,parar=None):
+    a=_um_clique(browser,pa,ia,base_a,parar=parar)
+    b=_um_clique(browser,pb,ib,base_b,parar=parar)
     if a==b or 'inconclusivo' in (a,b):return None
     log('[Clique] Comportamento diferente: '+ia.nome[:70]+' '+a+'/'+b)
     return {'tipo':'Clique','categoria':'Funcionamento dos links',

@@ -85,6 +85,10 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
     pendencias=''.join(f'<li>{esc(x.get("ambiente"))} · {link(x.get("url"))} — {esc(x.get("motivo"))}</li>' for x in dados.get('pendencias',[])[:100])
     ref_html=''.join(f'<li><b>{esc(x.get("elemento","Imagem"))}</b> — {esc(x.get("motivo","Referências diferentes"))}<p>Local: {esc(x.get("caminho",""))}; {esc(x.get("posicao",""))}</p> {link(x.get("destino_a"))} / {link(x.get("destino_b"))}</li>' for x in dados.get('referencias_pendentes',[]))
     state=dados.get('situacao_analise','parcial')
+    acompanhamento=dados.get('acompanhamento',{})
+    andamento_html=('<p>Último par processado: '+esc(acompanhamento.get('ultimo_par_processado'))+
+        ' · Pares na fila: '+esc(acompanhamento.get('pares_pendentes'))+
+        ' · Etapa: '+esc(acompanhamento.get('etapa'))+'</p>') if acompanhamento else ''
     variations=dados.get('variacoes_dados',[])
     variance_html=''.join(f'<details><summary>{esc(v.get("categoria"))} — {v.get("quantidade_itens",0)} itens editoriais</summary>'
        + '<p>'+esc(v.get('motivo',''))+'</p><ul>'
@@ -116,6 +120,7 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
     <p>{len(dados['divergencias'])} grupo(s) de divergência · {esc(dados.get('ocorrencias_brutas',len(dados['divergencias'])))} ocorrência(s) antes do agrupamento</p>
     <p>{('DIVs excluídas pelo revisor: '+str(dados['divergencias_ocultadas'])+'.') if dados.get('divergencias_ocultadas') else ''}</p>
     <p>{' · '.join(esc(k)+': '+str(v)+' páginas lidas' for k,v in dados.get('paginas',{}).items())}</p>
+    {andamento_html}
     <div class="notice">URLs distintas para a mesma opção são registradas como divergências e esses destinos não são explorados. Diferenças não determinam qual ambiente está correto. {esc('A varredura não foi concluída em todas as páginas.' if state!='concluido' else '')}</div>
     <label for="search-div"><b>Pesquisar divergência por ID (DIV-0033, 0033, 33) ou texto:</b></label>
     <input type="search" id="search-div" class="search-div" placeholder="Ex.: DIV-0033 ou Radar">

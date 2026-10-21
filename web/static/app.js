@@ -1,5 +1,5 @@
 'use strict';
-let currentReport=null,currentId=null,timer=null,renderedCount=0,lastLogCount=0,filtered=[];
+let currentReport=null,currentId=null,timer=null,renderedCount=0,lastLogId=0,logExecution=null,stopPending=false,stopAcknowledged=false,polling=false,filtered=[];
 let allHistory=[],selectedCategory='todas',selectionMode=false,selectedRuns=new Set();
 const $=id=>document.getElementById(id);
 function element(tag,text,cls){const x=document.createElement(tag);if(text!==undefined&&text!==null)x.textContent=text;if(cls)x.className=cls;return x;}
@@ -14,18 +14,48 @@ document.querySelectorAll('.nav-btn').forEach(x=>x.addEventListener('click',()=>
 $('mobile-menu').addEventListener('click',()=>$('sidebar').classList.toggle('show'));
 $('go-compare').addEventListener('click',()=>nav('comparar'));
 $('go-history').addEventListener('click',()=>nav('historico'));
-async function api(url,options){const r=await fetch(url,options);let d=await r.json();if(!r.ok)throw Error(d.erro||'Falha na comunicação.');return d;}
-function setRunning(b){$('run-button').disabled=b;$('stop-button').disabled=!b;$('running-label').textContent=b?'Executando...':'Aguardando';}
-function printLogs(logs){
-  if(logs.length<lastLogCount){$('terminal').replaceChildren();lastLogCount=0;}
-  if(!lastLogCount)$('terminal').replaceChildren();
-  for(const msg of logs.slice(lastLogCount)){
-    const e=element('div','› '+msg);
+async function api(url,options={}){
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);
+  try{const r=await fetch(url,{...options,signal:controller.signal});const d=await r.json();if(!r.ok)throw Error(d.erro||'Falha na comunicação.');return d;}
+  finally{clearTimeout(timeout);}
+}
+const stopMessage='Interrupção solicitada — aguardando operação atual';
+function setRunning(b){
+  $('run-button').disabled=b;$('stop-button').disabled=!b||stopPending;
+}
+function printLogs(s){
+  if(s.execucao_id!==logExecution || (s.reiniciar_logs && lastLogId>s.log_seq)){
+    $('terminal').replaceChildren();lastLogId=0;logExecution=s.execucao_id;
+  }
+  if(s.logs_descartados && (s.logs_eventos||[]).some(e=>e.id>lastLogId)){
+    $('terminal').append(element('div','Aviso: '+s.logs_descartados+' mensagem(ns) anteriores não estão mais disponíveis no buffer.','subtle-warning'));
+  }
+  for(const entry of s.logs_eventos||[]){
+    if(entry.id<=lastLogId)continue;
+    const msg=entry.mensagem,e=element('div','› '+msg);
+    e.dataset.logId=entry.id;
     if(msg.startsWith('ERRO'))e.style.color='#fd8895';
     if(msg.includes('Finalizado'))e.style.color='#75e6bc';
-    $('terminal').append(e);
+    $('terminal').append(e);lastLogId=entry.id;
   }
-  lastLogCount=logs.length;$('terminal').scrollTop=$('terminal').scrollHeight;
+  while($('terminal').children.length>400)$('terminal').firstElementChild.remove();
+  $('terminal').scrollTop=$('terminal').scrollHeight;
+}
+function executionState(s){
+  const busy=s.status==='executando';
+  stopAcknowledged=busy&&(stopAcknowledged||s.interrupcao_solicitada);
+  stopPending=busy&&(stopPending||s.interrupcao_solicitada);
+  setRunning(busy);
+  $('running-label').textContent=stopPending?(stopAcknowledged?stopMessage:'Enviando pedido de interrupção...'):
+    ({executando:'Executando',concluido:'Finalizado',erro:'Falha',pronto:'Aguardando'})[s.status]||s.status;
+  $('stat-status').textContent=stopPending?'Interrupção solicitada':$('running-label').textContent;
+  $('last-pair').textContent=s.ultimo_par_processado??0;
+  $('current-stage').textContent=(s.par_atual?'Par '+s.par_atual+' · ':'')+(s.etapa||'Aguardando');
+  $('pending-pairs').textContent=s.pares_pendentes??0;
+  $('last-activity').textContent=s.ultima_atividade?new Date(s.ultima_atividade).toLocaleString('pt-BR'):'—';
+  const started=s.etapa_iniciada_em?Math.max(0,Math.floor((Date.now()-Date.parse(s.etapa_iniciada_em))/1000)):0;
+  $('operation-time').textContent=busy?'Etapa atual há '+started+' s'+(s.limite_operacao_segundos?' · limite cooperativo/por operação: '+s.limite_operacao_segundos+' s':''):'';
+  return busy;
 }
 function preferenceKey(){
   try{return 'ambidiff:base:'+new URL($('url-a').value.trim()).host.toLowerCase();}
@@ -49,29 +79,37 @@ async function openReport(id){
   catch(e){alert('Não foi possível abrir o relatório: '+e.message);}
 }
 async function poll(){
+  if(polling)return;polling=true;
   try{
-    const s=await api('/api/status');$('progress-fill').style.width=s.progresso+'%';printLogs(s.logs||[]);
-    const busy=s.status==='executando';setRunning(busy);
+    const query='?apos='+lastLogId+'&execucao='+encodeURIComponent(logExecution||'');
+    const s=await api('/api/status'+query);$('progress-fill').style.width=s.progresso+'%';printLogs(s);
+    const busy=executionState(s);
     const diag=$('failure-diagnostics');diag.hidden=!(s.status==='erro' && s.ultimo_id);
     if(!diag.hidden){$('failure-json').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-json';
                      $('failure-txt').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-txt';}
-    $('running-label').textContent=({executando:'Executando',concluido:'Concluído',erro:'Erro',interrompido:'Interrompido',pronto:'Aguardando'})[s.status]||s.status;
-    $('stat-status').textContent=$('running-label').textContent;
     if(!busy){clearInterval(timer);timer=null;
       if(s.status==='concluido'&&s.ultimo_id){await loadHistory();await openReport(s.ultimo_id);}
       if(s.erro)$('form-error').textContent=s.erro;
     }
-  }catch(e){clearInterval(timer);timer=null;setRunning(false);$('form-error').textContent=e.message;}
+  }catch(e){$('form-error').textContent='Atualização indisponível: '+e.message+'. A ausência de resposta não comprova travamento.';}
+  finally{polling=false;}
 }
 $('compare-form').addEventListener('submit',async e=>{
-  e.preventDefault();$('form-error').textContent='';$('failure-diagnostics').hidden=true;lastLogCount=0;$('terminal').replaceChildren();$('progress-fill').style.width='0%';
+  e.preventDefault();$('form-error').textContent='';$('failure-diagnostics').hidden=true;lastLogId=0;logExecution=null;stopPending=false;stopAcknowledged=false;$('terminal').replaceChildren();$('progress-fill').style.width='0%';
   const payload={url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:$('site-nome').value.trim(),auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
     ambiente_desatualizado:$('ambiente-desatualizado').value==='A'?$('nome-a').value: $('ambiente-desatualizado').value==='B'?$('nome-b').value:''};
   try{await api('/api/comparar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     setRunning(true);clearInterval(timer);await poll();if($('run-button').disabled)timer=setInterval(poll,1500);
   }catch(e){$('form-error').textContent=e.message;setRunning(false);}
 });
-$('stop-button').addEventListener('click',async()=>{try{await api('/api/parar',{method:'POST'});$('running-label').textContent='Interrompendo...';}catch(e){$('form-error').textContent=e.message;}});
+$('stop-button').addEventListener('click',async()=>{
+  if(stopPending)return;stopPending=true;stopAcknowledged=false;setRunning(true);
+  $('running-label').textContent='Enviando pedido de interrupção...';
+  try{const s=await api('/api/parar',{method:'POST'});
+    if(s.interrupcao_solicitada){stopAcknowledged=true;$('running-label').textContent=stopMessage;$('stat-status').textContent='Interrupção solicitada';}
+    await poll();
+  }catch(e){stopPending=false;$('stop-button').disabled=false;$('form-error').textContent='Não foi possível confirmar a interrupção: '+e.message;}
+});
 function safeLink(url){
   if(!/^https?:\/\//i.test(url||''))return element('span','Não disponível','dim-copy');
   const a=element('a',url);a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;
@@ -407,8 +445,8 @@ async function loadHistory(){
 }
 async function init(){
   await loadHistory();
-  try{const s=await api('/api/status');
-    if(s.status==='executando'){nav('comparar');setRunning(true);timer=setInterval(poll,1500);await poll();}
+  try{const s=await api('/api/status');executionState(s);printLogs(s);
+    if(s.status==='executando'){nav('comparar');executionState(s);timer=setInterval(poll,1500);await poll();}
     else if(s.ultimo_id){await openReport(s.ultimo_id);nav('dashboard');}
   }catch(e){console.error(e);}
 }

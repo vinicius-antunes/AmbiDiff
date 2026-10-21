@@ -123,7 +123,7 @@ class IntelligenceTests(unittest.TestCase):
         class R:
             status=200
             def __init__(self,url):self.url=url
-        def navegar(page,url):
+        def navegar(page,url,**kwargs):
             if '/doc/' in url:raise RuntimeError('Page.goto: Download is starting')
             env='prd.test' if 'prd.test' in url else 'des.test'
             page.set_content('<html><body><nav><a href="https://'+env+'/doc/portaria">Portaria</a><a href="https://'+env+'/pagina">Outra página</a></nav></body></html>')

@@ -84,6 +84,46 @@ Você também pode manter a v1.4 intacta e começar um histórico separado na v1
 
 ## Testes locais
 
+### Logs, progresso e interrupção
+
+O servidor mantém as últimas 200 mensagens, agora identificadas por uma sequência
+e pela execução à qual pertencem. O painel busca somente os eventos posteriores
+ao cursor recebido, sem depender do tamanho da lista. Se uma desconexão durar
+mais que a retenção disponível, exibe um aviso com a quantidade de mensagens
+perdidas no buffer; não apresenta o trecho restante como um histórico completo.
+O terminal mostra até 400 linhas. O campo legado `logs` continua disponível na
+API; a interface usa `logs_eventos`, `log_seq` e `execucao_id`.
+
+O acompanhamento mostra o último par processado, o par/etapa em execução, a
+quantidade de pares na fila e o horário da última atividade observada. A duração
+da etapa é informativa: ausência de mensagens não é prova de travamento.
+`GET /api/status?execucao=<id>&apos=<cursor>` permite atualização incremental;
+`logs_descartados` indica lacunas e `reiniciar_logs` indica troca de execução ou
+cursor incompatível. `estado_execucao` distingue execução, interrupção solicitada,
+finalização e falha, preservando o campo `status` da v1.5.
+
+Um clique em **Interromper** envia um pedido idempotente. O botão fica
+desabilitado e, após confirmação do servidor, aparece **Interrupção solicitada —
+aguardando operação atual**. O programa termina cooperativamente, sem matar o
+processo: verifica o pedido entre navegações, extrações, abas, esperas, cliques e
+capturas. Um par interrompido não avança o indicador de último par processado.
+
+Navegações têm timeout de 30 segundos por tentativa; a recuperação do DOM após
+timeout usa leitura com limite de 1 segundo. Se a interrupção já foi recebida,
+não inicia a tentativa alternativa. Há limite cooperativo de 90 segundos por
+par, checado entre operações; uma chamada em andamento pode ultrapassar esse
+limite até devolver o controle. Abas usam até 3 segundos por clique, evidências
+até 12 segundos por navegação e 9 por captura, e auditoria opcional até 9 segundos
+por navegação e 6,5 por requisição. Não se promete encerramento instantâneo de
+uma chamada do navegador ou de escrita em disco ainda em andamento.
+
+Na interrupção, salva um checkpoint adicional mesmo antes do primeiro intervalo
+de 20 pares. O relatório parcial, os diagnósticos e o checkpoint são preservados;
+as capturas/auditorias restantes são dispensadas. O checkpoint não implica
+retomada automática da fila. Falhas de disco podem impedir a persistência e são
+registradas no diagnóstico/log quando possível. Os testes usam páginas
+sintéticas e serviços locais; não confirmam defeitos dos portais reais.
+
 No CMD dentro da pasta:
 
 ```cmd
