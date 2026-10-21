@@ -195,6 +195,12 @@ AmbiDiff-v1.5/
 
 Esta ferramenta serve como apoio a QA e não substitui testes manuais dos achados relevantes.
 
+## Desempenho: meta de reduzir em 50% o tempo da varredura
+
+Registramos um plano técnico de otimização com a medição real da SEFAZ, gargalos possíveis, segurança das verificações, benchmark comparável e inclusão futura dos campos `iniciado_em`, `finalizado_em` e `duracao_segundos` nos JSONs. **A meta ainda não foi validada em portal real**.
+
+Leia [Plano de desempenho — SEFAZ](docs/plano-desempenho-sefaz.md) antes de alterar timeouts, segunda leitura, rolagem ou paralelismo. A redução de tempo não deve ocorrer à custa de omitir divergências institucionais, documentos, falhas ou resultados parciais.
+
 ## Filtro de relevância e diferenças SVG
 
 A lista principal prioriza diferenças estruturais, funcionais e institucionais.
