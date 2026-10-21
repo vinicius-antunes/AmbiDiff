@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import sys
 import threading
+import time
 import uuid
 import webbrowser
 from urllib.parse import urlsplit
@@ -26,11 +27,63 @@ app.config['MAX_CONTENT_LENGTH']=12*1024
 PASTA=ROOT/'relatorios';PASTA.mkdir(exist_ok=True)
 HISTORY_PATH=ROOT/'historico.json'
 LOCK=threading.RLock();PARAR=threading.Event()
-STATE={'status':'pronto','progresso':0,'logs':[],'ultimo_id':None,'erro':None,'resumo':None}
+STATE={'status':'pronto','progresso':0,'logs':[],'ultimo_id':None,'erro':None,'resumo':None,
+       'inicio_monotonic':None,'fim_monotonic':None,'amostras_progresso':[]}
+
+
+def estimar_tempo_restante(amostras,agora,progresso,decorrido,status):
+    """ETA aproximado apenas quando há ritmo recente de avanço observável."""
+    if status!='executando' or not 10<=progresso<85 or decorrido<30:
+        return None
+    if len(amostras)<2 or agora-amostras[-1][0]>90:
+        return None
+    recentes=[(t,p) for t,p in amostras if agora-t<=120]
+    if len(recentes)<2:
+        return None
+    t0,p0=recentes[0]
+    t1,p1=recentes[-1]
+    if t1-t0<20 or p1-p0<2:
+        return None
+    taxa=(p1-p0)/(t1-t0)
+    restante=(100-progresso)/taxa
+    return round(restante) if 1<=restante<=6*3600 else None
+
+
+def atualizar_progresso(valor):
+    with LOCK:
+        if STATE['status']!='executando':
+            return
+        novo=min(99,max(0,round(float(valor)*100)))
+        if novo>STATE['progresso']:
+            STATE['progresso']=novo
+            STATE['amostras_progresso'].append((time.monotonic(),novo))
+            STATE['amostras_progresso']=STATE['amostras_progresso'][-90:]
 
 
 def atualizar(**kw):
-    with LOCK:STATE.update(kw)
+    with LOCK:
+        if kw.get('status') in ('concluido','erro','interrompido'):
+            STATE['fim_monotonic']=time.monotonic()
+        STATE.update(kw)
+
+
+def estado_publico(agora=None):
+    with LOCK:
+        dados={k:v for k,v in STATE.items() if k not in
+               ('inicio_monotonic','fim_monotonic','amostras_progresso')}
+        dados['logs']=list(STATE['logs'])
+        inicio=STATE['inicio_monotonic']
+        if inicio is None:
+            dados['tempo_decorrido_segundos']=None
+            dados['tempo_restante_segundos']=None
+        else:
+            agora=time.monotonic() if agora is None else agora
+            fim=STATE['fim_monotonic'] if STATE['fim_monotonic'] is not None else agora
+            decorrido=max(0,int(fim-inicio))
+            dados['tempo_decorrido_segundos']=decorrido
+            dados['tempo_restante_segundos']=estimar_tempo_restante(
+                STATE['amostras_progresso'],agora,dados['progresso'],decorrido,dados['status'])
+        return dados
 
 
 def log(msg):
@@ -48,7 +101,7 @@ def _hist():
 def worker(params,run_id):
     try:
         resultado=executar(params['url_a'],params['url_b'],params['nome_a'],params['nome_b'],
-                           PARAR,log,lambda p:atualizar(progresso=max(STATE['progresso'],round(p*100))),
+                           PARAR,log,atualizar_progresso,
                            site_nome=params['site_nome'], evidencias_dir=PASTA/f'evidencias_{run_id}',
                            auditar_externos=params['auditar_externos'],
                            verificar_cliques=params.get('verificar_cliques',False),
@@ -130,7 +183,7 @@ def index():return render_template('index.html')
 
 @app.get('/api/status')
 def status():
-    with LOCK:return jsonify(STATE.copy())
+    return jsonify(estado_publico())
 
 
 @app.post('/api/comparar')
@@ -149,8 +202,11 @@ def comparar():
             if desatualizado not in ('',nome_a,nome_b):raise ValueError('Escolha um ambiente válido para a base desatualizada.')
         except (ValueError,TypeError) as e:return jsonify(erro=str(e)),400
         PARAR.clear()
+        inicio=time.monotonic()
         STATE.update(status='executando',progresso=0,logs=['Iniciando Chromium...'],
-                     erro=None,resumo=None,ultimo_id=None)
+                     erro=None,resumo=None,ultimo_id=None,
+                     inicio_monotonic=inicio,fim_monotonic=None,
+                     amostras_progresso=[(inicio,0)])
         run_id=datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:6]
         params=dict(url_a=url_a,url_b=url_b,nome_a=nome_a,nome_b=nome_b,site_nome=site_nome,
                     auditar_externos=(args.get('auditar_externos') is True),
