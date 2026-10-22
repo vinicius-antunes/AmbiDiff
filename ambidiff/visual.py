@@ -33,7 +33,7 @@ _JS = r'''() => {
       if(im.width<=96&&im.height<=96){formato='imagem';try{source=new URL(img.currentSrc||img.src).pathname}catch(e){source=img.getAttribute('src')||''}}
     }
     const tag=el.closest('section,article,main')?.querySelector('h1,h2,h3')?.innerText?.trim().slice(0,75)||'';
-    out.push({nome:name,formato,assinatura:source,href,local:tag,
+    out.push({nome:name,formato,assinatura:source,href,local:tag,decorativo:!!(svg?.getAttribute('aria-hidden')==='true'||icon?.getAttribute('aria-hidden')==='true'),
       geometria:{x:Math.round(r.left),y:Math.round(r.top+scrollY),w:Math.round(r.width),h:Math.round(r.height)}});
   }
   return out;
@@ -74,7 +74,7 @@ def comparar_visuais(page_a,page_b,pa,pb,nome_a='PRD',nome_b='DES',defasado=Fals
                 'url_comparada':pb.url if ia.get('formato') else pa.url,
                 'elemento':ia['nome'],'local':ia.get('local',''),'caminho':' → '.join(pa.trilha),
                 'situacao':'Ícone não identificado em um dos controles',
-                'diferenca_estrutural':True,
+                'diferenca_estrutural':True,'decorativo':bool(ia.get('decorativo') or ib.get('decorativo')),
                 'descricao':'O controle existe nos dois ambientes, mas somente um contém ícone reconhecido no DOM. Revisar; não determina qual está correto.'})
         # Somente deslocamentos muito grandes (não diferenças de 2-10 px).
         # Em conteúdo editorial defasado, a altura da lista desloca o restante.

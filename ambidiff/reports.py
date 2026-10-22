@@ -10,7 +10,7 @@ from pathlib import Path
 
 CAMPOS=['classificacao','classificacao_automatica','motivo_relevancia','ids_agrupados','id','categoria','tipo','presente_em','nao_identificado_em','pagina',
         'caminho','posicao','local','elemento','destino_a','destino_b','ordem_a','ordem_b','texto_a','texto_b',
-        'url_presente','url_comparada','ocorrencias_total','revisao_manual','evidencia','evidencias','marcacoes','descricao','situacao','tag_tecnica','tags','grau_confianca','justificativa_evidencia','teste_funcional_executado','grupos_relacionados']
+        'url_presente','url_comparada','ocorrencias_total','revisao_manual','evidencia','evidencias','marcacoes','descricao','situacao','tag_tecnica','tags','grau_confianca','justificativa_evidencia','teste_funcional_executado','grupos_relacionados','destino_final_a','destino_final_b','referencia','escopo','quantidade_itens','itens_resumo']
 
 
 def exportar(dados:dict,pasta:Path,run_id:str)->dict:
@@ -29,9 +29,10 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
         writer=csv.DictWriter(f,fieldnames=['site_nome',*CAMPOS,'paginas_afetadas'],delimiter=';',extrasaction='ignore')
         writer.writeheader()
         editoriais=[dict(r,classificacao='editorial',motivo_relevancia='Contexto editorial classificado na coleta; não comprova base desatualizada.') for r in dados.get('registros_editoriais',[])] if dados.get('exportacao_completa') else []
-        for r in [*dados['divergencias'],*editoriais]:
+        for r in [*[member for row in dados['divergencias'] for member in (row.get('itens_agrupados') or [row])],*editoriais] if dados.get('exportacao_completa') else dados['divergencias']:
             linha={'site_nome':csv_seguro(dados.get('site_nome','')),
                    **{k:csv_seguro(r.get(k,'')) for k in CAMPOS}}
+            linha['itens_resumo']=csv_seguro(' | '.join(x.get('elemento','') for x in r.get('itens_agrupados',[])))
             linha['paginas_afetadas']=csv_seguro(' | '.join(o.get('url_presente','') for o in r.get('ocorrencias',[])))
             writer.writerow(linha)
     esc=lambda v:escape(str(v or ''))
@@ -44,6 +45,7 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
         extra=''
         if d.get('destino_a'):
             extra=f'<p><b>Destino A:</b> {link(d["destino_a"])}<br><b>Destino B:</b> {link(d["destino_b"])}</p>'
+        if d.get('destino_final_a') or d.get('destino_final_b'):extra+='<p><b>Destinos finais observados:</b> '+link(d.get('destino_final_a'))+' / '+link(d.get('destino_final_b'))+'</p>'
         if d.get('ordem_a') and d.get('ordem_b'):
             ordem1=''.join(f'<li>{esc(item)}</li>' for item in d['ordem_a'])
             ordem2=''.join(f'<li>{esc(item)}</li>' for item in d['ordem_b'])
@@ -76,6 +78,8 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
                 if imagem_local.is_file() and imagem_local.stat().st_size<3_000_000:
                     uri='data:image/png;base64,'+base64.b64encode(imagem_local.read_bytes()).decode('ascii')
                     capt=f'<figure><img src="{uri}" alt="Captura legada"><figcaption>Captura legada: ambiente não identificado. Refaça a comparação para gerar o par.</figcaption></figure>'
+        if d.get('itens_agrupados'):
+            extra+='<details><summary>Documentos agrupados</summary>'+''.join('<p>'+esc(x.get('id'))+' · '+esc(x.get('elemento'))+' · '+link(x.get('referencia'))+'</p>' for x in d['itens_agrupados'])+'</details>'
         occurrences=d.get('ocorrencias',[])
         occ=''
         if len(occurrences)>1:
@@ -104,7 +108,7 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
         if (pasta/f'diagnostico_{dados["id"]}.json').exists():
             diag_links=f'<p><a href="diagnostico_{rid}.json">Diagnóstico JSON</a> · <a href="log_{rid}.txt">Log TXT</a></p>'
     smart_html=esc(json.dumps({'metricas':dados.get('metricas',{}),'otimizacao':dados.get('otimizacao',{}),
-        'documentos_verificados':dados.get('documentos_verificados',[]),'grupos_relacionados':dados.get('grupos_relacionados',[])},ensure_ascii=False,indent=2))
+        'verificacoes_destinos':dados.get('verificacoes_destinos',[]),'resultados_funcionais':dados.get('resultados_funcionais',[]),'diferencas_esteticas':dados.get('diferencas_esteticas',[]),'documentos_verificados':dados.get('documentos_verificados',[]),'grupos_relacionados':dados.get('grupos_relacionados',[])},ensure_ascii=False,indent=2))
     doc=f'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>AmbiDiff · {esc(dados.get('site_nome',''))}</title><style>
     body{{font:14px/1.65 system-ui,Arial;background:#10111c;color:#ededf5;max-width:1100px;margin:auto;padding:30px}}
@@ -163,5 +167,6 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
     paths['html'].write_text(doc,encoding='utf-8')
     dados['divergencias']=completos
     dados['exportacao']={'gerado_em':datetime.now().astimezone().isoformat(),'duracao_antes_json_segundos':round(time.perf_counter()-inicio_exportacao,6),'nota':'Exportação CSV/HTML e preparação do JSON. Exclui a escrita final deste JSON, evitando regravar evidências.'}
-    paths['json'].write_text(json.dumps(dados,ensure_ascii=False,indent=2),encoding='utf-8')
+    from .storage import atomic_json
+    atomic_json(paths['json'],dados)
     return {ext:str(path) for ext,path in paths.items()}

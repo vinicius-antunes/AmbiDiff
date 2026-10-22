@@ -33,7 +33,7 @@ class Metricas:
         self.finalizado_em=datetime.now().astimezone().isoformat()
 
     def resultado(self):
-        self.contagens['requisicoes_total']=sum(self.contagens[k] for k in ('requisicoes_navegador','requisicoes_documentos','requisicoes_api_externa'))
+        self.contagens['requisicoes_total']=sum(self.contagens[k] for k in ('requisicoes_navegador','requisicoes_documentos','requisicoes_api_externa','requisicoes_destinos'))
         return {**self.temporal(),'tempo_total_segundos':self.temporal()['duracao_segundos'],
                 'releituras':self.releituras,'nota_tempos':'Tempos de releitura incluem preparação e extração; operações aninhadas não devem ser somadas.',
                 'tempos_segundos':{k:round(v,6) for k,v in self.tempos.items()},
@@ -72,6 +72,11 @@ def assinatura(valor):
     return hashlib.sha256(json.dumps(valor,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
 
 
+def estrutura_funcional(valor):
+    partes=valor.split('|')
+    return tuple(partes[1:6]+partes[7:]) if len(partes)>=8 else valor
+
+
 class Inteligencia:
     def __init__(self, metricas):
         self.metricas=metricas
@@ -89,7 +94,7 @@ class Inteligencia:
             if len(ga[k])!=1 or len(gb[k])!=1:continue
             ia,ib=ga[k][0],gb[k][0]
             destinos=(not ia.destino and not ib.destino) or (ia.destino and ib.destino and link_equivalente(ia.destino,ib.destino,base_a,base_b))
-            estrutura=ia.estrutura and ia.estrutura==ib.estrutura
+            estrutura=ia.estrutura and estrutura_funcional(ia.estrutura)==estrutura_funcional(ib.estrutura)
             funcao=ia.funcao and ia.funcao==ib.funcao
             estatico=ia.funcao not in ('button','select','tab','menuitem') and 'dinamico' not in ia.estrutura+ib.estrutura
             if destinos and estrutura and funcao and estatico:
@@ -119,12 +124,12 @@ class Inteligencia:
             if any(ib.tipo==ia.tipo and normalizar(ib.nome)==normalizar(ia.nome) and normalizar(ib.local)==normalizar(ia.local) for ib in b):continue
             candidatos=[ib for ib in b if id(ib) not in usados_b and ib.tipo==ia.tipo and
                 normalizar(ib.nome)!=normalizar(ia.nome) and normalizar(ib.local)==normalizar(ia.local) and
-                ib.funcao==ia.funcao and ib.estrutura==ia.estrutura and ib.destino and
+                ib.funcao==ia.funcao and estrutura_funcional(ib.estrutura)==estrutura_funcional(ia.estrutura) and ib.destino and
                 link_equivalente(ia.destino,ib.destino,base_a,base_b)]
             if len(candidatos)!=1:continue
             ib=candidatos[0]
             reversos=[other for other in a if id(other) not in usados_a and other.tipo==ia.tipo and other.destino and
-                normalizar(other.local)==normalizar(ib.local) and other.funcao==ib.funcao and other.estrutura==ib.estrutura and
+                normalizar(other.local)==normalizar(ib.local) and other.funcao==ib.funcao and estrutura_funcional(other.estrutura)==estrutura_funcional(ib.estrutura) and
                 link_equivalente(other.destino,ib.destino,base_a,base_b)]
             if len(reversos)!=1:continue
             usados_a.add(id(ia));usados_b.add(id(ib))

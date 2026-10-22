@@ -19,7 +19,7 @@ MAX_MINUTOS_SEGURANCA = 45
 TEMPO_PAGINA_MS = 30000
 MAX_FALHAS_CONSECUTIVAS = 15
 IGNORAR_QUERY = {'utm_source','utm_medium','utm_campaign','utm_content','utm_term',
-                 'fbclid','gclid','jsessionid','phpsessid','sessionid','token','auth','sid'}
+                 'fbclid','gclid'}
 ARQUIVOS = {'.pdf','.doc','.docx','.xls','.xlsx','.csv','.odt','.ods','.ppt','.pptx','.zip','.rar'}
 IGNORAR_EXT = {'.jpg','.jpeg','.png','.gif','.webp','.svg','.css','.js','.ico',
                '.mp4','.mov','.mp3','.woff','.woff2','.ttf','.xml','.json'} | ARQUIVOS
@@ -101,6 +101,7 @@ class Item:
     estrutura: str = ''
     componente_id: str = ''
     secao_id: str = ''
+    controle_alvo: str = ''
 
 
 @dataclass
@@ -154,7 +155,7 @@ JS_EXTRAIR = r'''() => {
     const own=clean(el.innerText||el.getAttribute('aria-label')||el.title);
     const rowContext=rowText&&rowText!==own?clean(rowText.replace(own,'')):'';
     const group=el.closest('nav,header,footer,aside') || el.closest('main,article,section');
-    const base=clean(header?.textContent)||rowContext||clean(group?.querySelector('h1,h2,h3')?.textContent);
+    const base=clean(header?.textContent)||rowContext||clean(group?.getAttribute('aria-label'))||clean(group?.querySelector('h1,h2,h3')?.textContent);
     return base || (el.closest('footer')?'Rodapé':el.closest('header')?'Cabeçalho':'Conteúdo principal');
   };
   const editorialRef=el=>{
@@ -183,6 +184,7 @@ JS_EXTRAIR = r'''() => {
     nome=clean(nome);chave=clean(chave);
     const entidade=nome&&nome.length>=2?editorialRef(el):'';
     if(nome&&nome.length>=2)out.push({tipo,nome,chave,local:ctx(el),destino,
+      controle_alvo:el.getAttribute('aria-controls')||'',
       posicao:posicao(el),seletor:selector(el),visivel_texto:textoVisivel,
       componente_id:(()=>{const p=el.closest('[data-component],[role="group"],fieldset,[class*="widget" i]');return p?selector(p):'';})(),
       secao_id:(()=>{const p=el.closest('section,article,[role="region"]');return p?selector(p):'';})(),
@@ -193,7 +195,7 @@ JS_EXTRAIR = r'''() => {
         el.hasAttribute('disabled'),el.getAttribute('aria-haspopup')||'',el.getAttribute('target')||'',
         [...el.children].map(x=>x.tagName).join(','),el.hasAttribute('onclick')?'dinamico':'estatico'].join('|')});
   };
-  for(const el of document.querySelectorAll('h1,h2,h3,h4,p')){
+  for(const el of document.querySelectorAll('h1,h2,h3,h4,p,dt,dd,time[datetime],[role="heading"],[data-field],[itemprop]')){
     if(!visivel(el)||isCookie(el)||el.closest('header,footer,nav,[role="navigation"]'))continue;
     const val=clean(el.innerText||el.textContent);
     if(val.length>=4&&val.length<=420)add('Texto',val,val,el);
@@ -211,7 +213,7 @@ JS_EXTRAIR = r'''() => {
     const name=clean(el.innerText||el.getAttribute('aria-label')||el.title||el.querySelector('img')?.alt||'');
     if(!name)continue;
     const pathname=(()=>{try{return new URL(href).pathname.toLowerCase()}catch(e){return ''}})();
-    const isDoc=/\.(pdf|docx?|xlsx?|csv|pptx?|zip|odt|ods)(\/|$)/i.test(pathname) || /^\/documents\/d\//i.test(pathname);
+    const isDoc=/\.(pdf|docx?|xlsx?|csv|pptx?|zip|odt|ods)(\/|$)/i.test(pathname) || /^\/documents\/d\//i.test(pathname) || el.hasAttribute('download');
     const tipo=isDoc?'Documento':'Opção';
     add(tipo,name,name,el,href,!!clean(el.innerText));
     links.push({url:href,label:name,local:ctx(el),tipo,selector:selector(el)});
@@ -277,11 +279,19 @@ JS_EXTRAIR = r'''() => {
 def coletar_aba(page, itens: list[dict], links: list[dict], log,parar=None) -> None:
     """Interage apenas com abas detectadas, sem clicar formulários ou executar ações."""
     try:
+        disclosures=page.locator('details:not([open]) > summary,button[aria-expanded="false"][aria-controls]')
+        for control in disclosures.element_handles()[:20]:
+            if parar and parar.is_set():break
+            if control.is_visible() and not control.evaluate('e=>!!e.closest("form")'):
+                from .functional import PROIBIDOS
+                if PROIBIDOS.search(control.inner_text()):continue
+                control.click(timeout=1200);page.wait_for_timeout(150)
+                expanded=page.evaluate(JS_EXTRAIR);itens.extend(expanded['itens']);links.extend(expanded['links'])
         tabs=page.locator('[role="tab"],button[data-bs-toggle="tab"],a[data-bs-toggle="tab"]')
         for i in range(min(tabs.count(),35)):
             if parar and parar.is_set():break
             tab=tabs.nth(i)
-            if not tab.is_visible():continue
+            if not tab.is_visible() or tab.evaluate('e=>!!e.closest("form")'):continue
             rotulo=(tab.inner_text(timeout=1500) or '').strip()[:80]
             if not rotulo:continue
             try:
@@ -410,7 +420,7 @@ def _registro(item:Item,pa:Pagina,pb:Pagina,presente:str,ausente:str,*,referenci
     return {'tipo':item.tipo,'presente_em':presente,'nao_identificado_em':ausente,
             'pagina':pa.titulo,'url_presente':pa.url,'url_comparada':pb.url,
             'local':item.local,'caminho':caminho,'elemento':item.nome[:250],
-            'componente_id':item.componente_id,'secao_id':item.secao_id,
+            'componente_id':item.componente_id,'secao_id':item.secao_id,'referencia':item.destino,
             'descricao':descricao,'situacao':'Divergência para revisão', 'posicao':item.posicao, 'seletor':item.seletor, 'visivel_texto':item.visivel_texto}
 
 
@@ -551,10 +561,10 @@ def inferir_site(pag_a:dict[str,Pagina],pag_b:dict[str,Pagina],base_a:str)->str:
     return urlsplit(base_a).hostname or 'Comparação de ambientes'
 
 
-def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,varredura_inteligente=False):
+def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,varredura_inteligente=False,observador=None):
     """v1.5: comparação pareada, com variações editoriais separadas."""
     from .paired import executar_pareado
     return executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,
                            site_nome=site_nome,evidencias_dir=evidencias_dir, auditar_externos=auditar_externos,
                            ambiente_desatualizado=ambiente_desatualizado,checkpoint=checkpoint,
-                           verificar_cliques=verificar_cliques,varredura_inteligente=varredura_inteligente)
+                           verificar_cliques=verificar_cliques,varredura_inteligente=varredura_inteligente,observador=observador)

@@ -26,6 +26,8 @@ app=Flask(__name__)
 app.config['MAX_CONTENT_LENGTH']=12*1024
 PASTA=ROOT/'relatorios';PASTA.mkdir(exist_ok=True)
 HISTORY_PATH=ROOT/'historico.json'
+from ambidiff.live import Logs
+FEED=Logs()
 LOCK=threading.RLock();PARAR=threading.Event()
 STATE={'status':'pronto','progresso':0,'logs':[],'ultimo_id':None,'erro':None,'resumo':None,
        'inicio_monotonic':None,'fim_monotonic':None,'amostras_progresso':[]}
@@ -70,8 +72,14 @@ def atualizar(**kw):
 def estado_publico(agora=None):
     with LOCK:
         dados={k:v for k,v in STATE.items() if k not in
-               ('inicio_monotonic','fim_monotonic','amostras_progresso')}
+               ('inicio_monotonic','fim_monotonic','amostras_progresso','amostras_pares')}
         dados['logs']=list(STATE['logs'])
+        dados['interrupcao_solicitada']=PARAR.is_set() and dados['status']=='executando'
+        d=STATE.get('andamento',{})
+        total=d.get('pares_visitados',0)+d.get('pares_pendentes',0)
+        dados['cobertura_conhecida_percentual']=round(100*d.get('pares_visitados',0)/total) if total else None
+        dados['progresso_semantica']='Fila descoberta até o momento, não conclusão global nem inspeção profunda'
+        dados['servidor_agora']=datetime.now().astimezone().isoformat()
         inicio=STATE['inicio_monotonic']
         if inicio is None:
             dados['tempo_decorrido_segundos']=None
@@ -83,12 +91,38 @@ def estado_publico(agora=None):
             dados['tempo_decorrido_segundos']=decorrido
             dados['tempo_restante_segundos']=estimar_tempo_restante(
                 STATE['amostras_progresso'],agora,dados['progresso'],decorrido,dados['status'])
+        if STATE.get('andamento'):
+            amostras=STATE.get('amostras_pares',[])
+            dados['tempo_restante_segundos']=None
+            d=STATE['andamento']
+            if dados['status']=='executando' and d.get('etapa') not in ('capturas','processamento_final','auditoria') and len(amostras)>=3:
+                t0,n0=amostras[0];t1,n1=amostras[-1]
+                if t1-t0>=10 and n1>n0 and time.monotonic()-t1<30:
+                    dados['tempo_restante_segundos']=round(d.get('pares_pendentes',0)*(t1-t0)/(n1-n0)) or None
         return dados
 
 
 def log(msg):
     with LOCK:
-        STATE['logs'].append(str(msg)[:700]);STATE['logs']=STATE['logs'][-200:]
+        texto=str(msg)[:700]
+        STATE['logs'].append(texto);STATE['logs']=STATE['logs'][-200:]
+        FEED.adicionar(texto)
+        rid=STATE.get('execucao_id')
+        if rid and valid_run(rid):
+            try:
+                with (PASTA/f'execucao_{rid}.log').open('a',encoding='utf-8') as out:out.write(texto+'\n')
+            except OSError as exc:STATE['falha_log_completo']=str(exc)[:180]
+
+
+def andamento(dados):
+    with LOCK:
+        anterior=STATE.get('andamento',{})
+        agora=time.monotonic();samples=STATE.setdefault('amostras_pares',[])
+        if dados.get('pares_pendentes',0)>anterior.get('pares_pendentes',0):samples.clear()
+        if dados.get('pares_comparados',0)>anterior.get('pares_comparados',0):samples.append((agora,dados['pares_comparados']))
+        STATE['amostras_pares']=samples[-30:]
+        STATE['andamento']=dict(dados)
+
 
 
 def _hist():
@@ -102,7 +136,7 @@ def worker(params,run_id):
     inicio_worker=time.monotonic();inicio_iso=datetime.now().astimezone().isoformat()
     try:
         resultado=executar(params['url_a'],params['url_b'],params['nome_a'],params['nome_b'],
-                           PARAR,log,atualizar_progresso,
+                           PARAR,log,atualizar_progresso,observador=andamento,
                            site_nome=params['site_nome'], evidencias_dir=PASTA/f'evidencias_{run_id}',
                            auditar_externos=params['auditar_externos'],
                            verificar_cliques=params.get('verificar_cliques',False),
@@ -120,10 +154,12 @@ def worker(params,run_id):
         exportar_diagnostico(montar_diagnostico(resultado,list(STATE.get('logs',[]))),PASTA,run_id)
         if not PARAR.is_set():
             (PASTA/f'checkpoint_{run_id}.json').unlink(missing_ok=True)
+        from ambidiff.sections import agrupar_documentos
+        total_agrupado=len(agrupar_documentos(resultado['divergencias']))
         entrada={'id':run_id,'data':resultado['gerado_em'],'site_nome':resultado['site_nome'],
                  'site_id':resultado['site_id'],'ambientes':resultado['ambientes'],
                  'situacao':resultado['situacao_analise'],'modo_varredura':resultado.get('modo_varredura','atual'),
-                 'total':len(resultado['divergencias']), 'ocorrencias_brutas':resultado.get('ocorrencias_brutas',len(resultado['divergencias'])),
+                 'total':total_agrupado, 'ocorrencias_brutas':resultado.get('ocorrencias_brutas',len(resultado['divergencias'])),
                  'avisos':sum(r['quantidade'] for r in resultado['avisos_tecnicos']),
                  'paginas':resultado['paginas'],
                  'variacoes_dados':len(resultado.get('variacoes_dados',[])),
@@ -192,7 +228,13 @@ def index():return render_template('index.html')
 
 @app.get('/api/status')
 def status():
-    return jsonify(estado_publico())
+    try:cursor=max(0,int(request.args.get('cursor','0')))
+    except ValueError:return jsonify(erro='Cursor inválido'),400
+    with LOCK:
+        inicio=STATE.get('execucao_log_inicio',0)
+        feed=FEED.consultar(max(cursor,inicio))
+        if FEED.eventos and max(cursor,inicio)<FEED.eventos[0]['id']-1:feed['lacuna_logs']=True
+        return jsonify({**estado_publico(),**feed})
 
 
 @app.post('/api/comparar')
@@ -212,11 +254,14 @@ def comparar():
         except (ValueError,TypeError) as e:return jsonify(erro=str(e)),400
         PARAR.clear()
         inicio=time.monotonic()
-        STATE.update(status='executando',progresso=0,logs=['Iniciando Chromium...'],
+        STATE.update(status='executando',progresso=0,logs=[],
                      erro=None,resumo=None,ultimo_id=None,
                      inicio_monotonic=inicio,fim_monotonic=None,
                      amostras_progresso=[(inicio,0)])
         run_id=datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:6]
+        FEED.eventos.clear()
+        STATE.update(execucao_id=run_id,execucao_log_inicio=FEED.seq,andamento={},amostras_pares=[],falha_log_completo=None)
+        log('Iniciando Chromium...')
         params=dict(url_a=url_a,url_b=url_b,nome_a=nome_a,nome_b=nome_b,site_nome=site_nome,
                     auditar_externos=(args.get('auditar_externos') is True),
                     verificar_cliques=(args.get('verificar_cliques') is True),
@@ -227,7 +272,16 @@ def comparar():
 
 
 @app.post('/api/parar')
-def parar():PARAR.set();return jsonify(ok=True)
+def parar():
+    with LOCK:
+        if STATE['status']=='executando':PARAR.set()
+    return jsonify(ok=True,interrupcao_solicitada=PARAR.is_set())
+
+
+@app.get('/api/execucao/<run_id>/logs')
+def logs_completos(run_id):
+    if not valid_run(run_id):return jsonify(erro='ID inválido'),400
+    return send_from_directory(PASTA,f'execucao_{run_id}.log',as_attachment=True)
 
 
 @app.get('/api/historico')

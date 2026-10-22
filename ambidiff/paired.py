@@ -14,7 +14,7 @@ import time
 import unicodedata
 from urllib.parse import urlsplit, urljoin, unquote
 
-from .smart import Metricas, Inteligencia
+from .smart import Metricas, Inteligencia,estrutura_funcional
 from .documents import Documentos
 from .intelligence import separar_editoriais,agrupar_variacoes,sinais_extraidos,item_editorial
 from .diagnostics import classificar_erro
@@ -48,6 +48,7 @@ def link_equivalente(url_a:str,url_b:str,base_a:str,base_b:str)->bool:
     URLs externas devem ser iguais. Rotas internas e parâmetros distintos
     representam divergência de destino (ainda que duas páginas possam ser iguais).
     """
+    if urlsplit(url_a).fragment!=urlsplit(url_b).fragment:return False
     a,b=url_limpa(url_a),url_limpa(url_b)
     pa,pb,ba,bb=map(urlsplit,(a,b,base_a,base_b))
     int_a=pa.netloc==ba.netloc
@@ -57,8 +58,8 @@ def link_equivalente(url_a:str,url_b:str,base_a:str,base_b:str)->bool:
     if int_a and int_b:
         root_a=ba.path.rstrip('/')
         root_b=bb.path.rstrip('/')
-        path_a=pa.path[len(root_a):] if root_a and pa.path.startswith(root_a+'/') else pa.path
-        path_b=pb.path[len(root_b):] if root_b and pb.path.startswith(root_b+'/') else pb.path
+        path_a='/' if root_a and pa.path.rstrip('/')==root_a else pa.path[len(root_a):] if root_a and pa.path.startswith(root_a+'/') else pa.path
+        path_b='/' if root_b and pb.path.rstrip('/')==root_b else pb.path[len(root_b):] if root_b and pb.path.startswith(root_b+'/') else pb.path
         return (path_a or '/',pa.query)==(path_b or '/',pb.query)
     if int_a!=int_b:return False
     return a==b
@@ -210,12 +211,13 @@ def _link_chave(item:Item):
     return (item.tipo,normalizar(item.nome),titulo_normalizado(item.local))
 
 
-def _link_pairs(pa:Pagina,pb:Pagina,aceitar_rotulos=False):
+def _link_pairs(pa:Pagina,pb:Pagina,aceitar_rotulos=False,base_a=None,base_b=None):
     """Correspondência conservadora: texto + região + ordem de aparição.
 
     Itens repetidos em áreas diferentes nunca são casados apenas pela palavra
     "Consultar". Se um rótulo for ambíguo, não adivinhar o par.
     """
+    base_a=base_a or pa.url;base_b=base_b or pb.url
     list_a=[i for i in pa.itens if i.tipo in ('Opção','Documento') and i.destino]
     list_b=[i for i in pb.itens if i.tipo in ('Opção','Documento') and i.destino]
     by_b=defaultdict(list)
@@ -252,13 +254,13 @@ def _link_pairs(pa:Pagina,pb:Pagina,aceitar_rotulos=False):
         for ia in list_a:
             if id(ia) in paired_a or not ia.funcao or not ia.estrutura:continue
             candidates=[ib for ib in list_b if id(ib) not in used and ib.tipo==ia.tipo and
-                ib.funcao==ia.funcao and ib.estrutura==ia.estrutura and normalizar(ib.local)==normalizar(ia.local) and
-                link_equivalente(ia.destino,ib.destino,pa.url,pb.url)]
+                ib.funcao==ia.funcao and estrutura_funcional(ib.estrutura)==estrutura_funcional(ia.estrutura) and normalizar(ib.local)==normalizar(ia.local) and
+                link_equivalente(ia.destino,ib.destino,base_a,base_b)]
             if len(candidates)!=1:continue
             ib=candidates[0]
             reverse=[i for i in list_a if id(i) not in paired_a and i.tipo==ib.tipo and i.funcao==ib.funcao and
-                i.estrutura==ib.estrutura and normalizar(i.local)==normalizar(ib.local) and
-                link_equivalente(i.destino,ib.destino,pa.url,pb.url)]
+                estrutura_funcional(i.estrutura)==estrutura_funcional(ib.estrutura) and normalizar(i.local)==normalizar(ib.local) and
+                link_equivalente(i.destino,ib.destino,base_a,base_b)]
             if len(reverse)==1:matched.append((ia,ib));paired_a.add(id(ia));used.add(id(ib))
     return matched
 
@@ -304,7 +306,7 @@ def agrupar_registros(registros:list[dict])->list[dict]:
         destinos=(r.get('destino_a',''),r.get('destino_b','')) if r.get('destino_a') or r.get('destino_b') else (tuple(r.get('ordem_a',[])),tuple(r.get('ordem_b',[]))) if tipo=='Ordem' else ()
         key=(tipo,normalizar(r.get('elemento','')),r.get('presente_em',''),
              titulo_normalizado(r.get('posicao','')),titulo_normalizado(r.get('local','')),
-             destinos,r.get('texto_a',''),r.get('texto_b',''),r.get('assinatura_a',''),r.get('assinatura_b',''))
+             destinos,r.get('referencia',''),r.get('texto_a',''),r.get('texto_b',''),r.get('assinatura_a',''),r.get('assinatura_b',''))
         reg=grupos.get(key)
         ocorrencia={'url_presente':r.get('url_presente',''),'url_comparada':r.get('url_comparada',''),
                     'caminho':r.get('caminho',''),'local':r.get('local',''),'seletor':r.get('seletor',''),'componente_id':r.get('componente_id',''),'secao_id':r.get('secao_id','')}
@@ -342,59 +344,11 @@ def agrupar_referencias(refs:list[dict])->list[dict]:
 
 
 def _auditar_externos(browser,urls,parar,log,metricas=None):
-    """Auditoria mínima em páginas externas iguais nos dois ambientes.
-
-    Não rastreia domínios terceiros e não infere se um conteúdo está correto.
-    Acessa no máximo 8 páginas iniciais, depois no máximo 5 links de menu
-    do MESMO host por página, apenas para informar se abrem HTML com texto.
-    """
-    saida=[]
-    if not urls:return saida
-    ctx=browser.new_context(locale='pt-BR',accept_downloads=False)
-    if metricas:ctx.on('request',lambda _:metricas.contagens.update(['requisicoes_navegador']))
-    page=ctx.new_page();ja=set()
-    try:
-        for url,origem in urls[:_MAX_EXTERNOS]:
-            if parar.is_set():break
-            if url in ja:continue
-            ja.add(url)
-            p=urlsplit(url)
-            result={'url':url,'origem':origem,'status':'Não verificado','opcoes':[]}
-            if e_arquivo(url):
-                result['status']='Arquivo externo (sem varredura HTML)';saida.append(result);continue
-            try:
-                r=page.goto(url,wait_until='domcontentloaded',timeout=9000)
-                if urlsplit(page.url).netloc!=p.netloc:
-                    result['status']='Redirecionamento externo adicional (não seguido)';saida.append(result);continue
-                if r and r.status>=400:raise RuntimeError('HTTP '+str(r.status))
-                menu=page.evaluate('''() => [...document.querySelectorAll('aside a[href],nav a[href],[role="navigation"] a[href]')]
-                  .filter(x=>x.getClientRects().length&&x.innerText.trim())
-                  .map(x=>({label:x.innerText.trim().slice(0,90),url:x.href})).slice(0,100)''')
-                texto=page.evaluate('() => document.body?.innerText?.trim().length||0')
-                result['status']='Página acessível' if texto>50 else 'Página sem conteúdo textual suficiente'
-                for link in menu[:_MAX_OPCOES_EXTERNAS]:
-                    item={'opcao':link['label'],'destino':link['url'],'situacao':'Não verificado'}
-                    if urlsplit(link['url']).netloc!=p.netloc:
-                        item['situacao']='Outro domínio (não acessado)';result['opcoes'].append(item);continue
-                    if e_arquivo(link['url']):
-                        item['situacao']='Arquivo (não verificado)';result['opcoes'].append(item);continue
-                    try:
-                        if metricas:metricas.contagens['requisicoes_api_externa']+=1
-                        res=ctx.request.get(link['url'],timeout=6500,max_redirects=0)
-                        if res.status>=400:item['situacao']='HTTP '+str(res.status)
-                        elif 300<=res.status<400:item['situacao']='Redireciona (destino não visitado)'
-                        elif 'html' not in res.headers.get('content-type','').lower():item['situacao']='Resposta não HTML'
-                        else:
-                            sample=res.text()[:300000]
-                            # Heurística não prova informação correta. Avalia somente presença de texto.
-                            stripped=re.sub('<[^>]+>',' ',sample)
-                            item['situacao']='Conteúdo HTML presente' if len(re.sub(r'\\s+','',stripped))>60 else 'Possível página vazia'
-                    except Exception as exc:item['situacao']='Não verificado: '+str(exc)[:100]
-                    result['opcoes'].append(item)
-            except Exception as exc:result['status']='Não verificado: '+str(exc)[:120]
-            saida.append(result)
-    finally:ctx.close()
-    return saida
+    """Compatibilidade: apenas HEAD, nunca extrair conteúdo ou explorar links."""
+    from .destinations import Destinos
+    checker=Destinos(metricas or Metricas(),parar,externos=True)
+    return [{'url':url,'origem':origem,'status':checker.conferir(url)['classificacao'],'opcoes':[]}
+            for url,origem in urls[:_MAX_EXTERNOS] if not parar.is_set()]
 
 
 def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',nome_b='DES',metricas=None):
@@ -409,6 +363,13 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
     context=browser.new_context(locale='pt-BR',viewport={'width':1366,'height':850},
                                 service_workers='block',accept_downloads=False)
     if metricas:context.on('request',lambda _:metricas.contagens.update(['requisicoes_navegador']))
+    origens={(urlsplit(r.get(k,'')).scheme,urlsplit(r.get(k,'')).netloc) for r in registros for k in ('url_presente','url_comparada') if r.get(k)}
+    def filtro_captura(route):
+        req=route.request;p=urlsplit(req.url)
+        from .documents import ACOES_ESCRITA
+        if req.method not in ('GET','HEAD','OPTIONS') or ACOES_ESCRITA.search(unquote(req.url)) or (req.is_navigation_request() and (p.scheme,p.netloc) not in origens):route.abort()
+        else:route.continue_()
+    context.route('**/*',filtro_captura)
     page=context.new_page();qtd=0;inicio_capturas=time.monotonic()
     try:
         for r in registros:
@@ -446,15 +407,21 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
                 except Exception as exc:
                     log('[Evidência] '+r['id']+' '+env+': '+str(exc)[:90])
             if result:
+                if metricas:metricas.contagens['capturas_geradas']+=len(result)
                 r['evidencias']=result
                 r['marcacoes']=mark
                 r['evidencia']=next(iter(result.values()))
                 qtd+=1
     finally:context.close()
 
-def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False):
+def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False,observador=None):
     from playwright.sync_api import sync_playwright
-    metricas=Metricas();metricas.parar=parar;inteligencia=Inteligencia(metricas);documentos=Documentos(metricas,parar)
+    metricas=Metricas();metricas.parar=parar;inteligencia=Inteligencia(metricas);documentos=Documentos(metricas,parar,permitir_range=False)
+    from .destinations import Destinos
+    destinos=Destinos(metricas,parar,(url_a,url_b),externos=auditar_externos)
+    verificacoes_destinos=[]
+    resultados_funcionais=[]
+    diferencas_esteticas=[]
     documentos_relatorio=[]
     andamento={'etapa':'inicio','par_atual':0,'ultimo_par_processado':0}
     base_a,base_b=validacao_inicial(url_a,url_b)
@@ -463,12 +430,17 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     visitados=set();paginas_a={};paginas_b={};brutos=[];falhas=[];pendencias=[];refs=[]
     excluded=Counter();externos=[];avisos_coleta=[];consecutivos=0;parada='';inicio=time.monotonic()
     eventos=[];editoriais=[];cliques_testados=0;MAX_CLIQUES=12;modo_defasado=ambiente_desatualizado if ambiente_desatualizado in (nome_a,nome_b) else ''
+    ultimo_checkpoint=time.monotonic()
+    def emitir(etapa):
+        from datetime import datetime
+        andamento.update(etapa=etapa,pares_descobertos=len(pares_enfileirados),pares_visitados=len(visitados),pares_comparados=len(paginas_a),pares_pendentes=len(fila),ocorrencias_preliminares=len(brutos),ultima_atividade=datetime.now().astimezone().isoformat())
+        if observador:observador(dict(andamento))
     def snapshot():
         return {**metricas.temporal(),'site_nome':site_nome,'ambientes':{nome_a:base_a,nome_b:base_b},
             'paginas':{nome_a:len(paginas_a),nome_b:len(paginas_b)},
             'andamento':dict(andamento),'brutos':brutos,'variacoes_editoriais':editoriais,'falhas':falhas,
             'modo_varredura':'inteligente' if varredura_inteligente else 'atual',
-            'otimizacao':inteligencia.resultado(),'documentos_verificados':documentos_relatorio,
+            'otimizacao':inteligencia.resultado(),'resultados_funcionais':resultados_funcionais,'diferencas_esteticas':diferencas_esteticas,'documentos_verificados':documentos_relatorio,'verificacoes_destinos':verificacoes_destinos,
             'metricas':metricas.resultado(),'registros_editoriais':editoriais,
             'eventos_diagnostico':eventos,'pendencias':pendencias,
             'meta_varredura':{nome_a:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':parada or 'Execução ainda em andamento','referencias_excluidas':dict(excluded)},
@@ -487,6 +459,17 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         ctx_b=browser.new_context(locale='pt-BR',viewport={'width':1366,'height':850},service_workers='block',accept_downloads=False)
         def contar_requisicao(_req):metricas.contagens['requisicoes_navegador']+=1
         for contexto in (ctx_a,ctx_b):contexto.on('request',contar_requisicao)
+        origens_autorizadas={(urlsplit(u).scheme,urlsplit(u).netloc) for u in (base_a,base_b)}
+        def somente_leitura(route):
+            req=route.request;p=urlsplit(req.url)
+            from .documents import ACOES_ESCRITA
+            inseguro=req.method not in ('GET','HEAD','OPTIONS') or bool(ACOES_ESCRITA.search(unquote(req.url)))
+            if req.is_navigation_request() and not any(permitido(req.url,base) for base in (base_a,base_b)):inseguro=True
+            if inseguro:
+                falhas.append({'ambiente':'AUTOMAÇÃO','url':req.url,'erro':'Requisição bloqueada pela política de somente leitura/origem','tipo_erro':'POLITICA_SEGURANCA'})
+                route.abort()
+            else:route.continue_()
+        for contexto in (ctx_a,ctx_b):contexto.route('**/*',somente_leitura)
         if _preparar_contextos:
             _preparar_contextos(ctx_a,ctx_b)
         page_a=ctx_a.new_page();page_b=ctx_b.new_page()
@@ -506,6 +489,12 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     if len(eventos)<600:eventos.append({'par':len(visitados),'tipo':'ARQUIVO_NAO_HTML','urls':{nome_a:ua,nome_b:ub},'trilha':trilha,'resultado':'Ignorado sem incrementar falhas'})
                     consecutivos=0;continue
                 andamento.update(etapa='navegacao',par_atual=len(visitados),url_a=ua,url_b=ub)
+                emitir('navegacao')
+                if checkpoint and (len(visitados)==1 or time.monotonic()-ultimo_checkpoint>=15):
+                    try:
+                        with metricas.medir('checkpoint'):checkpoint(snapshot())
+                        ultimo_checkpoint=time.monotonic()
+                    except Exception as ex:log('[Diagnóstico] Checkpoint de início de par não salvo: '+str(ex)[:100])
                 log('[PARES] '+str(len(visitados))+': '+ ' → '.join(trilha[-3:]))
                 statuses=[];pares=[];houve_documento=False
                 for env,page,url in ((nome_a,page_a,ua),(nome_b,page_b,ub)):
@@ -546,7 +535,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     else:brutos.append(_diff_redir_page(ua,ub,final_a,final_b,trilha,nome_a,nome_b))
                     consecutivos=0
                     continue
-                andamento['etapa']='extracao'
+                emitir('extracao')
                 try:
                     if varredura_inteligente:
                         pa,pb=inteligencia.preparar_par(page_a,page_b,ua,ub,trilha,log,base_a,base_b,
@@ -570,7 +559,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         avisos_coleta.append({'ambiente':env,'url':pag.url})
                 chave=(ua,ub)
                 paginas_a[ua]=pa;paginas_b[ub]=pb
-                andamento['etapa']='comparacao'
+                emitir('comparacao')
                 # 1. Compara texto/imagens/opções SEM navegar nas diferenças.
                 itens_a,itens_b,pendencias_imgs=_alinhamento_de_componentes(pa,pb,base_a,base_b)
                 if modo_defasado:
@@ -588,6 +577,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     motivos=decidir_releitura(page_a,page_b,pa,pb,comps,parar)
                 if motivos and not parar.is_set():
                     log('[Coleta] Segunda leitura: '+', '.join(motivos)+' — '+ua[:85])
+                    emitir('segunda_leitura')
                     inicio_releitura=time.perf_counter()
                     registro={'url_a':ua,'url_b':ub,'motivos':motivos,'diagnostico_modificado':False,
                               'adotada':False,'diferencas_antes':len(comps),
@@ -624,6 +614,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         for item in pag.itens:
                             if item.posicao in ('Menu de navegação','Menu lateral','Cabeçalho','Rodapé'):item.natureza='estrutura'
                 itens_a,itens_b,_=_alinhamento_de_componentes(pa,pb,base_a,base_b)
+                from .sections import comparar_secoes
+                comps=comparar_secoes(comps,pa,pb,nome_a,nome_b)
                 comps,editoriais_atuais=separar_editoriais(comps,pa,pb,itens_a,itens_b,(nome_a,nome_b),modo_defasado)
                 editoriais.extend(editoriais_atuais)
                 brutos.extend(comps)
@@ -643,7 +635,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         reg['visivel_texto']=encontrados[0].visivel_texto
                         reg['componente_id']=encontrados[0].componente_id
                         reg['secao_id']=encontrados[0].secao_id
-                brutos.extend(novos_icones)
+                tecnicos=[r for r in novos_icones if r.get('situacao')=='Código do ícone diferente — revisão visual' or r.get('decorativo')]
+                diferencas_esteticas.extend(tecnicos)
+                brutos.extend(r for r in novos_icones if r not in tecnicos)
                 refs.extend(novos_layouts)
                 ordens=diferencas_de_ordem(pa,pb,nome_a,nome_b)
                 if modo_defasado:
@@ -651,21 +645,25 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     # Menus e listas institucionais continuam no relatório principal.
                     ordens=[d for d in ordens if d.get('natureza')!='editorial' and not any(t in normalizar(d.get('local','')) for t in ('noticia','notícia','publicaç'))]
                 brutos.extend(ordens)
-                andamento['etapa']='links_documentos'
+                emitir('links_documentos')
                 # 2. Compara links pareados por nome/contexto.
-                with metricas.medir('links'):pares_links=_link_pairs(pa,pb,aceitar_rotulos=varredura_inteligente)
+                with metricas.medir('links'):pares_links=_link_pairs(pa,pb,aceitar_rotulos=varredura_inteligente,base_a=base_a,base_b=base_b)
+                controles=[]
+                for ia in pa.itens:
+                    matches=[ib for ib in pb.itens if ia.controle_alvo and ib.controle_alvo and normalizar(ia.nome)==normalizar(ib.nome) and normalizar(ia.local)==normalizar(ib.local)]
+                    if len(matches)==1:controles.append((ia,matches[0]))
                 if verificar_cliques and cliques_testados<MAX_CLIQUES:
-                    for ca,cb in escolher_candidatos(pares_links,base_a,base_b,limite=min(2,MAX_CLIQUES-cliques_testados)):
+                    for ca,cb in escolher_candidatos(pares_links+controles,base_a,base_b,limite=min(2,MAX_CLIQUES-cliques_testados)):
                         # A inspeção só é executada quando o usuário opta por ela.
                         cliques_testados+=1
-                        with metricas.medir('cliques'):candidato=verificar_par(browser,pa,pb,ca,cb,nome_a,nome_b,base_a,base_b,log)
+                        with metricas.medir('cliques'):candidato=verificar_par(browser,pa,pb,ca,cb,nome_a,nome_b,base_a,base_b,log,diagnosticos=resultados_funcionais)
                         if candidato:brutos.append(candidato)
                 if varredura_inteligente:
                     pareados={id(i) for par in pares_links for i in par}
                     for env,pag in ((nome_a,pa),(nome_b,pb)):
                         for item in pag.itens:
                             base=base_a if env==nome_a else base_b
-                            if item.destino and permitido(item.destino,base) and id(item) not in pareados and (env,item.destino) not in inteligencia.nao_pareadas:
+                            if item.destino and not e_arquivo(item.destino) and permitido(item.destino,base) and id(item) not in pareados and (env,item.destino) not in inteligencia.nao_pareadas:
                                 inteligencia.nao_pareadas.add((env,item.destino))
                                 inteligencia.omissoes.append({'categoria':'Página sem par inequívoco','elemento':item.nome,
                                     'url_a':item.destino if env==nome_a else '', 'url_b':item.destino if env==nome_b else '',
@@ -673,14 +671,41 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                             if item.destino and e_arquivo(item.destino) and id(item) not in pareados:
                                 documentos_relatorio.append({'classificacao':'Verificação inconclusiva','ambiente':env,
                                     'elemento':item.nome,'destino':item.destino,'motivo':'Documento sem par inequívoco; não acessado'})
+                if not varredura_inteligente:
+                    pareados={id(i) for par in pares_links for i in par}
+                    for env,pag in ((nome_a,pa),(nome_b,pb)):
+                        for item in pag.itens:
+                            if item.destino and e_arquivo(item.destino) and id(item) not in pareados:
+                                documentos_relatorio.append({'classificacao':'Verificação inconclusiva','ambiente':env,'elemento':item.nome,'destino':item.destino,'motivo':'Documento sem par; referência não acessada'})
                 for ia,ib in pares_links:
                     try:da,db=url_limpa(ia.destino),url_limpa(ib.destino)
                     except (TypeError,ValueError):continue
                     if referencia_invalida(da) or referencia_invalida(db):
                         excluded['Referências codificadas não navegáveis']+=1;continue
-                    if varredura_inteligente and (e_arquivo(da) or e_arquivo(db)):
+                    if e_arquivo(da) or e_arquivo(db):
                         resultado_doc=documentos.comparar(ia,ib,base_a,base_b)
                         documentos_relatorio.append({**resultado_doc,'pagina_a':pa.url,'pagina_b':pb.url})
+                        ma=resultado_doc.get('a',{});mb=resultado_doc.get('b',{})
+                        diferentes=bool(ma.get('url') and mb.get('url') and not link_equivalente(ma['url'],mb['url'],base_a,base_b))
+                        falha_documental='falha_acesso' in (ma.get('situacao'),mb.get('situacao'))
+                        if diferentes or falha_documental:
+                            registro=_diff_destino(pa,pb,ia,ib,nome_a,nome_b)
+                            registro.update(tipo='Destino verificado',categoria='Documentos',situacao='DESTINO_DIVERGENTE' if diferentes else 'LINK_INACESSIVEL',
+                                destino_final_a=ma.get('url'),destino_final_b=mb.get('url'),verificacao_destino=resultado_doc,
+                                descricao='Cabeçalhos e destinos documentais observados por HEAD. Acesso ou referência diferente; conteúdo dos documentos não lido.')
+                            brutos.append(registro)
+                    externo=(not permitido(da,base_a) or not permitido(db,base_b))
+                    if externo:
+                        if auditar_externos:
+                            with metricas.medir('destinos'):verificacao=destinos.comparar(da,db,base_a,base_b)
+                        else:verificacao={'classificacao':'VERIFICACAO_INCONCLUSIVA','destino_a':da,'destino_b':db,'motivo':'Destino externo não acessado: autorização de conferência desmarcada'}
+                        verificacoes_destinos.append(dict(verificacao,elemento=ia.nome,pagina_a=pa.url,pagina_b=pb.url))
+                        if verificacao['classificacao'] in ('DESTINO_DIVERGENTE','LINK_INACESSIVEL'):
+                            registro=_diff_destino(pa,pb,ia,ib,nome_a,nome_b)
+                            registro.update(tipo='Destino verificado',situacao=verificacao['classificacao'],verificacao_destino=verificacao,
+                                descricao='Resultado da conferência HEAD de destinos. Não houve exploração nem análise de conteúdo externo.')
+                            brutos.append(registro)
+                        if link_equivalente(da,db,base_a,base_b):continue
                     if not link_equivalente(da,db,base_a,base_b):
                         if modo_defasado and (item_editorial(ia,pa) or item_editorial(ib,pb)):
                             editoriais.append({'tipo':'Link editorial','elemento':ia.nome,
@@ -702,6 +727,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         if da==db and not e_arquivo(da):externos.append((da,' → '.join(trilha+[ia.nome])))
                     # PDFs/planilhas permanecem somente como referências (sem abrir no crawler).
                 andamento.update(etapa='par_processado',ultimo_par_processado=len(visitados))
+                emitir('par_processado')
                 log(f'[{nome_a}/{nome_b}] {len(paginas_a)} pares, {len(brutos)} ocorrências preliminares')
                 progresso(min(.92,len(visitados)/max(1,len(visitados)+len(fila))*.85))
                 if checkpoint and len(visitados)%20==0:
@@ -709,22 +735,24 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     except Exception as ex:log('[Diagnóstico] Checkpoint não salvo: '+str(ex)[:110])
                 time.sleep(.04)
             if parar.is_set():parada='Interrompida pelo usuário (resultado parcial preservado)'
-            completos=not bool(fila or parada or falhas or pendencias or avisos_coleta or inteligencia.omissoes or (varredura_inteligente and documentos_relatorio))
-            if varredura_inteligente and not (paginas_a and paginas_b):completos=False
+            completos=not bool(fila or parada or falhas or pendencias or avisos_coleta or inteligencia.omissoes or any(x.get('classificacao')=='Verificação inconclusiva' for x in documentos_relatorio) or any(x.get('classificacao')=='VERIFICACAO_INCONCLUSIVA' for x in verificacoes_destinos) or any(not x.get('conclusivo') for x in resultados_funcionais))
+            if not (paginas_a and paginas_b):completos=False
             if parada:log('Varredura parcial: '+parada)
-            andamento['etapa']='processamento_final'
+            emitir('processamento_final')
             if checkpoint:
                 try:checkpoint(snapshot())
                 except Exception as ex:log('[Diagnóstico] Checkpoint final não salvo: '+str(ex)[:110])
             metricas.tempos['varredura']=time.perf_counter()-metricas.inicio
             inicio_final=time.perf_counter()
-            andamento['etapa']='processamento_final'
+            emitir('processamento_final')
             divergencias=agrupar_registros(brutos)
             if paginas_a and paginas_b and not parar.is_set():
+                emitir('capturas')
                 with metricas.medir('capturas'):_salvar_evidencias(browser,divergencias,evidencias_dir,parar,log,nome_a,nome_b,metricas=metricas)
             progresso(.94)
+            emitir('auditoria')
             with metricas.medir('auditoria'):
-                externos_result=_auditar_externos(browser,externos,parar,log,metricas=metricas) if auditar_externos and not parar.is_set() else []
+                externos_result=[] # Conferência HEAD já registrada; nenhuma exploração externa.
             if parar.is_set():
                 parada='Interrompida pelo usuário (resultado parcial preservado)';completos=False
                 if varredura_inteligente and checkpoint:
@@ -734,6 +762,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             metricas.contagens['paginas_visitadas']=metricas.contagens['operacoes_navegacao']
             metricas.contagens['paginas_coletadas']=len(paginas_a)+len(paginas_b)
             metricas.contagens['pares_documentos_avaliados']=len(documentos.resultados)
+            metricas.contagens['pares_descobertos']=len(pares_enfileirados)
+            metricas.contagens['verificacoes_links']=len(verificacoes_destinos)
             metas={nome_a:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':parada,
                            'referencias_excluidas':dict(excluded)},
                    nome_b:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':parada,
@@ -755,7 +785,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 'meta_varredura':metas,'situacao_analise':situacao,
                 'modo_varredura':'inteligente' if varredura_inteligente else 'atual',
                 'metricas':metricas.resultado(),'otimizacao':inteligencia.resultado(),
-                'documentos_verificados':documentos_relatorio,
+                'resultados_funcionais':resultados_funcionais,'diferencas_esteticas':diferencas_esteticas,'documentos_verificados':documentos_relatorio,'verificacoes_destinos':verificacoes_destinos,
                 'registros_editoriais':editoriais,
                 'falhas':falhas,'eventos_diagnostico':eventos,'ambiente_desatualizado':modo_defasado,
                 'sinais_desatualizacao':sinais_extraidos(paginas_a,nome_a)+sinais_extraidos(paginas_b,nome_b),

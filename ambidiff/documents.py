@@ -9,7 +9,7 @@ import re
 import time
 from urllib.error import HTTPError
 from urllib.parse import urlsplit, urljoin, unquote
-from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPRedirectHandler,ProxyHandler
 
 from .core import normalizar, url_limpa
 
@@ -25,7 +25,7 @@ TIPOS={'application/pdf','application/msword','application/vnd.ms-excel',
        'application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation',
        'application/zip','text/csv','application/vnd.oasis.opendocument.text',
        'application/vnd.oasis.opendocument.spreadsheet'}
-ACOES_ESCRITA=re.compile(r'(?:^|[/?&=_\s-])(?:excluir|remover|apagar|delete|logout|salvar|enviar|gravar)(?:$|[/?&=_.\s-])',re.I)
+ACOES_ESCRITA=re.compile(r'(?:^|[/?&=_\s-])(?:excluir|remover|apagar|delete|logout|salvar|enviar|gravar|update|alterar|cadastrar|incluir|criar|pagar|pagamento|submit|save|pay)(?:$|[/?&=_.\s-])',re.I)
 
 
 class SemRedirect(HTTPRedirectHandler):
@@ -40,9 +40,10 @@ def autorizado(url,base):
 
 
 class Documentos:
-    def __init__(self,metricas,parar):
+    def __init__(self,metricas,parar,permitir_range=True):
+        self.permitir_range=permitir_range
         self.metricas=metricas;self.parar=parar
-        self.opener=build_opener(SemRedirect())
+        self.opener=build_opener(ProxyHandler({}),SemRedirect())
         self.resultados=[];self.cache={};self.requisicoes=0
 
     def conferir(self,url,base):
@@ -70,7 +71,9 @@ class Documentos:
                             return {'situacao':'inconclusivo','motivo':'Limite/redirecionamento sem destino','url':url,'status':status}
                         url=urljoin(url,destino);redirects+=1
                         continue
-                    if metodo=='HEAD' and status in (405,501):metodo='GET';continue
+                    if metodo=='HEAD' and status in (405,501):
+                        if not self.permitir_range:return {'situacao':'inconclusivo','url':url,'status':status,'motivo':'HEAD não suportado; GET não realizado','bytes_lidos':0}
+                        metodo='GET';continue
                     if status>=400:
                         return {'situacao':'falha_acesso','url':url,'status':status,
                                 'motivo':'Resposta HTTP observada; não comprova defeito do site.'}

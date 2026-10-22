@@ -19,6 +19,10 @@ def enriquecer(rows):
             if row.get('teste_funcional_executado'):nivel='confirmada_observacao';evidencia='Comportamentos distintos no teste limitado executado; não determina qual é correto.'
         elif tipo in ('Opção','Botão'):tags=['OPCAO_AUSENTE']
         elif tipo=='Documento':tags=['DOCUMENTO_DIVERGENTE']
+        elif tipo=='Falha de acesso':tags=['COLETA_INCONCLUSIVA'];evidencia='Resposta HTTP diferente observada; causa e funcionalidade não determinadas.'
+        elif tipo=='Destino verificado':
+            tags=['DESTINO_DIVERGENTE'] if row.get('situacao')=='DESTINO_DIVERGENTE' else ['COLETA_INCONCLUSIVA']
+            nivel='confirmada_observacao';evidencia='Destino ou resposta HTTP observada por HEAD; não é análise de conteúdo nem diagnóstico permanente.'
         elif tipo=='Redirecionamento':
             tags=['DESTINO_DIVERGENTE']
             if row.get('categoria')=='Documentos' or any(str(row.get(k,'')).split('?')[0].lower().endswith(('.pdf','.doc','.docx','.xlsx','.odt')) for k in ('destino_a','destino_b')):tags.append('DOCUMENTO_DIVERGENTE')

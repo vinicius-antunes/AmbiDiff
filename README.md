@@ -2,7 +2,7 @@
 
 **PRD × DES/LAB**, com comparação pareada, evidências e exportação local. Funciona no **Windows**, com Python + Playwright Chromium + painel Flask escuro. O programa lê páginas autorizadas sem editar sites.
 
-> **Estado do desenvolvimento:** a branch `main` contém a base v1.5. A branch [`feat/varredura-inteligente`](https://github.com/vinicius-antunes/AmbiDiff/tree/feat/varredura-inteligente) é uma **versão experimental para testes internos**, ainda em revisão no [PR #3](https://github.com/vinicius-antunes/AmbiDiff/pull/3). Ela não inclui automaticamente as correções pendentes dos PRs [#1 (USEIA)](https://github.com/vinicius-antunes/AmbiDiff/pull/1) e [#2 (CGE)](https://github.com/vinicius-antunes/AmbiDiff/pull/2). Nenhuma dessas alterações foi integrada à `main`.
+> **Estado do desenvolvimento:** esta atualização está na branch privada `perf/otimizacao-varredura`, sobre `208ed2b`, sem merge na `main` e sem incorporar as branches USEIA/CGE. Leia o [diagnóstico, requisitos, testes, benchmark e roteiro Windows](docs/proxima-atualizacao.md). Os documentos de versões anteriores são históricos; os limites descritos nessa atualização prevalecem.
 
 ## Testes internos com colegas do setor
 
@@ -10,7 +10,7 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 
 ### Como distribuir o pacote de testes
 
-1. Um responsável com acesso ao repositório privado abre a branch `feat/varredura-inteligente`, seleciona **Code → Download ZIP** e confirma que não baixou a `main`.
+1. Um responsável com acesso ao repositório privado abre a branch `perf/otimizacao-varredura`, seleciona **Code → Download ZIP** e confirma que não baixou a `main`.
 2. Compartilha o ZIP **somente por canal interno aprovado pelo setor/TI**. Não é necessário tornar o repositório público nem habilitar GitHub Pages.
 3. Cada colega extrai o conteúdo em **uma pasta própria**, sem substituir instalações anteriores. Pode renomear a pasta extraída para `AmbiDiff-Teste-Interno`.
 4. Antes de distribuir qualquer pasta montada manualmente, **exclua e confira** relatórios, capturas, arquivos auxiliares, `historico.json`, `.env`, credenciais, sessões, perfis de navegador e `.venv`. O ZIP de código gerado pelo GitHub não deve conter arquivos de execução locais ignorados pelo Git; ainda assim, revise os arquivos distribuídos.
@@ -29,7 +29,7 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 
 | Campo do registro | Exemplo do que informar |
 |---|---|
-| Versão usada | Branch `feat/varredura-inteligente` e commit, se conhecido |
+| Versão usada | Branch `perf/otimizacao-varredura` e commit, se conhecido |
 | Ambientes | Identificação do portal, PRD e DES/LAB (sem credenciais) |
 | Modo de comparação | Convencional ou inteligente; base desatualizada, se aplicável |
 | Localização | Caminho da página, seção e elemento afetado |
@@ -42,10 +42,10 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 ### Limites conhecidos desta versão de testes
 
 - O filtro de relevância prioriza itens institucionais e reduz diferenças estritamente técnicas de SVG, sem comprovar que os ícones são visualmente idênticos.
-- A **DIV-0028 (widget Messenger) da SEFAZ** ainda demanda ajuste na regra automática para o formato real dessa ocorrência; não use esse caso como evidência de filtro já validado.
-- A verificação rápida de documentos analisa acesso e metadados, **não** a igualdade integral do conteúdo dos arquivos.
+- Widgets recebem tratamento genérico de relevância e estabilidade. A **DIV-0028 (Messenger) da SEFAZ real** ainda exige validação manual; decoração isolada não comprova equivalência funcional.
+- Documentos e destinos externos recebem somente conferência de referências/HEAD, sem corpo, PDF ou hash. HEAD bloqueado ou não suportado é inconclusivo.
 - A otimização pode reduzir inspeções profundas de certas páginas editoriais estáticas, com a cobertura omitida declarada no relatório.
-- As correções específicas de navegação USEIA e dos logs/interrupção CGE estão em **branches separadas**, ainda não incorporadas.
+- As branches específicas USEIA/CGE não foram incorporadas. Esta atualização implementa independentemente cursor de logs, progresso e interrupção; a futura integração desses PRs requer revisão de conflitos.
 - Os testes automatizados disponíveis foram executados em ambiente de desenvolvimento; **não há validação concluída nos portais reais do setor ou no Windows de todos os colegas**.
 
 **Critério de sucesso:** identificar diferenças relevantes sem ocultar problemas estruturais ou funcionais, registrar corretamente limites e falhas e preservar resultados parciais. PRD não é considerado automaticamente correto.
@@ -97,10 +97,10 @@ Cada DIV tem botão **Confirmar DIV**. A escolha é preservada em arquivo auxili
 
 ### 6. Ícones/layout e teste opcional de clique
 
-- Compara marcas **SVG** ou classes de ícones em controles equivalentes dos dois ambientes. Diferenças geram registros de *ícone para revisão*, não afirmações de aparência visual comprovada.
+- Compara marcas **SVG** ou classes de ícones em controles equivalentes dos dois ambientes. Diferenças puramente técnicas/decorativas ficam nas observações, sem DIV isolada; ausência de ícone informativo permanece relevante. Não comprova aparência visual.
 - Deslocamentos **muito grandes** de controles equivalentes geram **referências de layout para revisão**. Não é comparação visual por pixels.
 - **Testar cliques de navegação internos** é opcional e fica **desmarcado por padrão**: testa no máximo 12 pares de links de consulta/abertura de destinos equivalentes, usando navegador isolado e bloqueando requisições que não sejam GET/HEAD ou que saiam do domínio. O comportamento observado pode ser inconclusivo. Evite ativar em sites com links sensíveis, mesmo com a proteção.
-- Testar cliques **não** tenta submeter formulários, clicar botões sem links, auditar destinos divergentes nem interagir com sites externos.
+- Testar cliques não submete formulários nem interage com sites externos. Controles internos com `aria-controls` reconhecido e disclosures seguros podem ser observados; botões arbitrários, autenticação e ações de escrita não são executados.
 
 ## Como interpretar o relatório
 
@@ -149,8 +149,9 @@ diferenças estruturais não são dispensadas por essa regra. ÁUDIOS exclusivo 
 CGE continua sendo divergência.
 
 Metadados semelhantes de documentos não comprovam arquivos idênticos. Inspeções
-profundas omitidas e documentos sem comparação integral limitam a cobertura; o
-modo inteligente não os apresenta como varredura totalmente completa. O CSV
+profundas omitidas e verificações inconclusivas limitam a cobertura. A ausência
+de comparação do corpo dos documentos é uma decisão de escopo, não prova de
+identidade dos arquivos. O CSV
 continua dedicado às divergências; JSON, HTML e diagnósticos incluem as novas
 categorias.
 
@@ -208,8 +209,8 @@ Leia [Plano de desempenho — SEFAZ](docs/plano-desempenho-sefaz.md) antes de al
 ## Filtro de relevância e diferenças SVG
 
 A lista principal prioriza diferenças estruturais, funcionais e institucionais.
-Diferenças somente técnicas de SVG ficam disponíveis em **Mostrar todas as diferenças**,
-sem presumir equivalência visual. Há reclassificação manual e exportação principal ou
+Diferenças puramente técnicas/decorativas de SVG ficam nas observações técnicas,
+sem DIV isolada e sem presumir equivalência visual. Há reclassificação manual e exportação principal ou
 completa. Veja [critérios, formatos e limitações](docs/filtro-relevancia.md).
 
 ## Otimização de preparação e releitura
@@ -221,3 +222,19 @@ nos relatórios. O benchmark equivalente entre checkouts mediu redução sintét
 inspecionados. Isso não comprova o ganho em portais reais. Consulte
 [metodologia, testes e limites](docs/otimizacao-varredura.md) e
 [séries completas de medição](docs/benchmark-perf.json).
+
+## Atualização: seções, referências e acompanhamento confiável
+
+Opções ausentes são verificadas na seção correspondente, nos dois sentidos;
+referências em outra seção não apagam uma possível diferença de organização.
+Vários documentos ausentes formam uma DIV por seção, com todos os membros
+preservados. Nomenclatura e valores informativos diferentes continuam visíveis.
+
+Logs usam IDs/cursor, janela de 200 eventos e terminal limitado a 500 linhas,
+com aviso de lacuna e arquivo local completo `execucao_<id>.log`. O polling
+reconecta sem interromper o backend. O percentual representa a fila conhecida,
+e o tempo decorrido independe da ETA. Um clique solicita interrupção cooperativa
+e preserva os resultados parciais. Os campos de URL começam vazios.
+
+Consulte [o relatório técnico A–I](docs/proxima-atualizacao.md) para os requisitos
+atendidos, limites de HEAD/cliques, comandos, resultados e validação manual.

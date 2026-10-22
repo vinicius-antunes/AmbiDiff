@@ -47,7 +47,7 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
       'situacao_analise':resultado.get('situacao_analise','inconclusivo'),
       'modo_varredura':resultado.get('modo_varredura','atual'),
       'exportacao_worker_segundos':resultado.get('exportacao_worker_segundos'),'metricas':resultado.get('metricas',{}),'otimizacao':resultado.get('otimizacao',{}),
-      'documentos_verificados':resultado.get('documentos_verificados',[]),
+      'verificacoes_destinos':resultado.get('verificacoes_destinos',[]),'resultados_funcionais':resultado.get('resultados_funcionais',[]),'diferencas_esteticas':resultado.get('diferencas_esteticas',[]),'documentos_verificados':resultado.get('documentos_verificados',[]),
       'interrupcao':{'ocorreu':bool(motivos),'motivos':motivos,
           'pares_visitados':max((x.get('visitadas',0) for x in metas.values()),default=0),
           'pares_na_fila':max((x.get('pendentes',0) for x in metas.values()),default=0)},
@@ -63,7 +63,8 @@ def exportar_diagnostico(dados:dict,pasta:Path,run_id:str)->dict:
     pasta.mkdir(parents=True,exist_ok=True)
     destino_json=pasta/f'diagnostico_{run_id}.json'
     destino_txt=pasta/f'log_{run_id}.txt'
-    destino_json.write_text(json.dumps(dados,ensure_ascii=False,indent=2),encoding='utf-8')
+    from .storage import atomic_json
+    atomic_json(destino_json,dados)
     linhas=['AMBIDIFF 1.5 — DIAGNÓSTICO DE VARREDURA',
             'Site: '+str(dados.get('site_nome','')),
             'Estado: '+str(dados.get('situacao_analise','')),

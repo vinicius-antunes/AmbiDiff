@@ -3,7 +3,7 @@ import time
 
 JS_SONDA=r'''() => {
  if(!window.__ambidiffObserver){
-   const state={versao:0,ultima:performance.now()};
+   const state={versao:0,ultima:performance.now(),semantica:null,versaoSemantica:0,ultimaSemantica:performance.now()};
    const observer=new MutationObserver(records=>{
      if(records.length){state.versao+=records.length;state.ultima=performance.now();}
    });
@@ -11,8 +11,11 @@ JS_SONDA=r'''() => {
    window.__ambidiffObserver=state;
  }
  const s=window.__ambidiffObserver;
- return {versao:s.versao,quieto_ms:performance.now()-s.ultima,
-   pronto:document.readyState==='complete',
+ const observado=JSON.stringify([[...document.querySelectorAll('h1,h2,h3,h4,p,dt,dd,time[datetime],[role="heading"],[data-field],[itemprop]')].map(e=>[e.innerText,!!e.getClientRects().length,getComputedStyle(e).visibility]),[...document.querySelectorAll('a,button,input,select,img,section,article,nav,[role]')].map(e=>[e.tagName,['A','BUTTON','SELECT'].includes(e.tagName)?e.innerText:'',getComputedStyle(e).visibility,e.getAttribute('role'),e.getAttribute('href'),e.getAttribute('aria-label'),e.getAttribute('aria-expanded'),e.getAttribute('aria-hidden'),e.hasAttribute('disabled'),e.tagName==='IMG'&&e.getAttribute('aria-hidden')!=='true'?[e.alt,e.getAttribute('src')]:null,!!e.getClientRects().length])]);
+ const limitada=observado.length>1000000;
+ if(s.semantica!==observado){s.semantica=observado;s.versaoSemantica++;s.ultimaSemantica=performance.now();}
+ return {versao:s.versaoSemantica,mutacoes_tecnicas:s.versao,quieto_ms:performance.now()-s.ultimaSemantica,limitacao_sonda:limitada,
+   pronto:document.readyState==='complete'&&!limitada,
    carregando:document.querySelectorAll('[aria-busy="true"],[role="progressbar"]').length,
    imagens_pendentes:[...document.images].filter(i=>!i.complete&&i.loading!=='lazy').length,
    lazy:document.querySelectorAll('[loading="lazy"],[data-src],[data-lazy-src]').length,
