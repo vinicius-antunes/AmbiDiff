@@ -42,18 +42,18 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
         if e.get('tipo')=='DOWNLOAD_DE_DOCUMENTO':erros_por_tipo['DOWNLOAD_DE_DOCUMENTO']+=1
     metas=resultado.get('meta_varredura',{})
     motivos={env:d.get('motivo_parada','') for env,d in metas.items() if d.get('motivo_parada')}
-    return {'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_preservados',[]),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
+    return {**{k:resultado.get(k) for k in ('iniciado_em','finalizado_em','duracao_segundos','andamento','media_segundos_por_par','requisicoes_por_par')},'grupos_relacionados':resultado.get('grupos_relacionados',[]),'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_classificados',resultado.get('editoriais_preservados',[])),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
       'site_nome':resultado.get('site_nome',''),'ambientes':resultado.get('ambientes',{}),
       'situacao_analise':resultado.get('situacao_analise','inconclusivo'),
       'modo_varredura':resultado.get('modo_varredura','atual'),
-      'metricas':resultado.get('metricas',{}),'otimizacao':resultado.get('otimizacao',{}),
+      'exportacao_worker_segundos':resultado.get('exportacao_worker_segundos'),'metricas':resultado.get('metricas',{}),'otimizacao':resultado.get('otimizacao',{}),
       'documentos_verificados':resultado.get('documentos_verificados',[]),
       'interrupcao':{'ocorreu':bool(motivos),'motivos':motivos,
           'pares_visitados':max((x.get('visitadas',0) for x in metas.values()),default=0),
           'pares_na_fila':max((x.get('pendentes',0) for x in metas.values()),default=0)},
       'divergencias_preservadas':len(resultado.get('divergencias',[])),
       'variacoes_editoriais_agrupadas':resultado.get('itens_editoriais_agrupados',0),
-      'falhas_por_tipo':dict(erros_por_tipo),'falhas':falhas,
+      'falhas_por_tipo':dict(erros_por_tipo),'falhas':[dict(f,tag_tecnica='COLETA_INCONCLUSIVA',grau_confianca='falha_automacao') for f in falhas],
       'eventos':eventos,'avisos':resultado.get('avisos_tecnicos',[]),
       'mensagens_de_execucao':list(logs or [])[-250:],
       'nota':'A hipótese de causa não comprova defeito no site. Downloads não representam páginas HTML.'}

@@ -1,4 +1,7 @@
-"""Benchmark local: python scripts/benchmark_smart.py --articles 8 --repetitions 3."""
+"""Compara modos com cobertura distinta; para aceite equivalente use benchmark_perf.py.
+
+Benchmark local: python scripts/benchmark_smart.py --articles 8 --repetitions 3.
+"""
 import argparse
 import json
 from pathlib import Path

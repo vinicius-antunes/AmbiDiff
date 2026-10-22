@@ -4,21 +4,23 @@ import csv
 import base64
 from html import escape
 import json
+import time
+from datetime import datetime
 from pathlib import Path
 
 CAMPOS=['classificacao','classificacao_automatica','motivo_relevancia','ids_agrupados','id','categoria','tipo','presente_em','nao_identificado_em','pagina',
         'caminho','posicao','local','elemento','destino_a','destino_b','ordem_a','ordem_b','texto_a','texto_b',
-        'url_presente','url_comparada','ocorrencias_total','revisao_manual','evidencia','evidencias','marcacoes','descricao','situacao']
+        'url_presente','url_comparada','ocorrencias_total','revisao_manual','evidencia','evidencias','marcacoes','descricao','situacao','tag_tecnica','tags','grau_confianca','justificativa_evidencia','teste_funcional_executado','grupos_relacionados']
 
 
 def exportar(dados:dict,pasta:Path,run_id:str)->dict:
+    inicio_exportacao=time.perf_counter()
     from .relevance import preparar
     dados=preparar(dados,{r['id']:r['classificacao_manual'] for r in dados.get('divergencias',[]) if r.get('classificacao_manual')})
     completos=dados['divergencias']
     principais=[r for r in completos if r['classificacao'] not in ('baixa','editorial')]
     pasta.mkdir(parents=True,exist_ok=True)
     paths={ext:pasta/f'comparacao_{run_id}.{ext}' for ext in ('csv','json','html')}
-    paths['json'].write_text(json.dumps(dados,ensure_ascii=False,indent=2),encoding='utf-8')
     dados['divergencias']=completos if dados.get('exportacao_completa') else principais
     def csv_seguro(v):
         s=str(v or '')
@@ -82,7 +84,7 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
         etiqueta=('<p><b>Revisão manual:</b> Confirmada pelo revisor.</p>' if d.get('revisao_manual')=='confirmada' else '')
         cards.append(f'''<article data-div-id="{escape(str(d.get('id','')),quote=True)}"><h3>{esc(d.get('id',''))} · {esc(d.get('categoria') or d.get('tipo',''))} <small>({esc(d.get('ocorrencias_total',1))} ocorrência(s))</small> <button type="button" class="copy-id">Copiar ID</button></h3>
         <p><b>Caminho:</b> {esc(d.get('caminho',''))}<br><b>Posição visual:</b> {esc(d.get('posicao') or 'Não determinada')}</p>
-        <p>{descr}</p><p>Classificação: {esc(d.get('classificacao'))} — {esc(d.get('motivo_relevancia'))}</p>{etiqueta}{extra}<p><b>Página A:</b> {link(d.get('url_presente'))}<br><b>Página B:</b> {link(d.get('url_comparada'))}</p>{capt}{occ}</article>''')
+        <p>{descr}</p><p>Tag: {esc(d.get('tag_tecnica'))} · Confiança: {esc(d.get('grau_confianca'))}</p><p>{esc(d.get('justificativa_evidencia'))}</p><p>Classificação: {esc(d.get('classificacao'))} — {esc(d.get('motivo_relevancia'))}</p>{etiqueta}{extra}<p><b>Página A:</b> {link(d.get('url_presente'))}<br><b>Página B:</b> {link(d.get('url_comparada'))}</p>{capt}{occ}</article>''')
     avisos=''.join(f'''<details><summary>{esc(x['ambiente'])} · {esc(x['tipo'])} ({x['quantidade']})</summary>
       <ul>{''.join('<li>'+esc(u)+'</li>' for u in x['exemplos'])}</ul></details>''' for x in dados.get('avisos_tecnicos',[]))
     external=''.join(f'''<details><summary>{esc(x['status'])} · {esc(x['url'])}</summary>
@@ -102,7 +104,7 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
         if (pasta/f'diagnostico_{dados["id"]}.json').exists():
             diag_links=f'<p><a href="diagnostico_{rid}.json">Diagnóstico JSON</a> · <a href="log_{rid}.txt">Log TXT</a></p>'
     smart_html=esc(json.dumps({'metricas':dados.get('metricas',{}),'otimizacao':dados.get('otimizacao',{}),
-        'documentos_verificados':dados.get('documentos_verificados',[])},ensure_ascii=False,indent=2))
+        'documentos_verificados':dados.get('documentos_verificados',[]),'grupos_relacionados':dados.get('grupos_relacionados',[])},ensure_ascii=False,indent=2))
     doc=f'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>AmbiDiff · {esc(dados.get('site_nome',''))}</title><style>
     body{{font:14px/1.65 system-ui,Arial;background:#10111c;color:#ededf5;max-width:1100px;margin:auto;padding:30px}}
@@ -120,6 +122,7 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
     @media print{{body{{background:white;color:#171717}}article,details{{background:white;border-color:#bbb}}a{{color:#333}}}}
     </style></head><body><small>AMBIDIFF v1.5 · VERIFICAÇÃO LOCAL</small>
     <h1>{esc(dados.get('site_nome','Comparação de ambientes'))}</h1>
+    <p>Início: {esc(dados.get('iniciado_em','não disponível'))} · Fim do processamento: {esc(dados.get('finalizado_em','não disponível'))} · Duração: {esc(dados.get('duracao_segundos','não disponível'))} s</p>
     <p>Gerado em {esc(dados.get('gerado_em',''))} · Estado: <b>{esc(state)}</b></p>
     <p>{len(dados['divergencias'])} grupo(s) de divergência · {esc(dados.get('ocorrencias_brutas',len(dados['divergencias'])))} ocorrência(s) antes do agrupamento</p>
     <p>{('DIVs excluídas pelo revisor: '+str(dados['divergencias_ocultadas'])+'.') if dados.get('divergencias_ocultadas') else ''}</p>
@@ -158,4 +161,7 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
     }})();
     </script></body></html>'''
     paths['html'].write_text(doc,encoding='utf-8')
+    dados['divergencias']=completos
+    dados['exportacao']={'gerado_em':datetime.now().astimezone().isoformat(),'duracao_antes_json_segundos':round(time.perf_counter()-inicio_exportacao,6),'nota':'Exportação CSV/HTML e preparação do JSON. Exclui a escrita final deste JSON, evitando regravar evidências.'}
+    paths['json'].write_text(json.dumps(dados,ensure_ascii=False,indent=2),encoding='utf-8')
     return {ext:str(path) for ext,path in paths.items()}

@@ -6,7 +6,7 @@ no conteúdo para decidir qual destino está correto.
 """
 from __future__ import annotations
 from collections import Counter, deque, defaultdict
-from dataclasses import replace
+from dataclasses import replace, asdict
 from pathlib import Path
 import re
 import shutil
@@ -91,48 +91,15 @@ def refiltro(itens:list[Item])->list[Item]:
     return saida
 
 
-def _preparar_conteudo(page,log,delay=160,limite_segundos=7.0):
-    """Ativa lazy loading com rolagem e aguarda duas amostras estáveis.
-
-    Não usa networkidle (portais com telemetria fazem requisições contínuas).
-    Não clica em formulários, menus ou destinos externos.
-    """
-    inicio=time.monotonic();passos=0;limitado=False
-    try:
-        page.wait_for_timeout(250)
-        while True:
-            dims=page.evaluate('''() => ({scroll:Math.max(document.body?.scrollHeight||0,
-                document.documentElement?.scrollHeight||0),win:innerHeight,y:scrollY})''')
-            if dims['y']+dims['win']>=dims['scroll']-8:break
-            if passos>=35 or time.monotonic()-inicio>limite_segundos:
-                limitado=True;break
-            page.evaluate('() => window.scrollBy(0, Math.max(350,innerHeight*0.80))')
-            page.wait_for_timeout(delay)
-            passos+=1
-        page.evaluate('() => window.scrollTo(0,0)')
-        page.wait_for_timeout(250)
-        ultimo=None;estaveis=0
-        while time.monotonic()-inicio<limite_segundos+2:
-            atual=page.evaluate('''() => [document.querySelectorAll('p,h1,h2,h3,h4,img,a[href]').length,
-                document.body?.innerText?.length||0,document.documentElement?.scrollHeight||0]''')
-            if atual==ultimo:estaveis+=1
-            else:estaveis=0
-            if estaveis>=2:break
-            ultimo=atual
-            page.wait_for_timeout(380)
-        return {'passos_rolagem':passos,'rolagem_limitada':limitado,
-                'estavel':estaveis>=2}
-    except Exception as ex:
-        log('[Coleta] Estabilização parcial: '+str(ex)[:110])
-        try:page.evaluate('() => window.scrollTo(0,0)')
-        except Exception:pass
-        return {'passos_rolagem':passos,'rolagem_limitada':True,'estavel':False}
+def _preparar_conteudo(page,log,delay=160,limite_segundos=7.0,parar=None):
+    from .adaptive import preparar
+    return preparar(page,log,delay,limite_segundos,parar)
 
 
 def _extrair_page(page,url:str,trilha:list[str],log,metricas=None,profunda=True)->Pagina:
     metricas=metricas or Metricas()
     if profunda:
-        with metricas.medir('preparacao'):resumo=_preparar_conteudo(page,log)
+        with metricas.medir('preparacao'):resumo=_preparar_conteudo(page,log,parar=metricas.parar)
     else:resumo={'estavel':True,'rolagem_limitada':False,'inspecao_profunda':False}
     inicio_extracao=time.perf_counter()
     if not resumo['estavel'] or resumo['rolagem_limitada']:
@@ -141,11 +108,14 @@ def _extrair_page(page,url:str,trilha:list[str],log,metricas=None,profunda=True)
     if not isinstance(dados,dict) or not isinstance(dados.get('itens'),list):
         raise RuntimeError('A página não retornou conteúdo HTML analisável.')
     its=list(dados['itens']);links=list(dados['links'])
-    if profunda:coletar_aba(page,its,links,lambda _s:None)
+    if profunda:
+        with metricas.medir('abas'):coletar_aba(page,its,links,lambda _s:None,parar=metricas.parar)
     itens=[]
     for raw in its:
         try:itens.append(Item(**raw))
         except (TypeError,ValueError):continue
+    from .adaptive import sondar
+    resumo['sonda']=sondar(page)
     resumo['avisos_ambiente']=dados.get('avisos_ambiente',[])
     metricas.tempos['extracao']+=time.perf_counter()-inicio_extracao
     metricas.contagens['operacoes_extracao']+=1
@@ -240,7 +210,7 @@ def _link_chave(item:Item):
     return (item.tipo,normalizar(item.nome),titulo_normalizado(item.local))
 
 
-def _link_pairs(pa:Pagina,pb:Pagina):
+def _link_pairs(pa:Pagina,pb:Pagina,aceitar_rotulos=False):
     """Correspondência conservadora: texto + região + ordem de aparição.
 
     Itens repetidos em áreas diferentes nunca são casados apenas pela palavra
@@ -277,6 +247,19 @@ def _link_pairs(pa:Pagina,pb:Pagina):
             ia,ib=a_seletores[sel][0],b_seletores[sel][0]
             if id(ia) not in paired_a and id(ib) not in used:
                 matched.append((ia,ib));used.add(id(ib))
+    if aceitar_rotulos:
+        paired_a={id(x) for x,_ in matched}
+        for ia in list_a:
+            if id(ia) in paired_a or not ia.funcao or not ia.estrutura:continue
+            candidates=[ib for ib in list_b if id(ib) not in used and ib.tipo==ia.tipo and
+                ib.funcao==ia.funcao and ib.estrutura==ia.estrutura and normalizar(ib.local)==normalizar(ia.local) and
+                link_equivalente(ia.destino,ib.destino,pa.url,pb.url)]
+            if len(candidates)!=1:continue
+            ib=candidates[0]
+            reverse=[i for i in list_a if id(i) not in paired_a and i.tipo==ib.tipo and i.funcao==ib.funcao and
+                i.estrutura==ib.estrutura and normalizar(i.local)==normalizar(ib.local) and
+                link_equivalente(i.destino,ib.destino,pa.url,pb.url)]
+            if len(reverse)==1:matched.append((ia,ib));paired_a.add(id(ia));used.add(id(ib))
     return matched
 
 
@@ -290,6 +273,7 @@ def _diff_destino(pa,pb,ia,ib,nome_a,nome_b):
             'presente_em':nome_a,'nao_identificado_em':nome_b,'pagina':pa.titulo,
             'url_presente':pa.url,'url_comparada':pb.url,'local':ia.local,
             'posicao':ia.posicao,'seletor':ia.seletor,'visivel_texto':ia.visivel_texto,
+            'componente_id':ia.componente_id,'secao_id':ia.secao_id,
             'caminho':caminho,'elemento':ia.nome,'destino_a':ia.destino,'destino_b':ib.destino,
             'descricao':f'Na opção "{ia.nome}", localizada em {ia.posicao or "local não identificado"} ({caminho}), '
                         f'o ambiente {nome_a} aponta para {ia.destino}, enquanto {nome_b} aponta para {ib.destino}. '
@@ -313,21 +297,24 @@ def _diff_redir_page(url_a,url_b,final_a,final_b,trilha,nome_a,nome_b):
 def agrupar_registros(registros:list[dict])->list[dict]:
     """Agrupa repetição do MESMO elemento no mesmo contexto, com todas as URLs."""
     grupos={}
-    for r in registros:
+    for indice,original in enumerate(registros,1):
+        r=dict(original);r.setdefault('id_ocorrencia',f'OCO-{indice:07d}')
         tipo=r.get('tipo','')
         # Destinos diferentes não podem ser engolidos por um grupo de mesma etiqueta.
-        destinos=(r.get('destino_a',''),r.get('destino_b','')) if tipo=='Redirecionamento' else (tuple(r.get('ordem_a',[])),tuple(r.get('ordem_b',[]))) if tipo=='Ordem' else ()
+        destinos=(r.get('destino_a',''),r.get('destino_b','')) if r.get('destino_a') or r.get('destino_b') else (tuple(r.get('ordem_a',[])),tuple(r.get('ordem_b',[]))) if tipo=='Ordem' else ()
         key=(tipo,normalizar(r.get('elemento','')),r.get('presente_em',''),
              titulo_normalizado(r.get('posicao','')),titulo_normalizado(r.get('local','')),
-             destinos)
+             destinos,r.get('texto_a',''),r.get('texto_b',''),r.get('assinatura_a',''),r.get('assinatura_b',''))
         reg=grupos.get(key)
         ocorrencia={'url_presente':r.get('url_presente',''),'url_comparada':r.get('url_comparada',''),
-                    'caminho':r.get('caminho',''),'local':r.get('local','')}
+                    'caminho':r.get('caminho',''),'local':r.get('local',''),'seletor':r.get('seletor',''),'componente_id':r.get('componente_id',''),'secao_id':r.get('secao_id','')}
         if not reg:
-            reg=dict(r);reg['ocorrencias']=[ocorrencia];reg['ocorrencias_total']=1
+            reg=dict(r);reg['ocorrencias']=[ocorrencia];reg['ocorrencias_total']=1;reg['registros_individuais']=[dict(r)]
             reg['categoria']=reg.get('categoria') or categoria_item(Item(tipo,'',''))
             grupos[key]=reg
-        elif ocorrencia not in reg['ocorrencias']:
+        else:
+            reg['registros_individuais'].append(dict(r))
+        if ocorrencia not in reg['ocorrencias']:
             reg['ocorrencias'].append(ocorrencia)
             reg['ocorrencias_total']=len(reg['ocorrencias'])
     saida=list(grupos.values())
@@ -335,7 +322,8 @@ def agrupar_registros(registros:list[dict])->list[dict]:
         r['id']=f'DIV-{n:04d}'
         if r['ocorrencias_total']>1:
             r['descricao']+=' Esta ocorrência também aparece em '+str(r['ocorrencias_total']-1)+' outra(s) página(s); consulte a lista de ocorrências.'
-    return saida
+    from .taxonomy import enriquecer
+    return enriquecer(saida)
 
 
 def agrupar_referencias(refs:list[dict])->list[dict]:
@@ -466,8 +454,9 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
 
 def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False):
     from playwright.sync_api import sync_playwright
-    metricas=Metricas();inteligencia=Inteligencia(metricas);documentos=Documentos(metricas,parar)
+    metricas=Metricas();metricas.parar=parar;inteligencia=Inteligencia(metricas);documentos=Documentos(metricas,parar)
     documentos_relatorio=[]
+    andamento={'etapa':'inicio','par_atual':0,'ultimo_par_processado':0}
     base_a,base_b=validacao_inicial(url_a,url_b)
     fila=deque([(base_a,base_b,['Página inicial'])])
     pares_enfileirados={(base_a,base_b)}
@@ -475,9 +464,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     excluded=Counter();externos=[];avisos_coleta=[];consecutivos=0;parada='';inicio=time.monotonic()
     eventos=[];editoriais=[];cliques_testados=0;MAX_CLIQUES=12;modo_defasado=ambiente_desatualizado if ambiente_desatualizado in (nome_a,nome_b) else ''
     def snapshot():
-        return {'site_nome':site_nome,'ambientes':{nome_a:base_a,nome_b:base_b},
+        return {**metricas.temporal(),'site_nome':site_nome,'ambientes':{nome_a:base_a,nome_b:base_b},
             'paginas':{nome_a:len(paginas_a),nome_b:len(paginas_b)},
-            'brutos':brutos,'variacoes_editoriais':editoriais,'falhas':falhas,
+            'andamento':dict(andamento),'brutos':brutos,'variacoes_editoriais':editoriais,'falhas':falhas,
             'modo_varredura':'inteligente' if varredura_inteligente else 'atual',
             'otimizacao':inteligencia.resultado(),'documentos_verificados':documentos_relatorio,
             'metricas':metricas.resultado(),'registros_editoriais':editoriais,
@@ -516,6 +505,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     excluded['Arquivos não tratados como páginas HTML']+=1
                     if len(eventos)<600:eventos.append({'par':len(visitados),'tipo':'ARQUIVO_NAO_HTML','urls':{nome_a:ua,nome_b:ub},'trilha':trilha,'resultado':'Ignorado sem incrementar falhas'})
                     consecutivos=0;continue
+                andamento.update(etapa='navegacao',par_atual=len(visitados),url_a=ua,url_b=ub)
                 log('[PARES] '+str(len(visitados))+': '+ ' → '.join(trilha[-3:]))
                 statuses=[];pares=[];houve_documento=False
                 for env,page,url in ((nome_a,page_a,ua),(nome_b,page_b,ub)):
@@ -556,6 +546,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     else:brutos.append(_diff_redir_page(ua,ub,final_a,final_b,trilha,nome_a,nome_b))
                     consecutivos=0
                     continue
+                andamento['etapa']='extracao'
                 try:
                     if varredura_inteligente:
                         pa,pb=inteligencia.preparar_par(page_a,page_b,ua,ub,trilha,log,base_a,base_b,
@@ -579,6 +570,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         avisos_coleta.append({'ambiente':env,'url':pag.url})
                 chave=(ua,ub)
                 paginas_a[ua]=pa;paginas_b[ub]=pb
+                andamento['etapa']='comparacao'
                 # 1. Compara texto/imagens/opções SEM navegar nas diferenças.
                 itens_a,itens_b,pendencias_imgs=_alinhamento_de_componentes(pa,pb,base_a,base_b)
                 if modo_defasado:
@@ -591,38 +583,42 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 with metricas.medir('comparacao'):
                     comps=(inteligencia.comparar(itens_a,itens_b,pa,pb,nome_a,nome_b,base_a,base_b) if varredura_inteligente else
                            comparacao(itens_a,itens_b,pa,pb,nome_a,nome_b))
-                # Muitos textos/imagens ausentes num mesmo sentido sugerem que
-                # a página pode ter terminado de renderizar após a coleta.
-                # Recoleta os DOIS ambientes antes de registrar esse conjunto.
-                one_sided=Counter(d.get('presente_em') for d in comps if d.get('tipo') in ('Texto','Imagem'))
-                editoriais_nomes={normalizar(i.nome) for p in (pa,pb) for i in p.itens if item_editorial(i,p)} if modo_defasado else set()
-                duvida_estrutural=varredura_inteligente and (any(normalizar(d.get('elemento','')) not in editoriais_nomes for d in comps) or
-                    any(x['url_a']==ua and x['url_b']==ub for x in inteligencia.inconclusivos))
-                if max(one_sided.values(),default=0)>=6 or duvida_estrutural:
-                    log('[Coleta] Diferença ou equivalência insuficiente; realizando segunda leitura de '+ua[:85])
+                from .adaptive import decidir_releitura,cobertura_nao_piorou
+                with metricas.medir('sonda_releitura'):
+                    motivos=decidir_releitura(page_a,page_b,pa,pb,comps,parar)
+                if motivos and not parar.is_set():
+                    log('[Coleta] Segunda leitura: '+', '.join(motivos)+' — '+ua[:85])
                     inicio_releitura=time.perf_counter()
+                    registro={'url_a':ua,'url_b':ub,'motivos':motivos,'diagnostico_modificado':False,
+                              'adotada':False,'diferencas_antes':len(comps),
+                              'primeira_coleta':{'a':asdict(pa),'b':asdict(pb),'divergencias':comps}}
                     try:
-                        page_a.wait_for_timeout(950);page_b.wait_for_timeout(950)
                         pa2=_extrair_page(page_a,ua,trilha,log,metricas=metricas)
                         pb2=_extrair_page(page_b,ub,trilha,log,metricas=metricas)
-                        if all(p.coleta.get('estavel') and not p.coleta.get('rolagem_limitada') for p in (pa2,pb2)):
-                            anteriores=len(inteligencia.omissoes)
-                            inteligencia.omissoes[:]=[x for x in inteligencia.omissoes if not (x.get('categoria')=='Notícia de template repetido' and x['url_a']==ua and x['url_b']==ub)]
-                            metricas.contagens['preparacoes_profundas_evitadas']-=2*(anteriores-len(inteligencia.omissoes))
                         ai,bi,pend2=_alinhamento_de_componentes(pa2,pb2,base_a,base_b)
                         comps2=(inteligencia.comparar(ai,bi,pa2,pb2,nome_a,nome_b,base_a,base_b) if varredura_inteligente else comparacao(ai,bi,pa2,pb2,nome_a,nome_b))
-                        # A segunda leitura prevalece quando efetivamente reduz
-                        # ausências. Não trocar as páginas usadas para navegar
-                        # se a nova leitura piorou a cobertura.
-                        if len(comps2)<len(comps):
+                        registro['diferencas_depois']=len(comps2)
+                        registro['segunda_coleta']={'a':asdict(pa2),'b':asdict(pb2),'divergencias':comps2}
+                        if cobertura_nao_piorou(pa,pa2) and cobertura_nao_piorou(pb,pb2):
+                            registro['diagnostico_modificado']=comps2!=comps
+                            registro['adotada']=True
                             pa,pb,comps=pa2,pb2,comps2
-                            if modo_defasado:
-                                refs.extend(v for v in pend2 if v.get('natureza')!='editorial')
-                            else:refs.extend(pend2)
-                    except Exception as ex:log('[Coleta] Releitura não concluída: '+str(ex)[:100])
+                            paginas_a[ua]=pa;paginas_b[ub]=pb
+                            refs.extend(v for v in pend2 if not modo_defasado or v.get('natureza')!='editorial')
+                            omitidas_antes=len(inteligencia.omissoes)
+                            inteligencia.omissoes[:]=[x for x in inteligencia.omissoes if not (x.get('categoria')=='Notícia de template repetido' and x['url_a']==ua and x['url_b']==ub)]
+                            metricas.contagens['preparacoes_profundas_evitadas']-=2*(omitidas_antes-len(inteligencia.omissoes))
+                        else:registro['limitacao']='Primeira coleta preservada: releitura menos completa ou instável.'
+                    except Exception as ex:
+                        registro['erro']=str(ex)[:200]
+                        log('[Coleta] Releitura não concluída: '+str(ex)[:100])
                     finally:
-                        metricas.tempos['segunda_leitura']+=time.perf_counter()-inicio_releitura
+                        registro['duracao_segundos']=round(time.perf_counter()-inicio_releitura,6)
+                        metricas.releituras.append(registro)
+                        metricas.tempos['segunda_leitura']+=registro['duracao_segundos']
                         metricas.contagens['operacoes_segunda_leitura']+=1
+                        metricas.contagens['releituras_com_diagnostico_modificado']+=int(registro['diagnostico_modificado'])
+                else:metricas.contagens['releituras_dispensadas_dom_estavel' if not motivos else 'releituras_nao_executadas_cancelamento']+=1
                 if varredura_inteligente:
                     for pag in (pa,pb):
                         for item in pag.itens:
@@ -645,6 +641,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         reg['seletor']=encontrados[0].seletor
                         reg['posicao']=encontrados[0].posicao
                         reg['visivel_texto']=encontrados[0].visivel_texto
+                        reg['componente_id']=encontrados[0].componente_id
+                        reg['secao_id']=encontrados[0].secao_id
                 brutos.extend(novos_icones)
                 refs.extend(novos_layouts)
                 ordens=diferencas_de_ordem(pa,pb,nome_a,nome_b)
@@ -653,8 +651,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     # Menus e listas institucionais continuam no relatório principal.
                     ordens=[d for d in ordens if d.get('natureza')!='editorial' and not any(t in normalizar(d.get('local','')) for t in ('noticia','notícia','publicaç'))]
                 brutos.extend(ordens)
+                andamento['etapa']='links_documentos'
                 # 2. Compara links pareados por nome/contexto.
-                with metricas.medir('links'):pares_links=_link_pairs(pa,pb)
+                with metricas.medir('links'):pares_links=_link_pairs(pa,pb,aceitar_rotulos=varredura_inteligente)
                 if verificar_cliques and cliques_testados<MAX_CLIQUES:
                     for ca,cb in escolher_candidatos(pares_links,base_a,base_b,limite=min(2,MAX_CLIQUES-cliques_testados)):
                         # A inspeção só é executada quando o usuário opta por ela.
@@ -702,6 +701,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                           urlsplit(db).netloc!=urlsplit(base_b).netloc):
                         if da==db and not e_arquivo(da):externos.append((da,' → '.join(trilha+[ia.nome])))
                     # PDFs/planilhas permanecem somente como referências (sem abrir no crawler).
+                andamento.update(etapa='par_processado',ultimo_par_processado=len(visitados))
                 log(f'[{nome_a}/{nome_b}] {len(paginas_a)} pares, {len(brutos)} ocorrências preliminares')
                 progresso(min(.92,len(visitados)/max(1,len(visitados)+len(fila))*.85))
                 if checkpoint and len(visitados)%20==0:
@@ -712,6 +712,13 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             completos=not bool(fila or parada or falhas or pendencias or avisos_coleta or inteligencia.omissoes or (varredura_inteligente and documentos_relatorio))
             if varredura_inteligente and not (paginas_a and paginas_b):completos=False
             if parada:log('Varredura parcial: '+parada)
+            andamento['etapa']='processamento_final'
+            if checkpoint:
+                try:checkpoint(snapshot())
+                except Exception as ex:log('[Diagnóstico] Checkpoint final não salvo: '+str(ex)[:110])
+            metricas.tempos['varredura']=time.perf_counter()-metricas.inicio
+            inicio_final=time.perf_counter()
+            andamento['etapa']='processamento_final'
             divergencias=agrupar_registros(brutos)
             if paginas_a and paginas_b and not parar.is_set():
                 with metricas.medir('capturas'):_salvar_evidencias(browser,divergencias,evidencias_dir,parar,log,nome_a,nome_b,metricas=metricas)
@@ -734,7 +741,15 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             situacao='inconclusivo' if not paginas_a or not paginas_b else ('concluido' if completos else 'parcial')
             if parada and len(eventos)<600:eventos.append({'tipo':'INTERRUPCAO','par':len(visitados),'motivo':parada,
                 'falhas_consecutivas':consecutivos,'pares_pendentes':len(fila)})
-            return {'versao':'1.5','ambientes':{nome_a:base_a,nome_b:base_b},
+            metricas.tempos['processamento_final']=time.perf_counter()-inicio_final
+            metricas.contagens['pares_comparados']=len(paginas_a)
+            metricas.contagens['pares_pendentes']=len(fila)
+            metricas.contagens['preparacoes_profundas']=metricas.contagens['operacoes_preparacao']
+            metricas.finalizar()
+            return {**metricas.temporal(),'estado_execucao':'interrompido' if parar.is_set() else 'finalizado','andamento':dict(andamento),
+                'media_segundos_por_par':round(metricas.duracao/len(paginas_a),6) if paginas_a else None,
+                'requisicoes_por_par':round(metricas.resultado()['contagens']['requisicoes_total']/len(paginas_a),3) if paginas_a else None,
+                'versao':'1.5','ambientes':{nome_a:base_a,nome_b:base_b},
                 'paginas':{nome_a:len(paginas_a),nome_b:len(paginas_b)},
                 'completo':{nome_a:completos,nome_b:completos},
                 'meta_varredura':metas,'situacao_analise':situacao,

@@ -70,7 +70,12 @@ def preparar(dados, manuais=None):
                 row['registros_agrupados']=[deepcopy(row)];row['ids_agrupados']=[row.get('id')]
                 row['ocorrencias']=deepcopy(row.get('ocorrencias') or [row]);groups[key]=row
             out.append(row)
+    from .taxonomy import enriquecer,relacionar
+    out=enriquecer(out)
+    report['grupos_relacionados']=relacionar(out)
+    for row in out:row['grupos_relacionados']=[g['id'] for g in report['grupos_relacionados'] if row.get('id') in g['ids']]
     report['divergencias']=out
     report['resumo_relevancia']=dict(Counter(r['classificacao'] for r in out))
     report['editoriais_preservados']=deepcopy(report.get('registros_editoriais',report.get('variacoes_dados',[])))
+    report['editoriais_classificados']=enriquecer([dict(x,classificacao='editorial') for x in report['editoriais_preservados']])
     return report

@@ -99,6 +99,7 @@ def _hist():
 
 
 def worker(params,run_id):
+    inicio_worker=time.monotonic();inicio_iso=datetime.now().astimezone().isoformat()
     try:
         resultado=executar(params['url_a'],params['url_b'],params['nome_a'],params['nome_b'],
                            PARAR,log,atualizar_progresso,
@@ -113,7 +114,9 @@ def worker(params,run_id):
         resultado['gerado_em']=datetime.now().strftime('%d/%m/%Y %H:%M:%S');resultado['id']=run_id
         chave=params['url_a'].split('//',1)[-1].split('/',1)[0].lower()+'/'+urlsplit(params['url_a']).path.strip('/')
         resultado['site_id']=hashlib.sha256(chave.encode('utf-8')).hexdigest()[:16]
+        inicio_exportacao=time.monotonic()
         exportar(resultado,PASTA,run_id)
+        resultado['exportacao_worker_segundos']=time.monotonic()-inicio_exportacao
         exportar_diagnostico(montar_diagnostico(resultado,list(STATE.get('logs',[]))),PASTA,run_id)
         if not PARAR.is_set():
             (PASTA/f'checkpoint_{run_id}.json').unlink(missing_ok=True)
@@ -148,7 +151,12 @@ def worker(params,run_id):
                    'variacoes_dados':[], 'itens_editoriais_agrupados':len(var),
                    'avisos_tecnicos':[],'referencias_pendentes':[],
                    'ocorrencias_brutas':len(brutos)+len(var),
-                   'motivo_recuperacao':'Recuperação do último checkpoint: '+str(ex)[:250]}
+                   'estado_execucao':'falha','motivo_recuperacao':'Recuperação do último checkpoint: '+str(ex)[:250]}
+                parcial['duracao_no_checkpoint_segundos']=snap.get('duracao_segundos')
+                parcial['iniciado_em']=snap.get('iniciado_em',inicio_iso)
+                parcial['finalizado_em']=datetime.now().astimezone().isoformat()
+                parcial['duracao_segundos']=round(time.monotonic()-inicio_worker,6)
+                parcial['registros_editoriais']=snap.get('registros_editoriais',var)
                 parcial['gerado_em']=datetime.now().strftime('%d/%m/%Y %H:%M:%S')
                 parcial['id']=run_id
                 chave=params['url_a'].split('//',1)[-1].split('/',1)[0].lower()+'/'+urlsplit(params['url_a']).path.strip('/')
@@ -165,9 +173,10 @@ def worker(params,run_id):
                     atomic_json(HISTORY_PATH,h[:350])
                 log('Último checkpoint recuperado. Relatório parcial e diagnóstico salvos.')
                 atualizar(status='concluido',progresso=100,ultimo_id=run_id,erro=None)
-                cp.unlink(missing_ok=True)
+                # Checkpoint conservado para diagnosticar a falha original.
                 return
-            diag={'versao':'1.5','site_nome':params.get('site_nome',''),'situacao_analise':'erro',
+            diag={'iniciado_em':inicio_iso,'finalizado_em':datetime.now().astimezone().isoformat(),
+                 'duracao_segundos':round(time.monotonic()-inicio_worker,6),'grau_confianca':'falha_automacao','versao':'1.5','site_nome':params.get('site_nome',''),'situacao_analise':'erro',
                  'interrupcao':{'ocorreu':True,'motivos':{'programa':'Falha inesperada'},'pares_visitados':0,'pares_na_fila':0},
                  'falhas_por_tipo':{'FALHA_CRITICA':1},'falhas':[{'ambiente':'programa','url':'', 'erro':str(ex)[:600]}],
                  'eventos':[],'mensagens_de_execucao':list(STATE.get('logs',[])),

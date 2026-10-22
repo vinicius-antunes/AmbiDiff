@@ -67,7 +67,7 @@ def verificar_par(browser,pa,pb,ia,ib,nome_a,nome_b,base_a,base_b,log):
     b=_um_clique(browser,pb,ib,base_b)
     if a==b or 'inconclusivo' in (a,b):return None
     log('[Clique] Comportamento diferente: '+ia.nome[:70]+' '+a+'/'+b)
-    return {'tipo':'Clique','categoria':'Funcionamento dos links',
+    return {'teste_funcional_executado':True,'resultado_funcional_a':a,'resultado_funcional_b':b,'tipo':'Clique','categoria':'Funcionamento dos links',
         'presente_em':nome_a,'nao_identificado_em':nome_b,'pagina':pa.titulo,
         'url_presente':pa.url,'url_comparada':pb.url,'local':ia.local,
         'caminho':' → '.join(pa.trilha),'elemento':ia.nome,

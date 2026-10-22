@@ -211,3 +211,13 @@ A lista principal prioriza diferenças estruturais, funcionais e institucionais.
 Diferenças somente técnicas de SVG ficam disponíveis em **Mostrar todas as diferenças**,
 sem presumir equivalência visual. Há reclassificação manual e exportação principal ou
 completa. Veja [critérios, formatos e limitações](docs/filtro-relevancia.md).
+
+## Otimização de preparação e releitura
+
+A branch `perf/otimizacao-varredura` acrescenta preparação por sinais do DOM,
+releitura seletiva, tags de evidência, relações entre ocorrências e horários/duração
+nos relatórios. O benchmark equivalente entre checkouts mediu redução sintética de
+76,78% (estável) e 59,22% (dinâmico), sem omissões profundas ou perda dos achados
+inspecionados. Isso não comprova o ganho em portais reais. Consulte
+[metodologia, testes e limites](docs/otimizacao-varredura.md) e
+[séries completas de medição](docs/benchmark-perf.json).

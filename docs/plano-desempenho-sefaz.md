@@ -1,6 +1,6 @@
 # Plano de desempenho — meta de reduzir em pelo menos 50% o tempo de varredura
 
-**Status:** diagnóstico técnico e backlog, **não implementado nem validado em portal real**.
+**Status do plano original:** diagnóstico técnico e backlog. A implementação posterior e os resultados sintéticos estão em [Otimização da varredura](otimizacao-varredura.md). A meta em portal real continua **não validada**.
 **Escopo:** AmbiDiff em Windows, modos convencional e inteligente; acesso autorizado a PRD/DES/LAB; preservar resultados parciais e diagnóstico.
 
 ## Linha de base real disponível: SEFAZ v1.5

@@ -99,6 +99,8 @@ class Item:
     entidade: str = ''
     funcao: str = ''
     estrutura: str = ''
+    componente_id: str = ''
+    secao_id: str = ''
 
 
 @dataclass
@@ -179,10 +181,13 @@ JS_EXTRAIR = r'''() => {
   const out=[],links=[];
   const add=(tipo,nome,chave,el,destino='',textoVisivel=true)=>{
     nome=clean(nome);chave=clean(chave);
+    const entidade=nome&&nome.length>=2?editorialRef(el):'';
     if(nome&&nome.length>=2)out.push({tipo,nome,chave,local:ctx(el),destino,
       posicao:posicao(el),seletor:selector(el),visivel_texto:textoVisivel,
+      componente_id:(()=>{const p=el.closest('[data-component],[role="group"],fieldset,[class*="widget" i]');return p?selector(p):'';})(),
+      secao_id:(()=>{const p=el.closest('section,article,[role="region"]');return p?selector(p):'';})(),
       imagem_link:el.tagName==='A'&&!textoVisivel&&!!el.querySelector('img'),
-      natureza:editorialRef(el)?'editorial':'estrutura',entidade:editorialRef(el),
+      natureza:entidade?'editorial':'estrutura',entidade,
       funcao:el.getAttribute('role')||(el.tagName==='A'?'link':el.tagName.toLowerCase()),
       estrutura:[el.tagName,el.getAttribute('role')||'',el.getAttribute('type')||'',
         el.hasAttribute('disabled'),el.getAttribute('aria-haspopup')||'',el.getAttribute('target')||'',
@@ -206,7 +211,7 @@ JS_EXTRAIR = r'''() => {
     const name=clean(el.innerText||el.getAttribute('aria-label')||el.title||el.querySelector('img')?.alt||'');
     if(!name)continue;
     const pathname=(()=>{try{return new URL(href).pathname.toLowerCase()}catch(e){return ''}})();
-    const isDoc=/\.(pdf|docx?|xlsx?|csv|pptx?|zip|odt|ods)(\/|$)/i.test(pathname) || /download|baixar|documento.*pdf/i.test(name);
+    const isDoc=/\.(pdf|docx?|xlsx?|csv|pptx?|zip|odt|ods)(\/|$)/i.test(pathname) || /^\/documents\/d\//i.test(pathname);
     const tipo=isDoc?'Documento':'Opção';
     add(tipo,name,name,el,href,!!clean(el.innerText));
     links.push({url:href,label:name,local:ctx(el),tipo,selector:selector(el)});
@@ -269,11 +274,12 @@ JS_EXTRAIR = r'''() => {
 }'''
 
 
-def coletar_aba(page, itens: list[dict], links: list[dict], log) -> None:
+def coletar_aba(page, itens: list[dict], links: list[dict], log,parar=None) -> None:
     """Interage apenas com abas detectadas, sem clicar formulários ou executar ações."""
     try:
         tabs=page.locator('[role="tab"],button[data-bs-toggle="tab"],a[data-bs-toggle="tab"]')
         for i in range(min(tabs.count(),35)):
+            if parar and parar.is_set():break
             tab=tabs.nth(i)
             if not tab.is_visible():continue
             rotulo=(tab.inner_text(timeout=1500) or '').strip()[:80]
@@ -404,6 +410,7 @@ def _registro(item:Item,pa:Pagina,pb:Pagina,presente:str,ausente:str,*,referenci
     return {'tipo':item.tipo,'presente_em':presente,'nao_identificado_em':ausente,
             'pagina':pa.titulo,'url_presente':pa.url,'url_comparada':pb.url,
             'local':item.local,'caminho':caminho,'elemento':item.nome[:250],
+            'componente_id':item.componente_id,'secao_id':item.secao_id,
             'descricao':descricao,'situacao':'Divergência para revisão', 'posicao':item.posicao, 'seletor':item.seletor, 'visivel_texto':item.visivel_texto}
 
 
@@ -434,6 +441,7 @@ def comparacao(itens_a:list[Item],itens_b:list[Item],pagina_a:Pagina,pagina_b:Pa
             saida.append({'tipo':'Texto','presente_em':ambiente_a,'nao_identificado_em':ambiente_b,
                 'pagina':pagina_a.titulo,'url_presente':pagina_a.url,'url_comparada':pagina_b.url,
                 'local':a.local,'caminho':caminho,'elemento':a.nome[:240],
+                'componente_id':a.componente_id,'secao_id':a.secao_id,
                 'texto_a':a.nome,'texto_b':b.nome,
                 'descricao':f'Caminho identificado: {caminho}. O trecho de texto é diferente nas duas páginas correspondentes. '
                             f'Em {ambiente_a}: "{a.nome[:210]}". Em {ambiente_b}: "{b.nome[:210]}". '

@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 import time
+from datetime import datetime
 
 from .core import normalizar, comparacao
 
@@ -11,6 +12,8 @@ from .core import normalizar, comparacao
 class Metricas:
     def __init__(self):
         self.inicio=time.perf_counter()
+        self.iniciado_em=datetime.now().astimezone().isoformat()
+        self.finalizado_em=None;self.duracao=None;self.releituras=[];self.parar=None
         self.tempos=Counter({k:0 for k in ('navegacao','preparacao','extracao','comparacao','segunda_leitura','links','cliques','documentos','verificacao_template','capturas','auditoria')});self.contagens=Counter({k:0 for k in ('requisicoes_navegador','requisicoes_documentos','requisicoes_api_externa','bytes_documentos_lidos','verificacoes_reaproveitadas','documentos_reaproveitados','documentos_nao_verificados','preparacoes_profundas_evitadas')})
 
     @contextmanager
@@ -21,9 +24,18 @@ class Metricas:
             self.tempos[etapa]+=time.perf_counter()-inicio
             self.contagens['operacoes_'+etapa]+=1
 
+    def temporal(self):
+        return {'iniciado_em':self.iniciado_em,'finalizado_em':self.finalizado_em,
+                'duracao_segundos':round(self.duracao if self.duracao is not None else time.perf_counter()-self.inicio,6)}
+
+    def finalizar(self):
+        self.duracao=time.perf_counter()-self.inicio
+        self.finalizado_em=datetime.now().astimezone().isoformat()
+
     def resultado(self):
         self.contagens['requisicoes_total']=sum(self.contagens[k] for k in ('requisicoes_navegador','requisicoes_documentos','requisicoes_api_externa'))
-        return {'tempo_total_segundos':round(time.perf_counter()-self.inicio,6),
+        return {**self.temporal(),'tempo_total_segundos':self.temporal()['duracao_segundos'],
+                'releituras':self.releituras,'nota_tempos':'Tempos de releitura incluem preparação e extração; operações aninhadas não devem ser somadas.',
                 'tempos_segundos':{k:round(v,6) for k,v in self.tempos.items()},
                 'contagens':dict(self.contagens),
                 'nota_requisicoes':'Eventos observados pelo Playwright e pedidos HTTP de metadados; não mede DNS/TLS nem todo tráfego interno do navegador.'}
@@ -101,6 +113,27 @@ class Inteligencia:
                         'url_comparada':pb.url,'local':ia.local,'caminho':' → '.join(pa.trilha),
                         'descricao':f'Papéis DOM diferentes: {ia.funcao} / {ib.funcao}. Requer revisão; não comprova defeito funcional.',
                         'situacao':'Papéis diferentes para revisão'})
+        # Rótulos distintos exigem destino único equivalente, contexto, papel e estrutura.
+        for ia in a:
+            if id(ia) in usados_a or ia.tipo not in ('Opção','Documento') or not ia.destino or not ia.funcao or not ia.estrutura:continue
+            if any(ib.tipo==ia.tipo and normalizar(ib.nome)==normalizar(ia.nome) and normalizar(ib.local)==normalizar(ia.local) for ib in b):continue
+            candidatos=[ib for ib in b if id(ib) not in usados_b and ib.tipo==ia.tipo and
+                normalizar(ib.nome)!=normalizar(ia.nome) and normalizar(ib.local)==normalizar(ia.local) and
+                ib.funcao==ia.funcao and ib.estrutura==ia.estrutura and ib.destino and
+                link_equivalente(ia.destino,ib.destino,base_a,base_b)]
+            if len(candidatos)!=1:continue
+            ib=candidatos[0]
+            reversos=[other for other in a if id(other) not in usados_a and other.tipo==ia.tipo and other.destino and
+                normalizar(other.local)==normalizar(ib.local) and other.funcao==ib.funcao and other.estrutura==ib.estrutura and
+                link_equivalente(other.destino,ib.destino,base_a,base_b)]
+            if len(reversos)!=1:continue
+            usados_a.add(id(ia));usados_b.add(id(ib))
+            extras.append({'tipo':'Rótulo','categoria':'Menus e opções','elemento':ia.nome+' / '+ib.nome,
+                'texto_a':ia.nome,'texto_b':ib.nome,'presente_em':nome_a,'nao_identificado_em':nome_b,
+                'destino_a':ia.destino,'destino_b':ib.destino,'url_presente':pa.url,'url_comparada':pb.url,
+                'local':ia.local,'seletor':ia.seletor,'componente_id':ia.componente_id,'secao_id':ia.secao_id,
+                'caminho':' → '.join(pa.trilha),'situacao':'Rótulos diferentes em controles correspondentes',
+                'descricao':'Destino equivalente único, contexto, papel e estrutura coincidem, mas os rótulos diferem. Não comprova funcionamento.'})
         restante_a=[i for i in a if id(i) not in usados_a]
         restante_b=[i for i in b if id(i) not in usados_b]
         # O comparador legado usa presença global. Mesmo rótulo em outra região
@@ -120,20 +153,27 @@ class Inteligencia:
                 'situacao':'Contextos diferentes para revisão'})
         return comparacao(restante_a,restante_b,pa,pb,nome_a,nome_b)+extras
 
-    def sondar(self, page_a, page_b, base_a, base_b):
+    def sondas(self,page_a,page_b,base_a,base_b):
         with self.metricas.medir('verificacao_template'):
-            a=page_a.evaluate(JS_TEMPLATE,base_a);b=page_b.evaluate(JS_TEMPLATE,base_b)
+            return page_a.evaluate(JS_TEMPLATE,base_a),page_b.evaluate(JS_TEMPLATE,base_b)
+
+    @staticmethod
+    def chave_template(a,b):
         if a['elegivel'] and b['elegivel'] and a['arvore']==b['arvore']:
             return assinatura(a['arvore'])
         return None
 
+    def sondar(self, page_a, page_b, base_a, base_b):
+        return self.chave_template(*self.sondas(page_a,page_b,base_a,base_b))
+
     def preparar_par(self, page_a, page_b, ua, ub, trilha, log, base_a, base_b,
                      defasado, extrair, parar):
         # Ausência/alteração de seção não pode ser apagada por defasagem editorial.
-        sa=page_a.evaluate(JS_TEMPLATE,base_a)['secao'];sb=page_b.evaluate(JS_TEMPLATE,base_b)['secao']
+        dados_a,dados_b=self.sondas(page_a,page_b,base_a,base_b)
+        sa=dados_a['secao'];sb=dados_b['secao']
         if sa!=sb and (sa is not None or sb is not None):
             self.estruturas.append({'url_a':ua,'url_b':ub,'motivo':'Estrutura observada da seção editorial difere ou a seção não foi identificada em um ambiente. Revisão necessária; dados desatualizados não comprovam a causa.'})
-        chave=self.sondar(page_a,page_b,base_a,base_b)
+        chave=self.chave_template(dados_a,dados_b)
         if defasado and chave and self.templates[chave]>=2 and not parar.is_set():
             # Confirma estabilidade local; não elimina navegação nem prova runtime.
             page_a.wait_for_timeout(250);page_b.wait_for_timeout(250)
