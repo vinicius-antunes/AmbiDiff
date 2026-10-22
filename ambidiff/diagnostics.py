@@ -35,7 +35,9 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
     from .relevance import preparar
     resultado=preparar(resultado)
     eventos=resultado.get('eventos_diagnostico',[])
-    falhas=resultado.get('falhas',[])
+    from .compact import falhas_categorizadas
+    categorias=falhas_categorizadas(resultado.get('falhas',[]))
+    falhas=categorias['falhas_acesso_observadas']+categorias['falhas_automacao']
     erros_por_tipo=Counter()
     for f in falhas:erros_por_tipo[f.get('tipo_erro') or classificar_erro(f.get('erro',''))['tipo_erro']]+=1
     for e in eventos:
@@ -53,7 +55,7 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
           'pares_na_fila':max((x.get('pendentes',0) for x in metas.values()),default=0)},
       'divergencias_preservadas':len(resultado.get('divergencias',[])),
       'variacoes_editoriais_agrupadas':resultado.get('itens_editoriais_agrupados',0),
-      'falhas_por_tipo':dict(erros_por_tipo),'falhas':[dict(f,tag_tecnica='COLETA_INCONCLUSIVA',grau_confianca='falha_automacao') for f in falhas],
+      **categorias,'bloqueios_seguranca':resultado.get('bloqueios_seguranca',[]),'contadores_diagnostico':{'acesso':len(categorias['falhas_acesso_observadas']),'automacao':len(categorias['falhas_automacao']),'bloqueios':sum(x.get('quantidade',1) for x in resultado.get('bloqueios_seguranca',[]))+len(categorias['bloqueios_legados'])},'falhas_por_tipo':dict(erros_por_tipo),'falhas':[dict(f,tag_tecnica='COLETA_INCONCLUSIVA',origem_diagnostico='acesso_observado' if f in categorias['falhas_acesso_observadas'] else 'automacao',grau_confianca=('confirmada_observacao' if f.get('tipo_erro')=='HTTP' else 'possivel') if f in categorias['falhas_acesso_observadas'] else 'falha_automacao') for f in falhas],
       'eventos':eventos,'avisos':resultado.get('avisos_tecnicos',[]),
       'mensagens_de_execucao':list(logs or [])[-250:],
       'nota':'A hipótese de causa não comprova defeito no site. Downloads não representam páginas HTML.'}
@@ -77,6 +79,8 @@ def exportar_diagnostico(dados:dict,pasta:Path,run_id:str)->dict:
     linhas+=['','MÉTRICAS E COBERTURA:',json.dumps(dados.get('metricas',{}),ensure_ascii=False),
              json.dumps(dados.get('otimizacao',{}),ensure_ascii=False),
              'DOCUMENTOS (SOMENTE METADADOS):',json.dumps(dados.get('documentos_verificados',[]),ensure_ascii=False)]
+    linhas+=['','CATEGORIAS DE DIAGNÓSTICO:',json.dumps(dados.get('contadores_diagnostico',{}),ensure_ascii=False),'BLOQUEIOS INTENCIONAIS (não são defeitos comprovados):']
+    for grupo in dados.get('bloqueios_seguranca',[]):linhas.append(json.dumps(grupo,ensure_ascii=False))
     linhas+=['','FALHAS:']
     for f in dados.get('falhas',[]):
         info=classificar_erro(f.get('erro',''))

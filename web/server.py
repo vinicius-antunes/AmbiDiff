@@ -142,9 +142,12 @@ def worker(params,run_id):
                            verificar_cliques=params.get('verificar_cliques',False),
                            varredura_inteligente=params.get('varredura_inteligente',False),
                            ambiente_desatualizado=params.get('ambiente_desatualizado',''),
-                           checkpoint=lambda d:atomic_json(PASTA/f'checkpoint_{run_id}.json',d))
+                           checkpoint=lambda d:atomic_json(PASTA/f'checkpoint_{run_id}.json',dict(d,id=run_id)),
+                           **({'retomada':params['retomada']} if params.get('retomada') else {}))
         if resultado is None:
             raise RuntimeError('A varredura não produziu relatório; consulte o diagnóstico.')
+        if params.get('retomada_de'):resultado['retomada_de']=params['retomada_de']
+        resultado['formato_compacto']=True
         resultado['gerado_em']=datetime.now().strftime('%d/%m/%Y %H:%M:%S');resultado['id']=run_id
         chave=params['url_a'].split('//',1)[-1].split('/',1)[0].lower()+'/'+urlsplit(params['url_a']).path.strip('/')
         resultado['site_id']=hashlib.sha256(chave.encode('utf-8')).hexdigest()[:16]
@@ -152,7 +155,7 @@ def worker(params,run_id):
         exportar(resultado,PASTA,run_id)
         resultado['exportacao_worker_segundos']=time.monotonic()-inicio_exportacao
         exportar_diagnostico(montar_diagnostico(resultado,list(STATE.get('logs',[]))),PASTA,run_id)
-        if not PARAR.is_set():
+        if not PARAR.is_set() and not resultado.get('andamento',{}).get('pares_pendentes'):
             (PASTA/f'checkpoint_{run_id}.json').unlink(missing_ok=True)
         from ambidiff.sections import agrupar_documentos
         total_agrupado=len(agrupar_documentos(resultado['divergencias']))
@@ -179,9 +182,9 @@ def worker(params,run_id):
         try:
             if cp.exists():
                 from ambidiff.paired import agrupar_registros
-                snap=json.loads(cp.read_text(encoding='utf-8'))
+                snap=json.loads(cp.read_text(encoding='utf-8'));snap.pop('retomada',None)
                 brutos=snap.pop('brutos',[]);var=snap.pop('variacoes_editoriais',[])
-                parcial={**snap,'versao':'1.5','situacao_analise':'parcial',
+                parcial={**snap,'formato_compacto':True,'versao':'1.5','situacao_analise':'parcial',
                    'completo':{k:False for k in snap.get('ambientes',{})},
                    'divergencias':agrupar_registros(brutos),
                    'variacoes_dados':[], 'itens_editoriais_agrupados':len(var),
@@ -191,7 +194,7 @@ def worker(params,run_id):
                 parcial['duracao_no_checkpoint_segundos']=snap.get('duracao_segundos')
                 parcial['iniciado_em']=snap.get('iniciado_em',inicio_iso)
                 parcial['finalizado_em']=datetime.now().astimezone().isoformat()
-                parcial['duracao_segundos']=round(time.monotonic()-inicio_worker,6)
+                parcial['duracao_segundos']=round(time.monotonic()-inicio_worker+params.get('retomada',{}).get('estado',{}).get('duracao_acumulada',0),6)
                 parcial['registros_editoriais']=snap.get('registros_editoriais',var)
                 parcial['gerado_em']=datetime.now().strftime('%d/%m/%Y %H:%M:%S')
                 parcial['id']=run_id
@@ -271,6 +274,51 @@ def comparar():
         return jsonify(ok=True,id=run_id)
 
 
+@app.get('/api/checkpoints')
+def checkpoints_disponiveis():
+    from ambidiff.checkpoints import validar
+    rows=[]
+    for path in sorted(PASTA.glob('checkpoint_*.json'),reverse=True):
+        rid=path.stem.removeprefix('checkpoint_')
+        if not valid_run(rid):continue
+        try:
+            payload=json.loads(path.read_text(encoding='utf-8'))
+            estado=validar(payload.get('retomada',{}))
+            if estado['fila']:rows.append({'id':rid,'pendentes':len(estado['fila']),
+                'site_nome':estado['configuracao'].get('site_nome',''),'configuracao':estado['configuracao'],'salvo_em':payload['retomada']['salvo_em'],'valido':True})
+        except (ValueError,TypeError,KeyError,OSError) as exc:
+            rows.append({'id':rid,'valido':False,'motivo':str(exc)[:180]})
+    return jsonify(rows)
+
+
+@app.post('/api/retomar/<run_id>')
+def retomar(run_id):
+    from ambidiff.checkpoints import validar
+    if not valid_run(run_id):return jsonify(erro='ID inválido'),400
+    with LOCK:
+        if STATE['status']=='executando':return jsonify(erro='Já existe uma comparação em andamento.'),409
+        try:
+            payload=json.loads((PASTA/f'checkpoint_{run_id}.json').read_text(encoding='utf-8'))
+            estado=validar(payload.get('retomada',{}))
+            if not estado['fila']:raise ValueError('Checkpoint sem pares pendentes.')
+            params=dict(estado['configuracao'],retomada=payload['retomada'],retomada_de=run_id)
+            novo=datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:6]
+            # Nova execução: preserva arquivos e decisões do relatório anterior.
+            for prefix in ('exclusoes','relevancia','revisoes'):
+                origem=PASTA/f'{prefix}_{run_id}.json'
+                if origem.exists():atomic_json(PASTA/f'{prefix}_{novo}.json',json.loads(origem.read_text(encoding='utf-8')))
+            atomic_json(PASTA/f'checkpoint_{novo}.json',dict(payload,id=novo,retomada_de=run_id))
+        except FileNotFoundError:return jsonify(erro='Checkpoint não encontrado.'),404
+        except (ValueError,TypeError,KeyError,OSError) as exc:return jsonify(erro='Retomada recusada: '+str(exc)[:220]),400
+        PARAR.clear();inicio=time.monotonic();FEED.eventos.clear()
+        STATE.update(status='executando',progresso=0,logs=[],erro=None,resumo=None,ultimo_id=None,
+            inicio_monotonic=inicio-estado['duracao_acumulada'],fim_monotonic=None,amostras_progresso=[],
+            execucao_id=novo,execucao_log_inicio=FEED.seq,andamento={},amostras_pares=[],falha_log_completo=None)
+        log('Retomando checkpoint '+run_id+' em nova execução '+novo)
+        threading.Thread(target=worker,args=(params,novo),daemon=True).start()
+        return jsonify(ok=True,id=novo,retomada_de=run_id)
+
+
 @app.post('/api/parar')
 def parar():
     with LOCK:
@@ -291,8 +339,9 @@ def historico():return jsonify(_hist())
 @app.get('/api/relatorio/<run_id>')
 def relatorio(run_id):
     if not valid_run(run_id):return jsonify(erro='ID inválido'),400
-    try:return jsonify(preparar_relatorio(PASTA,run_id))
+    try:return jsonify(preparar_relatorio(PASTA,run_id,detalhes=request.args.get('leve')!='1'))
     except FileNotFoundError:return jsonify(erro='Relatório não encontrado'),404
+    except ValueError as exc:return jsonify(erro=str(exc)),400
 
 
 @app.get('/evidencia/<run_id>/<nome>')
@@ -302,6 +351,17 @@ def evidencia(run_id,nome):
     if not re.fullmatch(r'DIV-[0-9]{4,5}(?:_(?:PRD|DES|LAB))?\.png',nome):
         return jsonify(erro='Nome inválido'),400
     return send_from_directory(PASTA/f'evidencias_{run_id}',nome,as_attachment=False)
+
+
+@app.get('/api/relatorio/<run_id>/detalhes')
+def detalhes_relatorio(run_id):
+    if not valid_run(run_id):return jsonify(erro='ID inválido'),400
+    try:
+        from ambidiff.compact import separar
+        _,detalhes=separar(preparar_relatorio(PASTA,run_id))
+        return jsonify(detalhes)
+    except FileNotFoundError:return jsonify(erro='Relatório não encontrado.'),404
+    except ValueError as exc:return jsonify(erro=str(exc)),400
 
 
 @app.put('/api/relatorio/<run_id>/divergencias/<div_id>/revisao')
@@ -350,11 +410,17 @@ def baixar(run_id,ext):
         # Recria a exportação filtrada sem alterar o relatório bruto.
         with LOCK:
             dados=preparar_relatorio(PASTA,run_id)
+            dados['formato_compacto']=True
             if request.args.get('completo')=='1':dados['exportacao_completa']=True
+            if request.args.get('relevantes')=='1':
+                dados['divergencias']=[r for r in dados['divergencias'] if r.get('classificacao')=='relevante']
+                dados.pop('registros_originais',None)
+                dados['escopo_exportacao']='Somente relevantes'
             exportar(dados,PASTA,'filtrado_'+run_id)
             nome=f'comparacao_filtrado_{run_id}.{ext}'
         return send_from_directory(PASTA,nome,as_attachment=True)
     except FileNotFoundError:return jsonify(erro='Relatório não encontrado'),404
+    except ValueError as exc:return jsonify(erro=str(exc)),400
 
 
 @app.delete('/api/relatorio/<run_id>/divergencias/<div_id>')

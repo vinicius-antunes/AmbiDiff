@@ -36,8 +36,14 @@ def separar_editoriais(comps, pa, pb, itens_a, itens_b, nomes, defasado):
             (d.get('tipo')=='Texto' and 'texto_a' in d and
              (('Texto',normalizar(d['texto_a'])) in ids_a or
               ('Texto',normalizar(d.get('texto_b',''))) in ids_b)))
-        if editorial and d.get('tipo') in ('Texto','Imagem','Opção'):
-            data.append(d)
+        candidatos=[i for i in (itens_a if d.get('presente_em')==nomes[0] else itens_b) if normalizar(i.nome)==normalizar(d.get('elemento','')) or i.nome==d.get('texto_a')]
+        if d.get('local'):candidatos=[i for i in candidatos if normalizar(i.local)==normalizar(d['local'])]
+        if d.get('posicao'):candidatos=[i for i in candidatos if i.posicao==d['posicao']]
+        editorial=editorial and bool(candidatos) and all(item_editorial(i,pa if d.get('presente_em')==nomes[0] else pb) for i in candidatos)
+        publicacao=d.get('tipo')=='Opção' and any(ROTA_EDITORIAL.search(urlsplit(i.destino).path) for i in candidatos if i.destino)
+        if editorial and (d.get('tipo') in ('Texto','Imagem') or publicacao):
+            data.append(dict(d,bloco_editorial=candidatos[0].entidade if candidatos else d.get('local',''),
+                motivo_editorial='Contexto editorial observado e base desatualizada declarada pelo usuário; causa não comprovada.'))
         else:regs.append(d)
     return regs,data
 
@@ -50,9 +56,12 @@ def agrupar_variacoes(dados, desatualizado):
         path=urlsplit(pagina).path or '/'
         # A mesma lista pode estar na home e /inicio, evitar grupo por cada notícia.
         categoria='Notícias e publicações' if path=='/' or ROTA_EDITORIAL.search(path) else 'Conteúdo editorial e imagens'
-        agrupados[categoria].append(item)
+        bloco=item.get('bloco_editorial','')
+        chave=(categoria,item.get('url_presente',''),item.get('local',''),bloco,item.get('presente_em','')) if bloco.startswith('@aviso:') else (categoria,'',item.get('local',''),'','')
+        agrupados[chave].append(item)
     resumo=[]
-    for titulo,rows in agrupados.items():
+    for chave,rows in agrupados.items():
+        titulo=chave[0]
         unique=[];seen=set()
         for x in rows:
             key=(x.get('tipo'),normalizar(x.get('elemento')),x.get('presente_em'))
@@ -61,6 +70,7 @@ def agrupar_variacoes(dados, desatualizado):
         resumo.append({'categoria':titulo,'ambiente_desatualizado':desatualizado,
              'quantidade_ocorrencias':len(rows),'quantidade_itens':len(unique),
              'motivo':'Possível diferença de publicação/ordenação de dados entre bases. Não é defeito confirmado.',
+             'registros':unique,'local':chave[2],'pagina':chave[1],'ambiente':chave[4],
              'exemplos':[{'tipo':v.get('tipo'),'elemento':v.get('elemento'),
                          'pagina':v.get('url_presente'),'ambiente':v.get('presente_em')} for v in unique[:18]]})
     return resumo

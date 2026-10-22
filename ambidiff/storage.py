@@ -40,8 +40,12 @@ def atomic_json(path:Path,data)->None:
         temp.unlink(missing_ok=True)
 
 
-def ler_original(root:Path,run_id:str)->dict:
+def ler_original(root:Path,run_id:str,detalhes=True)->dict:
     report=json.loads(original_path(root,run_id).read_text(encoding='utf-8'))
+    if detalhes and report.get('formato_relatorio')==2:
+        arquivo=root/f'detalhes_{run_id}.json'
+        if not arquivo.is_file():raise ValueError('Detalhes locais ausentes; relatório principal preservado.')
+        report.update(json.loads(arquivo.read_text(encoding='utf-8')))
     report['divergencias']=[member for row in report.get('divergencias',[]) for member in (row.get('registros_agrupados') or [row])]
     return report
 
@@ -53,8 +57,8 @@ def ler_exclusoes(root:Path,run_id:str)->set[str]:
     return {x for x in payload.get('ids',[]) if isinstance(x,str) and DIV_RE.fullmatch(x)}
 
 
-def preparar_relatorio(root:Path,run_id:str)->dict:
-    report=ler_original(root,run_id)
+def preparar_relatorio(root:Path,run_id:str,detalhes=True)->dict:
+    report=ler_original(root,run_id,detalhes=detalhes)
     original=report.get('divergencias',[])
     ignored=ler_exclusoes(root,run_id)
     report['divergencias']=[row for row in original if row.get('id') not in ignored]
@@ -119,8 +123,9 @@ def excluir_execucoes(root:Path,hist_path:Path,run_ids:list[str],lock:threading.
             for prefix in ('comparacao_','comparacao_filtrado_'):
                 for ext in ('json','csv','html'):
                     (root/f'{prefix}{rid}.{ext}').unlink(missing_ok=True)
+            (root/f'detalhes_filtrado_{rid}.json').unlink(missing_ok=True)
             _overlay(root,rid).unlink(missing_ok=True)
-            for name in ('execucao_', 'relevancia_', 'revisoes_', 'diagnostico_', 'log_', 'checkpoint_'):
+            for name in ('detalhes_', 'execucao_', 'relevancia_', 'revisoes_', 'diagnostico_', 'log_', 'checkpoint_'):
                 for ext in ('json','txt','log'):
                     (root/f'{name}{rid}.{ext}').unlink(missing_ok=True)
             ev=root/f'evidencias_{rid}'

@@ -1,7 +1,7 @@
 """Comparador de conteúdo entre ambientes. Navegação apenas de leitura, sem inferir culpa.
 
 O crawler não impõe escolhas manuais de profundidade/páginas. Usa limites internos
-preventivos de tempo, memória e requisições e sinaliza quando não cobre todo o portal.
+preventivos de memória e requisições e sinaliza quando não cobre todo o portal.
 """
 from __future__ import annotations
 
@@ -14,8 +14,7 @@ import unicodedata
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit, unquote
 
 # Limites de segurança internos (não opções de navegação do usuário).
-MAX_URLS_SEGURANCA = 2500
-MAX_MINUTOS_SEGURANCA = 45
+MAX_URLS_SEGURANCA = 100000  # Teto de memória, não meta de cobertura.
 TEMPO_PAGINA_MS = 30000
 MAX_FALHAS_CONSECUTIVAS = 15
 IGNORAR_QUERY = {'utm_source','utm_medium','utm_campaign','utm_content','utm_term',
@@ -117,6 +116,7 @@ class Pagina:
 
 
 JS_EXTRAIR = r'''() => {
+  if(!document.body) throw new Error('DOM indisponível: document.body ausente');
   const clean = s => String(s || '').replace(/\s+/g,' ').trim().slice(0,450);
   const visivel = el => {
     if (!el || ['SCRIPT','STYLE','NOSCRIPT','TEMPLATE','SVG'].includes(el.tagName)) return false;
@@ -161,6 +161,8 @@ JS_EXTRAIR = r'''() => {
   const editorialRef=el=>{
     // Não inferir que qualquer item dentro de um <main> é notícia.
     // Buscar o cartão mais próximo com um link identificável para publicação.
+    const aviso=el.closest('[role="alert"],[data-editorial],[class*="aviso" i]');
+    if(aviso&&!el.closest('nav,header,footer')&&(/eleitoral|elei[çc][õo]es/i.test(aviso.innerText)||aviso.hasAttribute('data-editorial')))return '@aviso:'+selector(aviso);
     let cur=el;
     for(let n=0;cur&&n<7;n++,cur=cur.parentElement){
       if(cur.matches('nav,header,footer,[role="navigation"]')) return '';
@@ -213,7 +215,7 @@ JS_EXTRAIR = r'''() => {
     const name=clean(el.innerText||el.getAttribute('aria-label')||el.title||el.querySelector('img')?.alt||'');
     if(!name)continue;
     const pathname=(()=>{try{return new URL(href).pathname.toLowerCase()}catch(e){return ''}})();
-    const isDoc=/\.(pdf|docx?|xlsx?|csv|pptx?|zip|odt|ods)(\/|$)/i.test(pathname) || /^\/documents\/d\//i.test(pathname) || el.hasAttribute('download');
+    const isDoc=/\.(pdf|docx?|xlsx?|csv|pptx?|zip|odt|ods)(\/|$)/i.test(pathname) || (!/\.(svg|png|jpe?g|gif|ico|webp)(\/|$)/i.test(pathname)&&/^\/documents\/d\//i.test(pathname)) || el.hasAttribute('download');
     const tipo=isDoc?'Documento':'Opção';
     add(tipo,name,name,el,href,!!clean(el.innerText));
     links.push({url:href,label:name,local:ctx(el),tipo,selector:selector(el)});
@@ -322,8 +324,7 @@ def _abrir(page,url: str):
 
 
 def coletar_site(browser,url_base: str,parar,log,progresso,ambiente: str,
-                 *, max_paginas: int = MAX_URLS_SEGURANCA,
-                 max_segundos: int = MAX_MINUTOS_SEGURANCA*60) -> tuple[dict[str,Pagina],list[dict],bool,dict]:
+                 *, max_paginas: int = MAX_URLS_SEGURANCA) -> tuple[dict[str,Pagina],list[dict],bool,dict]:
     contexto=browser.new_context(locale='pt-BR',viewport={'width':1366,'height':850},
                                   ignore_https_errors=False,service_workers='block',accept_downloads=False)
     page=contexto.new_page()
@@ -334,8 +335,6 @@ def coletar_site(browser,url_base: str,parar,log,progresso,ambiente: str,
         while fila and not parar.is_set():
             if len(visitadas)>=max_paginas:
                 motivo=f'Limite preventivo de segurança ({max_paginas} URLs) alcançado';break
-            if time.monotonic()-inicio>=max_segundos:
-                motivo='Tempo máximo preventivo de execução alcançado';break
             if falhas_seguidas>=MAX_FALHAS_CONSECUTIVAS:
                 motivo='Muitas falhas consecutivas de acesso';break
             url,trilha=fila.popleft()
@@ -373,6 +372,8 @@ def coletar_site(browser,url_base: str,parar,log,progresso,ambiente: str,
                     if referencia_invalida(destino):
                         excluidas['Referências codificadas não navegáveis']+=1;continue
                     if permitido(destino,url_base) and destino not in visitadas and destino not in enfileiradas:
+                        if len(enfileiradas)>=max_paginas:
+                            excluidas['Teto de memória de URLs descobertas']+=1;motivo='Teto preventivo de memória de URLs descobertas';continue
                         rotulo=re.sub(r'\s+',' ',rotulo).strip()[:90] or unquote(urlsplit(destino).path.rsplit('/',1)[-1]) or 'Página'
                         trilha_filha=(trilha+[rotulo])[-12:]
                         fila.append((destino,trilha_filha));enfileiradas.add(destino)
@@ -561,10 +562,10 @@ def inferir_site(pag_a:dict[str,Pagina],pag_b:dict[str,Pagina],base_a:str)->str:
     return urlsplit(base_a).hostname or 'Comparação de ambientes'
 
 
-def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,varredura_inteligente=False,observador=None):
+def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,varredura_inteligente=False,observador=None,retomada=None):
     """v1.5: comparação pareada, com variações editoriais separadas."""
     from .paired import executar_pareado
     return executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,
                            site_nome=site_nome,evidencias_dir=evidencias_dir, auditar_externos=auditar_externos,
-                           ambiente_desatualizado=ambiente_desatualizado,checkpoint=checkpoint,
+                           ambiente_desatualizado=ambiente_desatualizado,checkpoint=checkpoint,retomada=retomada,
                            verificar_cliques=verificar_cliques,varredura_inteligente=varredura_inteligente,observador=observador)

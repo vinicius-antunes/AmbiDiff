@@ -75,3 +75,15 @@
 #failure-diagnostics[hidden]{display:none}
 #failure-diagnostics a{color:#c6a9ff}
 .progress-stats{display:flex;align-items:center;flex-wrap:wrap;gap:10px 24px;padding-top:12px;padding-bottom:4px;color:var(--sub);font-size:12px}.progress-stats strong{color:var(--purple2);font-size:15px;font-variant-numeric:tabular-nums}.progress-stats span{font-variant-numeric:tabular-nums}#progress-eta{margin-left:auto;text-align:right}@media(max-width:680px){#progress-eta{margin-left:0;text-align:left}}
+
+/* Controles compartilhados dos resultados e preferências nativas. */
+:root{color-scheme:dark}
+select,option{background-color:#171827;color:#eeeaf8}
+select{border:1px solid #65577e;border-radius:8px;padding:9px 12px;font:inherit;min-height:38px;max-width:100%}
+input[type="checkbox"]{accent-color:#b28aff;width:18px;height:18px;vertical-align:middle;flex-shrink:0}
+label:has(input[type="checkbox"]){display:inline-flex;align-items:center;gap:9px;padding:8px 0}
+a{color:#c7adff}a:hover{color:#e4d5ff}
+:where(a,button,input,select,summary):focus-visible{outline:3px solid #c5a5ff;outline-offset:3px}
+.result-card:has(.reviewed-badge){border-color:#66caa1}
+.reviewed-badge{color:#8fe1bc;background:#17392f;border:1px solid #487f6b;border-radius:6px;padding:4px 8px}
+@media(max-width:760px){select{width:100%}label:has(select){display:flex;flex-wrap:wrap;gap:8px}}

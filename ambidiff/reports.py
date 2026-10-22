@@ -109,6 +109,8 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
             diag_links=f'<p><a href="diagnostico_{rid}.json">Diagnóstico JSON</a> · <a href="log_{rid}.txt">Log TXT</a></p>'
     smart_html=esc(json.dumps({'metricas':dados.get('metricas',{}),'otimizacao':dados.get('otimizacao',{}),
         'verificacoes_destinos':dados.get('verificacoes_destinos',[]),'resultados_funcionais':dados.get('resultados_funcionais',[]),'diferencas_esteticas':dados.get('diferencas_esteticas',[]),'documentos_verificados':dados.get('documentos_verificados',[]),'grupos_relacionados':dados.get('grupos_relacionados',[])},ensure_ascii=False,indent=2))
+    if dados.get('formato_compacto') and not dados.get('exportacao_completa'):
+        smart_html=esc('Detalhes técnicos completos disponíveis no diagnóstico local. Metadados não comprovam identidade dos arquivos.')
     doc=f'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>AmbiDiff · {esc(dados.get('site_nome',''))}</title><style>
     body{{font:14px/1.65 system-ui,Arial;background:#10111c;color:#ededf5;max-width:1100px;margin:auto;padding:30px}}
@@ -168,5 +170,15 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
     dados['divergencias']=completos
     dados['exportacao']={'gerado_em':datetime.now().astimezone().isoformat(),'duracao_antes_json_segundos':round(time.perf_counter()-inicio_exportacao,6),'nota':'Exportação CSV/HTML e preparação do JSON. Exclui a escrita final deste JSON, evitando regravar evidências.'}
     from .storage import atomic_json
-    atomic_json(paths['json'],dados)
+    if dados.get('formato_compacto') and not dados.get('exportacao_completa'):
+        from .compact import separar
+        principal,detalhes=separar(dados)
+        arquivo=pasta/f'detalhes_{run_id}.json'
+        atomic_json(arquivo,detalhes)
+        principal['detalhes_locais']=arquivo.name
+        atomic_json(paths['json'],principal)
+    else:
+        if dados.get('exportacao_completa'):
+            dados['formato_relatorio']=1;dados.pop('detalhes_locais',None)
+        atomic_json(paths['json'],dados)
     return {ext:str(path) for ext,path in paths.items()}

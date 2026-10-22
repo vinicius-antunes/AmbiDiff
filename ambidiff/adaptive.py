@@ -31,13 +31,13 @@ def sondar(page):
 def preparar(page,log,delay=160,limite_segundos=7.0,parar=None):
     """Percorre toda a altura, mantém abas no extrator e espera quietude observada.
 
-    Janela mínima 450 ms, 1,3 s com scripts/lazy/abas. Orçamento limitado; nunca
+    Janela mínima 350 ms, 1,3 s com scripts/lazy/abas. Orçamento limitado; nunca
     bloqueia recursos ou depende de silêncio de rede. Não certifica timers futuros.
     """
     inicio=time.monotonic();passos=0;estavel=False;limitado=False
     try:
         s=sondar(page);complexa=bool(s['scripts'] or s['lazy'] or s['abas'])
-        minimo=1300 if complexa else 450
+        minimo=1300 if complexa else 350
         while True:
             if parar and parar.is_set():limitado=True;break
             if time.monotonic()-inicio>=limite_segundos+2:limitado=True;break
@@ -65,7 +65,7 @@ def preparar(page,log,delay=160,limite_segundos=7.0,parar=None):
         page.evaluate('() => window.scrollTo(0,0)')
         return {'passos_rolagem':passos,'rolagem_limitada':limitado,'estavel':estavel,
                 'sonda':sondar(page),'preparacao':'adaptativa completa','janela_minima_ms':minimo,
-                'verificacoes_omitidas':[],'duracao_segundos':round(time.monotonic()-inicio,6)}
+                'verificacoes_omitidas':[],'espera_reduzida':not complexa,'motivo_preparacao':'DOM sem scripts/lazy/abas; quietude semântica de 350 ms' if not complexa else 'Página dinâmica: janela conservadora e rolagem mantidas','duracao_segundos':round(time.monotonic()-inicio,6)}
     except Exception as ex:
         log('[Coleta] Preparação adaptativa parcial: '+str(ex)[:110])
         return {'passos_rolagem':passos,'rolagem_limitada':True,'estavel':False,'erro':str(ex)[:180]}

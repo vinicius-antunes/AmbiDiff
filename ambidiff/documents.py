@@ -13,8 +13,8 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler,ProxyHandl
 
 from .core import normalizar, url_limpa
 
-MAX_PARES=20
-MAX_REQUISICOES=100
+MAX_PARES=10000
+MAX_REQUISICOES=20000
 MAX_REDIRECTS=3
 MAX_BYTES=1
 TIMEOUT=4
@@ -40,13 +40,24 @@ def autorizado(url,base):
 
 
 class Documentos:
-    def __init__(self,metricas,parar,permitir_range=True):
-        self.permitir_range=permitir_range
+    def __init__(self,metricas,parar,permitir_range=True,observacao_por_execucao=False):
+        self.permitir_range=permitir_range;self.observacao_por_execucao=observacao_por_execucao
         self.metricas=metricas;self.parar=parar
         self.opener=build_opener(ProxyHandler({}),SemRedirect())
-        self.resultados=[];self.cache={};self.requisicoes=0
+        self.resultados=[];self.cache={};self.cache_urls={};self.requisicoes=0
 
     def conferir(self,url,base):
+        chave=(url,base);agora=time.monotonic()
+        if chave in self.cache_urls and (self.observacao_por_execucao or self.cache_urls[chave][1]>agora):
+            self.metricas.contagens['urls_documentais_reaproveitadas']+=1
+            return dict(self.cache_urls[chave][0],reaproveitado=True,nota_reuso='Observação anterior com horário preservado; disponibilidade atual não revalidada.')
+        resultado=self._conferir(url,base)
+        from datetime import datetime
+        resultado['observado_em']=datetime.now().astimezone().isoformat()
+        self.cache_urls[chave]=(resultado,time.monotonic()+frescor(resultado))
+        return resultado
+
+    def _conferir(self,url,base):
         inicial=url;metodo='HEAD';redirects=0;inicio=time.monotonic()
         while True:
             if self.parar.is_set():return {'situacao':'inconclusivo','motivo':'Interrompido','url':url}
@@ -136,13 +147,14 @@ class Documentos:
         resultado={'classificacao':classificacao,'elemento':ia.nome,'contexto':ia.local,
                    'destino_a':ia.destino,'destino_b':ib.destino,'a':a,'b':b,
                    'nota':'Metadados não comprovam arquivos idênticos nem identidade do conteúdo.'}
-        def validade(meta):
-            cc=meta.get('cache_control','').lower()
-            if 'no-cache' in cc or 'no-store' in cc:return 0
-            m=re.search(r'(?:^|,)\s*max-age=(\d+)',cc)
-            idade=meta.get('age','0')
-            if not idade.isdigit():return 0
-            return max(0,min(30,int(m[1])-int(idade))) if m else 0
-        self.cache[chave]=(resultado,min(recebido_a+validade(a),recebido_b+validade(b)))
+        self.cache[chave]=(resultado,min(recebido_a+frescor(a),recebido_b+frescor(b)))
         self.resultados.append(resultado)
         return resultado
+
+
+def frescor(meta):
+    cc=meta.get('cache_control','').lower()
+    if 'no-cache' in cc or 'no-store' in cc:return 0
+    m=re.search(r'(?:^|,)\s*max-age=(\d+)',cc);idade=meta.get('age','0')
+    if not idade.isdigit():return 0
+    return max(0,min(30,int(m[1])-int(idade))) if m else 0

@@ -2,7 +2,7 @@
 
 **PRD × DES/LAB**, com comparação pareada, evidências e exportação local. Funciona no **Windows**, com Python + Playwright Chromium + painel Flask escuro. O programa lê páginas autorizadas sem editar sites.
 
-> **Estado do desenvolvimento:** esta atualização está na branch privada `perf/otimizacao-varredura`, sobre `208ed2b`, sem merge na `main` e sem incorporar as branches USEIA/CGE. Leia o [diagnóstico, requisitos, testes, benchmark e roteiro Windows](docs/proxima-atualizacao.md). Os documentos de versões anteriores são históricos; os limites descritos nessa atualização prevalecem.
+> **Estado do desenvolvimento:** esta atualização está na branch privada `perf/otimizacao-varredura`, sobre `ea8abad`, sem merge na `main` e sem incorporar as branches USEIA/CGE. Leia a [atualização para portais extensos, retomada e relatórios](docs/atualizacao-portais-extensos.md). O [relatório da entrega anterior](docs/proxima-atualizacao.md) permanece histórico. Os documentos de versões anteriores são históricos; os limites descritos nessa atualização prevalecem.
 
 ## Testes internos com colegas do setor
 
@@ -238,3 +238,29 @@ e preserva os resultados parciais. Os campos de URL começam vazios.
 
 Consulte [o relatório técnico A–I](docs/proxima-atualizacao.md) para os requisitos
 atendidos, limites de HEAD/cliques, comandos, resultados e validação manual.
+
+## Portais extensos, retomada e revisão
+
+A execução não tem limite global de 45 minutos; timeouts individuais e proteções
+contra ciclos, crescimento excessivo e falhas consecutivas continuam ativos.
+A fila prioriza áreas institucionais e atende periodicamente referências antigas.
+O teto preventivo de memória passou para 100.000 pares/URLs; sua aplicação
+continua produzindo resultado parcial, sem equivalência presumida.
+
+Use **Consultar checkpoints → Retomar** para continuar uma fila persistida em
+nova execução, preservando o relatório anterior e as revisões. Confira os
+ambientes e opções mostrados antes de retomar. Checkpoints antigos sem estado
+restaurável continuam úteis para diagnóstico, mas não são retomados.
+
+Documentos recebem somente HEAD, com até 10.000 pares e 20.000 pedidos seriais,
+cache de observações por URL e horário preservado. Não são lidos PDFs ou corpos.
+Bloqueios de segurança aparecem separados das falhas de acesso/automação.
+Fragmentos sem função comprovada ficam inconclusivos; âncoras de rolagem
+observadas não geram defeitos funcionais.
+
+O formato 2 separa o principal de `detalhes_<id>.json`; preserve ambos ao copiar
+a instalação. O diagnóstico completo e a exportação completa mantêm os detalhes.
+O painel carrega os dados técnicos sob demanda, pesquisa IDs dentro de grupos,
+filtra revisão pendente/confirmada e oferece exportação somente de relevantes.
+
+Confira [arquivos, testes, benchmark, limites e roteiro Windows](docs/atualizacao-portais-extensos.md).

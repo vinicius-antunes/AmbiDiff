@@ -71,8 +71,8 @@ def preparar(dados, manuais=None):
                 row['ocorrencias']=deepcopy(row.get('ocorrencias') or [row]);groups[key]=row
             out.append(row)
     from .taxonomy import enriquecer,relacionar
-    from .sections import agrupar_documentos
-    out=agrupar_documentos(enriquecer(out))
+    from .sections import agrupar_documentos,agrupar_relacionados
+    out=agrupar_documentos(agrupar_relacionados(enriquecer(out)))
     report['grupos_relacionados']=relacionar(out)
     for row in out:row['grupos_relacionados']=[g['id'] for g in report['grupos_relacionados'] if row.get('id') in g['ids']]
     report['divergencias']=out

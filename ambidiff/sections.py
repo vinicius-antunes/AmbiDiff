@@ -47,7 +47,7 @@ def agrupar_documentos(rows):
     for row in rows:
         if row.get('tipo')!='Documento' or row.get('destino_a') or not row.get('local') or normalizar(row['local']) in GENERICO:
             out.append(row);continue
-        key=(row.get('local'),row.get('presente_em'),row.get('nao_identificado_em'),row.get('classificacao'),row.get('classificacao_manual'),
+        key=(row.get('local'),row.get('presente_em'),row.get('nao_identificado_em'),row.get('classificacao'),row.get('classificacao_manual'),row.get('revisao_manual'),
              tuple(sorted((o.get('url_presente',''),o.get('url_comparada','')) for o in row.get('ocorrencias') or [row])))
         buckets[key].append(row)
     for group in buckets.values():
@@ -58,3 +58,26 @@ def agrupar_documentos(rows):
             quantidade_itens=len(group))
         out.append(principal)
     return out
+
+
+def agrupar_relacionados(rows):
+    """Somente texto/controle normativo na mesma seção, escopo e revisão."""
+    import re
+    groups=defaultdict(list);resto=[]
+    for row in rows:
+        texto=' '.join(str(row.get(k,'')) for k in ('elemento','texto_a','texto_b'))
+        norm=re.search(r'\b(portaria|decreto|lei|resolu[çc][ãa]o)\s*(?:n[ºo°.]?\s*)?\d',texto,re.I)
+        if not norm or row.get('tipo') not in ('Texto','Opção','Rótulo','Documento') or normalizar(row.get('local','')) in GENERICO:
+            resto.append(row);continue
+        key=(normalizar(row.get('local','')),tuple(sorted((row.get('url_presente',''),row.get('url_comparada','')))),norm[1].casefold(),
+             row.get('classificacao'),row.get('classificacao_manual'),row.get('revisao_manual'))
+        groups[key].append(row)
+    for group in groups.values():
+        # Exige evidência de texto e controle; não agrega textos independentes.
+        if len(group)<2 or not any(x.get('tipo')=='Texto' for x in group) or not any(x.get('tipo') in ('Opção','Rótulo','Documento') for x in group):
+            resto.extend(group);continue
+        p=deepcopy(group[0]);p.update(tipo='Referências normativas da seção',elemento='Referências normativas diferentes em '+group[0]['local'],
+            descricao='Textos e controles normativos relacionados na mesma seção. Todos os valores e destinos permanecem nos detalhes; causa e correção não foram presumidas.',
+            registros_agrupados=deepcopy(group),itens_agrupados=deepcopy(group),ids_agrupados=[x['id'] for x in group],quantidade_itens=len(group))
+        resto.append(p)
+    return resto

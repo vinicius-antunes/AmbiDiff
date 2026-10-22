@@ -284,7 +284,8 @@ class PipelineNextTests(unittest.TestCase):
         with interacoes(('post','post')) as (bases,pedidos):
             r=executar_pareado(*bases,'PRD','DES',threading.Event(),lambda _:None,lambda _:None,varredura_inteligente=True)
             self.assertFalse(any(method=='POST' for method,path in pedidos))
-            self.assertTrue(any(f.get('tipo_erro')=='POLITICA_SEGURANCA' for f in r['falhas']))
+            self.assertTrue(any(f.get('tipo_erro')=='POLITICA_SEGURANCA' for f in r['bloqueios_seguranca']))
+            self.assertFalse(any(f.get('tipo_erro')=='POLITICA_SEGURANCA' for f in r['falhas']))
             self.assertNotEqual(r['situacao_analise'],'concluido')
 
     def test_implantacao_em_subpasta_percorre_rotas_equivalentes(self):

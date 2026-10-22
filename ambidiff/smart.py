@@ -45,7 +45,7 @@ class Metricas:
 # controles e destinos. Não deriva equivalência apenas do título ou da rota.
 JS_TEMPLATE=r'''base => {
  const root=new URL(base), art=document.querySelector('main article');
- const els=[...document.body.querySelectorAll('*')];
+ const els=[...(document.body?.querySelectorAll('*')||[])];
  const canon=u=>{try{const p=new URL(u,location.href);if(p.origin!==root.origin)return p.href;
    const r=root.pathname.replace(/\/$/,'');const path=p.pathname===r?'/':r&&p.pathname.startsWith(r+'/')?p.pathname.slice(r.length):p.pathname;
    return path+p.search;}catch(e){return u;}};
@@ -201,5 +201,8 @@ class Inteligencia:
         return {'equivalencias_verificadas':self.equivalencias,
                 'equivalencias_inconclusivas':self.inconclusivos,
                 'inspecoes_profundas_omitidas':self.omissoes,'estruturas_editoriais_para_revisao':self.estruturas,
+                'paginas_sem_par':sum(x.get('quantidade_paginas',1) for x in self.omissoes if x.get('categoria')=='Página sem par inequívoco'),
+                'preparacoes_realmente_dispensadas':self.metricas.contagens['preparacoes_profundas_evitadas'],
+                'nota_contagens':'Página sem par não é uma preparação evitada. Preparação com espera reduzida continua sendo inspeção profunda.',
                 'quantidade_paginas_sem_inspecao_profunda':sum(x.get('quantidade_paginas',2) for x in self.omissoes),
                 'nota':'Equivalência estática não comprova funcionamento nem conteúdo oculto. Notícias pareadas otimizadas ainda recebem navegação e inspeção estrutural; links sem par são listados como não inspecionados.'}

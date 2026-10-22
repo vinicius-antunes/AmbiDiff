@@ -1,0 +1,93 @@
+{
+  "referencia_commit": "ea8abad86024b1f0238ea14747bd66db2429b5c7",
+  "referencias": 500,
+  "repeticoes": 3,
+  "medianas": {
+    "anterior": {
+      "duracao_segundos": 0.0355838949981262,
+      "json_principal_bytes": 325873,
+      "html_bytes": 469992,
+      "csv_bytes": 886,
+      "json_total_bytes": 325873
+    },
+    "atual": {
+      "duracao_segundos": 0.03837733900218154,
+      "json_principal_bytes": 1533,
+      "html_bytes": 5584,
+      "csv_bytes": 886,
+      "json_total_bytes": 326138
+    }
+  },
+  "observacoes_equivalentes": true,
+  "reducao_json_principal_percentual": 99.53,
+  "execucoes": [
+    {
+      "duracao_segundos": 0.035031358998821815,
+      "json_principal_bytes": 325873,
+      "html_bytes": 469992,
+      "csv_bytes": 886,
+      "json_total_bytes": 325873,
+      "observacoes_preservadas": 500,
+      "evidencia_sha256": "29e572395f96cd2f3a60e81c8f4f975b4fa82fe690be12f19442086c090e38aa",
+      "versao": "anterior",
+      "repeticao": 1
+    },
+    {
+      "duracao_segundos": 0.03322459499759134,
+      "json_principal_bytes": 1533,
+      "html_bytes": 5584,
+      "csv_bytes": 886,
+      "json_total_bytes": 326138,
+      "observacoes_preservadas": 500,
+      "evidencia_sha256": "29e572395f96cd2f3a60e81c8f4f975b4fa82fe690be12f19442086c090e38aa",
+      "versao": "atual",
+      "repeticao": 1
+    },
+    {
+      "duracao_segundos": 0.05132773500008625,
+      "json_principal_bytes": 1533,
+      "html_bytes": 5584,
+      "csv_bytes": 886,
+      "json_total_bytes": 326138,
+      "observacoes_preservadas": 500,
+      "evidencia_sha256": "29e572395f96cd2f3a60e81c8f4f975b4fa82fe690be12f19442086c090e38aa",
+      "versao": "atual",
+      "repeticao": 2
+    },
+    {
+      "duracao_segundos": 0.0355838949981262,
+      "json_principal_bytes": 325872,
+      "html_bytes": 469992,
+      "csv_bytes": 886,
+      "json_total_bytes": 325872,
+      "observacoes_preservadas": 500,
+      "evidencia_sha256": "29e572395f96cd2f3a60e81c8f4f975b4fa82fe690be12f19442086c090e38aa",
+      "versao": "anterior",
+      "repeticao": 2
+    },
+    {
+      "duracao_segundos": 0.040391359998466214,
+      "json_principal_bytes": 325873,
+      "html_bytes": 469992,
+      "csv_bytes": 886,
+      "json_total_bytes": 325873,
+      "observacoes_preservadas": 500,
+      "evidencia_sha256": "29e572395f96cd2f3a60e81c8f4f975b4fa82fe690be12f19442086c090e38aa",
+      "versao": "anterior",
+      "repeticao": 3
+    },
+    {
+      "duracao_segundos": 0.03837733900218154,
+      "json_principal_bytes": 1533,
+      "html_bytes": 5584,
+      "csv_bytes": 886,
+      "json_total_bytes": 326138,
+      "observacoes_preservadas": 500,
+      "evidencia_sha256": "29e572395f96cd2f3a60e81c8f4f975b4fa82fe690be12f19442086c090e38aa",
+      "versao": "atual",
+      "repeticao": 3
+    }
+  ],
+  "limite": "Exportação sintética v1 versus formato compacto v2 do fluxo oficial. Não mede o relatório real do INTERMAT, navegação nem disco Windows. O total JSON inclui os detalhes separados; não confundir redução do principal com redução total de armazenamento.",
+  "candidata": "Atualização sobre ea8abad; o commit de entrega adiciona este arquivo."
+}
