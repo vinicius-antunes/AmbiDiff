@@ -7,6 +7,7 @@ CLASSES=('relevante','baixa','editorial','inconclusivo')
 SVG='Código do ícone diferente — revisão visual'
 
 def classificar(row, ambientes=None):
+    if row.get('verificacao_limitada'):return 'inconclusivo','Componente com avaliação limitada pela política de segurança; diferença preservada sem defeito comprovado.'
     # Evidência de impacto sempre prevalece sobre sinais técnicos secundários.
     if any(row.get(k) for k in ('impacto_visual_confirmado','falha_funcional','problema_acessibilidade','diferenca_estrutural')):
         return 'relevante','Há evidência explícita de impacto.'

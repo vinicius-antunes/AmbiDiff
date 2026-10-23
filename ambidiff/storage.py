@@ -13,7 +13,7 @@ import threading
 from datetime import datetime
 
 RUN_RE=re.compile(r'\d{8}_\d{6}_[a-f0-9]{6}\Z')
-DIV_RE=re.compile(r'DIV-\d{4,5}\Z')
+DIV_RE=re.compile(r'DIV-\d{4,9}\Z')
 
 
 def valid_run(run_id:str)->bool:
@@ -71,7 +71,10 @@ def preparar_relatorio(root:Path,run_id:str,detalhes=True)->dict:
         if row.get('id') in rev:row['revisao_manual']=rev[row['id']]
     from .relevance import preparar
     manual=root/f'relevancia_{run_id}.json'
-    return preparar(report,json.loads(manual.read_text(encoding="utf-8")) if manual.exists() else {})
+    resultado=preparar(report,json.loads(manual.read_text(encoding="utf-8")) if manual.exists() else {})
+    visiveis={r['id'] for r in original if r.get('id') not in ignored}
+    resultado['ids_selecionados']=sorted(ler_selecao(root,run_id)&visiveis)
+    return resultado
 
 
 def excluir_div(root:Path,run_id:str,div_id:str,lock:threading.RLock|None=None)->dict:
@@ -125,7 +128,7 @@ def excluir_execucoes(root:Path,hist_path:Path,run_ids:list[str],lock:threading.
                     (root/f'{prefix}{rid}.{ext}').unlink(missing_ok=True)
             (root/f'detalhes_filtrado_{rid}.json').unlink(missing_ok=True)
             _overlay(root,rid).unlink(missing_ok=True)
-            for name in ('detalhes_', 'execucao_', 'relevancia_', 'revisoes_', 'diagnostico_', 'log_', 'checkpoint_'):
+            for name in ('selecoes_', 'recuperacao_', 'detalhes_', 'execucao_', 'relevancia_', 'revisoes_', 'diagnostico_', 'log_', 'checkpoint_'):
                 for ext in ('json','txt','log'):
                     (root/f'{name}{rid}.{ext}').unlink(missing_ok=True)
             ev=root/f'evidencias_{rid}'
@@ -150,3 +153,46 @@ def reclassificar(root,run_id,div_id,classe):
     else:overlay[div_id]=classe
     atomic_json(path,overlay)
     return preparar_relatorio(root,run_id)
+
+
+def ler_selecao(root,run_id):
+    if not valid_run(run_id):raise ValueError('ID inválido.')
+    p=root/f'selecoes_{run_id}.json'
+    data=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+    return {i for i in data.get('ids',[]) if isinstance(i,str) and DIV_RE.fullmatch(i)}
+
+
+def selecionar(root,run_id,div_id,marcada):
+    if type(marcada) is not bool:raise ValueError('Informe selecionado como booleano.')
+    report=preparar_relatorio(root,run_id)
+    grupo=next((r for r in report['divergencias'] if r['id']==div_id),None)
+    if grupo:ids=set(grupo.get('ids_agrupados') or [div_id])
+    else:ids={div_id} if any(div_id in r.get('ids_agrupados',[]) for r in report['divergencias']) else set()
+    if not ids:raise KeyError('DIV não encontrada ou excluída.')
+    atuais=ler_selecao(root,run_id)
+    atuais=atuais|ids if marcada else atuais-ids
+    atomic_json(root/f'selecoes_{run_id}.json',{'ids':sorted(atuais)})
+    return sorted(atuais-ler_exclusoes(root,run_id))
+
+
+def somente_selecionadas(report,ids):
+    from copy import deepcopy
+    # Exportar uma seleção não deve carregar DOM, grupos ou referências de DIVs
+    # fora do escopo. Preserve apenas o contexto comum e os membros escolhidos.
+    contexto=('id','versao','site_nome','ambientes','gerado_em','iniciado_em',
+        'finalizado_em','duracao_segundos','situacao_analise','estado_execucao',
+        'paginas','completo','meta_varredura','modo_varredura','ambiente_desatualizado',
+        'retomada_de','site_id')
+    out={k:deepcopy(report[k]) for k in contexto if k in report};rows=[];seen=set()
+    for group in report['divergencias']:
+        for r in group.get('registros_agrupados') or [group]:
+            if r['id'] in ids and r['id'] not in seen:rows.append(deepcopy(r));seen.add(r['id'])
+    out.update(divergencias=rows,registros_originais=rows,escopo_exportacao='Somente DIVs selecionadas',exportacao_selecionada=True,exportacao_completa=False,formato_compacto=False,formato_relatorio=1)
+    metricas=report.get('metricas',{})
+    out['metricas']={k:deepcopy(metricas[k]) for k in ('iniciado_em','finalizado_em',
+        'duracao_segundos','tempo_total_segundos','tempos_segundos','contagens',
+        'nota_tempos','nota_deduplicacao','nota_requisicoes') if k in metricas}
+    out['ids_selecionados']=sorted(seen)
+    out['revisoes_manuais']={k:deepcopy(v) for k,v in report.get('revisoes_manuais',{}).items() if k in seen}
+    out['ocorrencias_brutas']=sum(r.get('ocorrencias_total',1) for r in rows)
+    return out

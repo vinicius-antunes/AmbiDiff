@@ -87,3 +87,5 @@ a{color:#c7adff}a:hover{color:#e4d5ff}
 .result-card:has(.reviewed-badge){border-color:#66caa1}
 .reviewed-badge{color:#8fe1bc;background:#17392f;border:1px solid #487f6b;border-radius:6px;padding:4px 8px}
 @media(max-width:760px){select{width:100%}label:has(select){display:flex;flex-wrap:wrap;gap:8px}}
+
+.advanced-options{margin:18px 0;padding:14px;border:1px solid #625279;border-radius:8px}.advanced-options summary{cursor:pointer;font-weight:700}.export-actions{flex-wrap:wrap}.export-actions button{max-width:240px;text-align:left}.export-actions strong,.export-actions small{display:block}.export-actions small{margin-top:6px;font-weight:400;line-height:1.4}.div-export-selection{margin-right:8px}.export-actions button[data-export="csv"]{border-color:#b595eb}

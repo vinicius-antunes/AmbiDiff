@@ -12,7 +12,7 @@ import time
 import uuid
 import webbrowser
 from urllib.parse import urlsplit
-from flask import Flask,jsonify,render_template,request,send_from_directory
+from flask import Flask,jsonify,render_template,request,send_from_directory,send_file
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -64,7 +64,7 @@ def atualizar_progresso(valor):
 
 def atualizar(**kw):
     with LOCK:
-        if kw.get('status') in ('concluido','erro','interrompido'):
+        if kw.get('status') in ('concluido','parcial','erro','interrompido'):
             STATE['fim_monotonic']=time.monotonic()
         STATE.update(kw)
 
@@ -77,7 +77,7 @@ def estado_publico(agora=None):
         dados['interrupcao_solicitada']=PARAR.is_set() and dados['status']=='executando'
         d=STATE.get('andamento',{})
         total=d.get('pares_visitados',0)+d.get('pares_pendentes',0)
-        dados['cobertura_conhecida_percentual']=round(100*d.get('pares_visitados',0)/total) if total else None
+        dados['cobertura_conhecida_percentual']=min(99 if dados['status']!='concluido' else 100,round(100*d.get('pares_visitados',0)/total)) if total else None
         dados['progresso_semantica']='Fila descoberta até o momento, não conclusão global nem inspeção profunda'
         dados['servidor_agora']=datetime.now().astimezone().isoformat()
         inicio=STATE['inicio_monotonic']
@@ -132,6 +132,13 @@ def _hist():
     except (OSError,ValueError):return []
 
 
+def percentual_final(resultado,status):
+    if status=='concluido':return 100
+    d=resultado.get('andamento',{})
+    total=d.get('pares_descobertos',0)
+    return min(99,round(100*d.get('pares_comparados',0)/total)) if total else 0
+
+
 def worker(params,run_id):
     inicio_worker=time.monotonic();inicio_iso=datetime.now().astimezone().isoformat()
     try:
@@ -170,7 +177,8 @@ def worker(params,run_id):
         with LOCK:
             h=_hist();h.insert(0,entrada)
             atomic_json(HISTORY_PATH,h[:350])
-        atualizar(status='concluido',progresso=100,ultimo_id=run_id,erro=None,
+        final='interrompido' if resultado.get('estado_execucao')=='interrompido' else 'concluido' if resultado.get('situacao_analise')=='concluido' else 'parcial'
+        atualizar(status=final,progresso=percentual_final(resultado,final),andamento=resultado.get('andamento',{}),ultimo_id=run_id,erro=None,relatorio_disponivel=True,
                   resumo={'total':entrada['total'],'paginas':entrada['paginas'],
                           'situacao':entrada['situacao'],'nome':entrada['site_nome']})
         log(f'Finalizado ({entrada["situacao"]}): {entrada["total"]} diferenças de conteúdo; '
@@ -181,26 +189,26 @@ def worker(params,run_id):
         cp=PASTA/f'checkpoint_{run_id}.json'
         try:
             if cp.exists():
-                from ambidiff.paired import agrupar_registros
-                snap=json.loads(cp.read_text(encoding='utf-8'));snap.pop('retomada',None)
-                brutos=snap.pop('brutos',[]);var=snap.pop('variacoes_editoriais',[])
+                from ambidiff.checkpoints import recuperar
+                snap=recuperar(json.loads(cp.read_text(encoding='utf-8')))
                 parcial={**snap,'formato_compacto':True,'versao':'1.5','situacao_analise':'parcial',
                    'completo':{k:False for k in snap.get('ambientes',{})},
-                   'divergencias':agrupar_registros(brutos),
-                   'variacoes_dados':[], 'itens_editoriais_agrupados':len(var),
-                   'avisos_tecnicos':[],'referencias_pendentes':[],
-                   'ocorrencias_brutas':len(brutos)+len(var),
-                   'estado_execucao':'falha','motivo_recuperacao':'Recuperação do último checkpoint: '+str(ex)[:250]}
+                   'estado_execucao':'falha','erro_execucao':str(ex)[:550],
+                   'motivo_recuperacao':'Recuperação do último checkpoint: '+str(ex)[:250]}
+                parcial['andamento']['etapa']='falha'
+                for meta in parcial.get('meta_varredura',{}).values():meta['motivo_parada']='Falha da automação: '+str(ex)[:200]
                 parcial['duracao_no_checkpoint_segundos']=snap.get('duracao_segundos')
                 parcial['iniciado_em']=snap.get('iniciado_em',inicio_iso)
                 parcial['finalizado_em']=datetime.now().astimezone().isoformat()
                 parcial['duracao_segundos']=round(time.monotonic()-inicio_worker+params.get('retomada',{}).get('estado',{}).get('duracao_acumulada',0),6)
-                parcial['registros_editoriais']=snap.get('registros_editoriais',var)
+                parcial['registros_editoriais']=snap.get('registros_editoriais',[])
                 parcial['gerado_em']=datetime.now().strftime('%d/%m/%Y %H:%M:%S')
                 parcial['id']=run_id
+                parcial['site_nome']=parcial.get('site_nome') or urlsplit(params['url_a']).hostname or 'Portal'
                 chave=params['url_a'].split('//',1)[-1].split('/',1)[0].lower()+'/'+urlsplit(params['url_a']).path.strip('/')
                 parcial['site_id']=hashlib.sha256(chave.encode()).hexdigest()[:16]
-                exportar(parcial,PASTA,run_id)
+                if (PASTA/f'comparacao_{run_id}.json').exists():atomic_json(PASTA/f'recuperacao_{run_id}.json',parcial)
+                else:exportar(parcial,PASTA,run_id)
                 diag=montar_diagnostico(parcial,list(STATE.get('logs',[])))
                 diag['erro_critico']=str(ex)[:600]
                 exportar_diagnostico(diag,PASTA,run_id)
@@ -211,7 +219,7 @@ def worker(params,run_id):
                        'paginas':parcial.get('paginas',{})})
                     atomic_json(HISTORY_PATH,h[:350])
                 log('Último checkpoint recuperado. Relatório parcial e diagnóstico salvos.')
-                atualizar(status='concluido',progresso=100,ultimo_id=run_id,erro=None)
+                atualizar(status='erro',progresso=percentual_final(parcial,'erro'),ultimo_id=run_id,erro=str(ex)[:550],andamento=parcial['andamento'],relatorio_parcial=True,relatorio_disponivel=True)
                 # Checkpoint conservado para diagnosticar a falha original.
                 return
             diag={'iniciado_em':inicio_iso,'finalizado_em':datetime.now().astimezone().isoformat(),
@@ -222,7 +230,7 @@ def worker(params,run_id):
                  'erro_critico':traceback.format_exc()[-2000:]}
             exportar_diagnostico(diag,PASTA,run_id)
         except Exception as falha_diag:log('Falha ao gravar diagnóstico: '+str(falha_diag)[:120])
-        atualizar(status='erro',erro=str(ex)[:550],ultimo_id=run_id)
+        atualizar(status='erro',erro=str(ex)[:550],ultimo_id=run_id,relatorio_disponivel=(PASTA/f'comparacao_{run_id}.json').exists())
 
 
 @app.get('/')
@@ -258,7 +266,7 @@ def comparar():
         PARAR.clear()
         inicio=time.monotonic()
         STATE.update(status='executando',progresso=0,logs=[],
-                     erro=None,resumo=None,ultimo_id=None,
+                     erro=None,resumo=None,ultimo_id=None,relatorio_disponivel=False,relatorio_parcial=False,
                      inicio_monotonic=inicio,fim_monotonic=None,
                      amostras_progresso=[(inicio,0)])
         run_id=datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:6]
@@ -304,14 +312,14 @@ def retomar(run_id):
             params=dict(estado['configuracao'],retomada=payload['retomada'],retomada_de=run_id)
             novo=datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:6]
             # Nova execução: preserva arquivos e decisões do relatório anterior.
-            for prefix in ('exclusoes','relevancia','revisoes'):
+            for prefix in ('exclusoes','relevancia','revisoes','selecoes'):
                 origem=PASTA/f'{prefix}_{run_id}.json'
                 if origem.exists():atomic_json(PASTA/f'{prefix}_{novo}.json',json.loads(origem.read_text(encoding='utf-8')))
             atomic_json(PASTA/f'checkpoint_{novo}.json',dict(payload,id=novo,retomada_de=run_id))
         except FileNotFoundError:return jsonify(erro='Checkpoint não encontrado.'),404
         except (ValueError,TypeError,KeyError,OSError) as exc:return jsonify(erro='Retomada recusada: '+str(exc)[:220]),400
         PARAR.clear();inicio=time.monotonic();FEED.eventos.clear()
-        STATE.update(status='executando',progresso=0,logs=[],erro=None,resumo=None,ultimo_id=None,
+        STATE.update(status='executando',progresso=0,logs=[],erro=None,resumo=None,ultimo_id=None,relatorio_disponivel=False,relatorio_parcial=False,
             inicio_monotonic=inicio-estado['duracao_acumulada'],fim_monotonic=None,amostras_progresso=[],
             execucao_id=novo,execucao_log_inicio=FEED.seq,andamento={},amostras_pares=[],falha_log_completo=None)
         log('Retomando checkpoint '+run_id+' em nova execução '+novo)
@@ -390,11 +398,26 @@ def relevancia(run_id,div_id):
     except (KeyError,FileNotFoundError):return jsonify(erro='Relatório ou DIV não encontrada.'),404
 
 
+@app.put('/api/relatorio/<run_id>/selecao/<div_id>')
+def selecionar_div(run_id,div_id):
+    from ambidiff.storage import selecionar
+    if not valid_run(run_id):return jsonify(erro='ID inválido.'),400
+    try:
+        with LOCK:
+            if STATE['status']=='executando':return jsonify(erro='Aguarde a conclusão.'),409
+            ids=selecionar(PASTA,run_id,div_id,(request.get_json(silent=True) or {}).get('selecionado'))
+        return jsonify(ids_selecionados=ids)
+    except ValueError as exc:return jsonify(erro=str(exc)),400
+    except (KeyError,FileNotFoundError):return jsonify(erro='DIV não encontrada.'),404
+
+
 @app.get('/download/<run_id>/<ext>')
 def baixar(run_id,ext):
-    if not valid_run(run_id) or ext not in ('csv','json','html','diagnostico-json','diagnostico-txt'):
+    if not valid_run(run_id) or ext not in ('csv','json','html','pdf','diagnostico-json','diagnostico-txt'):
         return jsonify(erro='Arquivo inválido'),400
     try:
+        from ambidiff.exports import nome_amigavel,gerar_pdf
+        escopo='selecionadas' if request.args.get('selecionadas')=='1' else 'completo'
         if ext=='diagnostico-json':
             with LOCK:
                 dados=preparar_relatorio(PASTA,run_id)
@@ -402,23 +425,37 @@ def baixar(run_id,ext):
                 diag=json.loads(path.read_text(encoding='utf-8')) if path.exists() else montar_diagnostico(dados)
                 diag.update(diferencas_completas=dados['divergencias'],editoriais=dados.get('editoriais_preservados',[]),resumo_relevancia=dados.get('resumo_relevancia',{}))
             response=jsonify(diag)
-            response.headers['Content-Disposition']=f'attachment; filename="diagnostico_{run_id}.json"'
+            response.headers['Content-Disposition']='attachment; filename="'+nome_amigavel(dados.get('site_nome'),ext,escopo,run_id)+'"'
             return response
         if ext=='diagnostico-txt':
             nome=(f'diagnostico_{run_id}.json' if ext=='diagnostico-json' else f'log_{run_id}.txt')
-            return send_from_directory(PASTA,nome,as_attachment=True)
+            return send_from_directory(PASTA,nome,as_attachment=True,download_name=nome_amigavel(preparar_relatorio(PASTA,run_id).get('site_nome'),ext,escopo,run_id))
         # Recria a exportação filtrada sem alterar o relatório bruto.
         with LOCK:
             dados=preparar_relatorio(PASTA,run_id)
-            dados['formato_compacto']=True
+            dados['formato_compacto']=False;dados['formato_relatorio']=1;dados.pop('detalhes_locais',None)
             if request.args.get('completo')=='1':dados['exportacao_completa']=True
             if request.args.get('relevantes')=='1':
                 dados['divergencias']=[r for r in dados['divergencias'] if r.get('classificacao')=='relevante']
                 dados.pop('registros_originais',None)
                 dados['escopo_exportacao']='Somente relevantes'
-            exportar(dados,PASTA,'filtrado_'+run_id)
-            nome=f'comparacao_filtrado_{run_id}.{ext}'
-        return send_from_directory(PASTA,nome,as_attachment=True)
+            if escopo=='selecionadas':
+                from ambidiff.storage import somente_selecionadas
+                dados=somente_selecionadas(dados,set(dados.get('ids_selecionados',[])))
+                if not dados['divergencias']:return jsonify(erro='Selecione ao menos uma DIV visível para exportar.'),400
+            else:dados['escopo_exportacao']='Relatório completo' if dados.get('exportacao_completa') else dados.get('escopo_exportacao','Relatório principal')
+        # Snapshot separado do lock da varredura; conversão lenta não bloqueia Interromper.
+        import tempfile,io
+        with tempfile.TemporaryDirectory(prefix='ambidiff_export_') as td:
+            pasta_export=Path(td)
+            paths=exportar(dados,pasta_export,'filtrado_'+run_id,evidencias_root=PASTA)
+            if ext=='pdf':
+                target=pasta_export/'relatorio.pdf';gerar_pdf(paths['html'],target)
+            else:target=Path(paths[ext])
+            conteudo=target.read_bytes()
+        tipos={'pdf':'application/pdf','csv':'text/csv','json':'application/json','html':'text/html'}
+        return send_file(io.BytesIO(conteudo),mimetype=tipos[ext],as_attachment=True,download_name=nome_amigavel(dados.get('site_nome'),ext,escopo,run_id))
+    except RuntimeError as exc:return jsonify(erro=str(exc)),500
     except FileNotFoundError:return jsonify(erro='Relatório não encontrado'),404
     except ValueError as exc:return jsonify(erro=str(exc)),400
 

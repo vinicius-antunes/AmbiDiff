@@ -13,7 +13,7 @@ CAMPOS=['classificacao','classificacao_automatica','motivo_relevancia','ids_agru
         'url_presente','url_comparada','ocorrencias_total','revisao_manual','evidencia','evidencias','marcacoes','descricao','situacao','tag_tecnica','tags','grau_confianca','justificativa_evidencia','teste_funcional_executado','grupos_relacionados','destino_final_a','destino_final_b','referencia','escopo','quantidade_itens','itens_resumo']
 
 
-def exportar(dados:dict,pasta:Path,run_id:str)->dict:
+def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None)->dict:
     inicio_exportacao=time.perf_counter()
     from .relevance import preparar
     dados=preparar(dados,{r['id']:r['classificacao_manual'] for r in dados.get('divergencias',[]) if r.get('classificacao_manual')})
@@ -21,15 +21,17 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
     principais=[r for r in completos if r['classificacao'] not in ('baixa','editorial')]
     pasta.mkdir(parents=True,exist_ok=True)
     paths={ext:pasta/f'comparacao_{run_id}.{ext}' for ext in ('csv','json','html')}
-    dados['divergencias']=completos if dados.get('exportacao_completa') else principais
+    dados['divergencias']=completos if dados.get('exportacao_completa') or dados.get('exportacao_selecionada') else principais
     def csv_seguro(v):
         s=str(v or '')
         return "'"+s if s.lstrip().startswith(('=','+','-','@')) else s
     with paths['csv'].open('w',encoding='utf-8-sig',newline='') as f:
         writer=csv.DictWriter(f,fieldnames=['site_nome',*CAMPOS,'paginas_afetadas'],delimiter=';',extrasaction='ignore')
-        writer.writeheader()
+        writer.writeheader();ids_csv=set()
         editoriais=[dict(r,classificacao='editorial',motivo_relevancia='Contexto editorial classificado na coleta; não comprova base desatualizada.') for r in dados.get('registros_editoriais',[])] if dados.get('exportacao_completa') else []
         for r in [*[member for row in dados['divergencias'] for member in (row.get('itens_agrupados') or [row])],*editoriais] if dados.get('exportacao_completa') else dados['divergencias']:
+            if r.get('id') and r['id'] in ids_csv:continue
+            if r.get('id'):ids_csv.add(r['id'])
             linha={'site_nome':csv_seguro(dados.get('site_nome','')),
                    **{k:csv_seguro(r.get(k,'')) for k in CAMPOS}}
             linha['itens_resumo']=csv_seguro(' | '.join(x.get('elemento','') for x in r.get('itens_agrupados',[])))
@@ -39,7 +41,19 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
     def link(url):
         if not str(url or '').startswith(('http://','https://')):return esc(url or 'Não disponível')
         return f'<a href="{escape(str(url),quote=True)}" target="_blank" rel="noopener noreferrer">{esc(url)}</a>'
-    cards=[]
+    cards=[];bytes_imagens=0
+    def incorporar(relative):
+        nonlocal bytes_imagens
+        if not isinstance(relative,str) or not relative.startswith('evidencias_') or '..' in relative or not relative.endswith('.png'):return None
+        base=evidencias_root or pasta
+        caminho=(base/relative).resolve()
+        if not caminho.is_relative_to(base.resolve()) or not caminho.is_file():return None
+        tamanho=caminho.stat().st_size
+        if tamanho>=3_000_000 or bytes_imagens+tamanho>20_000_000:return None
+        conteudo=caminho.read_bytes()
+        if not conteudo.startswith(b'\x89PNG\r\n\x1a\n'):return None
+        bytes_imagens+=tamanho
+        return 'data:image/png;base64,'+base64.b64encode(conteudo).decode('ascii')
     for d in dados['divergencias']:
         descr=esc(d.get('descricao',''))
         extra=''
@@ -64,22 +78,28 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
                 # O nome vem da pasta de evidências gerada para esta execução.
                 if (relative.startswith('evidencias_') and relative.endswith(f'_{env}.png')
                     and '..' not in relative and '/' in relative):
-                    imagem_local=pasta / relative
-                    if imagem_local.is_file() and imagem_local.stat().st_size<3_000_000:
-                        uri='data:image/png;base64,'+base64.b64encode(imagem_local.read_bytes()).decode('ascii')
-                        pane=f'<img src="{uri}" alt="Captura de {esc(env)} para {esc(d.get("id",""))}">'
+                    uri=incorporar(relative)
+                    if uri:pane=f'<img src="{uri}" alt="Captura de {esc(env)} para {esc(d.get("id",""))}">'
+                    else:pane='<p>Captura indisponível ou fora do limite de incorporação.</p>'
                 status=esc((d.get('marcacoes') or {}).get(env,'Captura sem confirmação de presença do elemento'))
                 boxes.append(f'<div class="capture-panel"><b>{esc(env)}</b>{pane}<small>{status}</small></div>')
             capt='<div class="capture-grid">'+''.join(boxes)+'</div><p><small>Contornos indicam elementos encontrados pelo seletor; ausência de contorno não comprova ausência do elemento.</small></p>'
         elif d.get('evidencia'):
             img=d['evidencia']
             if img.startswith('evidencias_') and img.endswith('.png') and '..' not in img:
-                imagem_local=pasta / img
-                if imagem_local.is_file() and imagem_local.stat().st_size<3_000_000:
-                    uri='data:image/png;base64,'+base64.b64encode(imagem_local.read_bytes()).decode('ascii')
-                    capt=f'<figure><img src="{uri}" alt="Captura legada"><figcaption>Captura legada: ambiente não identificado. Refaça a comparação para gerar o par.</figcaption></figure>'
+                uri=incorporar(img)
+                if uri:capt=f'<figure><img src="{uri}" alt="Captura legada"><figcaption>Captura legada: ambiente não identificado.</figcaption></figure>'
+        if not capt:capt='<p><small>Evidência visual indisponível nesta exportação.</small></p>'
         if d.get('itens_agrupados'):
-            extra+='<details><summary>Documentos agrupados</summary>'+''.join('<p>'+esc(x.get('id'))+' · '+esc(x.get('elemento'))+' · '+link(x.get('referencia'))+'</p>' for x in d['itens_agrupados'])+'</details>'
+            membros=[]
+            for x in d['itens_agrupados']:
+                visuais=''
+                if x.get('id')!=d.get('id'):
+                    for env,relative in x.get('evidencias',{}).items():
+                        uri=incorporar(relative)
+                        visuais+=f'<figure><img style="max-width:100%;max-height:450px" src="{uri}" alt="Captura de {esc(env)} para {esc(x.get("id"))}"><figcaption>{esc(env)} · {esc(x.get("id"))}</figcaption></figure>' if uri else '<p>Captura indisponível ou fora do limite de incorporação.</p>'
+                membros.append('<section><p>'+esc(x.get('id'))+' · '+esc(x.get('elemento'))+' · '+link(x.get('referencia'))+'</p><p>'+esc(x.get('descricao'))+'</p>'+visuais+'</section>')
+            extra+='<details><summary>Itens e evidências do grupo</summary>'+''.join(membros)+'</details>'
         occurrences=d.get('ocorrencias',[])
         occ=''
         if len(occurrences)>1:
@@ -129,6 +149,8 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
     </style></head><body><small>AMBIDIFF v1.5 · VERIFICAÇÃO LOCAL</small>
     <h1>{esc(dados.get('site_nome','Comparação de ambientes'))}</h1>
     <p>Início: {esc(dados.get('iniciado_em','não disponível'))} · Fim do processamento: {esc(dados.get('finalizado_em','não disponível'))} · Duração: {esc(dados.get('duracao_segundos','não disponível'))} s</p>
+    <p>Escopo: {esc(dados.get('escopo_exportacao','Relatório principal'))}</p>
+    <p>Ambientes: {' · '.join(esc(k)+': '+link(v) for k,v in dados.get('ambientes',{}).items())}</p>
     <p>Gerado em {esc(dados.get('gerado_em',''))} · Estado: <b>{esc(state)}</b></p>
     <p>{len(dados['divergencias'])} grupo(s) de divergência · {esc(dados.get('ocorrencias_brutas',len(dados['divergencias'])))} ocorrência(s) antes do agrupamento</p>
     <p>{('DIVs excluídas pelo revisor: '+str(dados['divergencias_ocultadas'])+'.') if dados.get('divergencias_ocultadas') else ''}</p>
@@ -151,7 +173,7 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
       const input=document.getElementById('search-div');
       const records=[...document.querySelectorAll('article[data-div-id]')];
       input.addEventListener('input',()=>{{
-        const q=input.value.trim().toLowerCase(),m=/^(?:div[\\s-]*)?(\\d{{1,5}})$/i.exec(q);
+        const q=input.value.trim().toLowerCase(),m=/^(?:div[\\s-]*)?(\\d{{1,9}})$/i.exec(q);
         const id=m?'DIV-'+m[1].padStart(4,'0'):null;
         for(const c of records){{c.hidden=id?c.dataset.divId!==id:!!q&&!c.textContent.toLowerCase().includes(q);}}
       }});
@@ -178,7 +200,7 @@ def exportar(dados:dict,pasta:Path,run_id:str)->dict:
         principal['detalhes_locais']=arquivo.name
         atomic_json(paths['json'],principal)
     else:
-        if dados.get('exportacao_completa'):
+        if dados.get('exportacao_completa') or dados.get('exportacao_selecionada'):
             dados['formato_relatorio']=1;dados.pop('detalhes_locais',None)
         atomic_json(paths['json'],dados)
     return {ext:str(path) for ext,path in paths.items()}

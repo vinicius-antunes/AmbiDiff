@@ -38,6 +38,7 @@ class Metricas:
                 'releituras':self.releituras,'nota_tempos':'Tempos de releitura incluem preparação e extração; operações aninhadas não devem ser somadas.',
                 'tempos_segundos':{k:round(v,6) for k,v in self.tempos.items()},
                 'contagens':dict(self.contagens),
+                'nota_deduplicacao':'Pares únicos usam a fila existente; cache reaproveita somente normalização/classificação/comparação sintática de URLs exatas, sem inferir funcionamento. Páginas reutilizadas não inclui componentes ou preparação dispensada. Tempo editorial/paginação é heurístico por rótulo e rota.',
                 'nota_requisicoes':'Eventos observados pelo Playwright e pedidos HTTP de metadados; não mede DNS/TLS nem todo tráfego interno do navegador.'}
 
 

@@ -32,7 +32,8 @@ function updateProgressInfo(s){
     if(typeof s.tempo_restante_segundos==='number')$('progress-eta').textContent='Restante estimado: ~'+formatDuration(s.tempo_restante_segundos);
     else if(percent>=85)$('progress-eta').textContent='Etapas finais: sem previsão confiável';
     else $('progress-eta').textContent=typeof s.tempo_decorrido_segundos==='number'&&s.tempo_decorrido_segundos<30?'Restante: calculando...':'Restante: estimativa indisponível';
-  }else if(s.status==='concluido')$('progress-eta').textContent='Execução encerrada';
+  }else if(s.status==='parcial')$('progress-eta').textContent='Resultado parcial; cobertura incompleta';
+  else if(s.status==='concluido')$('progress-eta').textContent='Execução encerrada';
   else if(s.status==='erro')$('progress-eta').textContent='Execução encerrada com erro';
   else if(s.status==='interrompido')$('progress-eta').textContent='Execução interrompida';
   else $('progress-eta').textContent='Restante: aguardando início';
@@ -84,13 +85,13 @@ async function poll(){
     $('connection-state').textContent='Comunicação ativa';updateProgressInfo(s);printLogs(s);
     const busy=s.status==='executando';retry=busy;setRunning(busy);
     $('stop-button').disabled=!busy||s.interrupcao_solicitada;
-    $('running-label').textContent=s.interrupcao_solicitada?'Interrupção solicitada — aguardando operação atual':({executando:'Executando',concluido:'Concluído',erro:'Erro',pronto:'Aguardando'})[s.status]||s.status;
+    $('running-label').textContent=s.interrupcao_solicitada?'Interrupção solicitada — aguardando operação atual':({executando:'Executando',concluido:'Concluída',parcial:'Parcial',interrompido:'Interrompida',erro:'Falha',pronto:'Aguardando'})[s.status]||s.status;
     $('stat-status').textContent=$('running-label').textContent;
     const d=s.andamento||{};
     $('execution-details').textContent='Etapa: '+(d.etapa||'início')+' · Par atual: '+(d.par_atual??'—')+' · Último par processado: '+(d.ultimo_par_processado??'—')+' · Comparação: '+(d.pares_descobertos?Math.round(100*(d.pares_comparados||0)/d.pares_descobertos)+'% dos pares descobertos':'—')+' · Descobertos: '+(d.pares_descobertos??'—')+' · Visitados: '+(d.pares_visitados??'—')+' · Comparados: '+(d.pares_comparados??'—')+' · Pendentes: '+(d.pares_pendentes??'—')+' · Pares com falha: '+(d.pares_com_falha??'—')+' · Ocorrências: '+(d.ocorrencias_preliminares??'—')+' · Última atividade: '+(d.ultima_atividade||'—');
     const diag=$('failure-diagnostics');diag.hidden=!(s.status==='erro'&&s.ultimo_id);
     if(!diag.hidden){$('failure-json').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-json';$('failure-txt').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-txt';}
-    if(!busy&&s.status==='concluido'&&s.ultimo_id&&!openedRuns.has(s.ultimo_id)){
+    if(!busy&&['concluido','parcial','interrompido','erro'].includes(s.status)&&(s.status!=='erro'||s.relatorio_disponivel)&&s.ultimo_id&&!openedRuns.has(s.ultimo_id)){
       if(await openReport(s.ultimo_id)){openedRuns.add(s.ultimo_id);try{await loadHistory();}catch(e){$('connection-state').textContent='Relatório aberto; histórico temporariamente indisponível';}}else retry=true;
     }
     if(s.erro)$('form-error').textContent=s.erro;
@@ -99,7 +100,7 @@ async function poll(){
 }
 $('compare-form').addEventListener('submit',async e=>{
   e.preventDefault();statusGeneration++;$('form-error').textContent='';$('failure-diagnostics').hidden=true;$('terminal').replaceChildren();updateProgressInfo({progresso:0,status:'executando',tempo_decorrido_segundos:0,tempo_restante_segundos:null});
-  const payload={varredura_inteligente:$('varredura-inteligente').checked,url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:$('site-nome').value.trim(),auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
+  const payload={varredura_inteligente:$('varredura-inteligente').checked,url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:'',auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
     ambiente_desatualizado:$('ambiente-desatualizado').value==='A'?$('nome-a').value: $('ambiente-desatualizado').value==='B'?$('nome-b').value:''};
   try{await api('/api/comparar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     setRunning(true);clearTimeout(timer);await poll();
@@ -146,7 +147,7 @@ function occurrences(card,d){
   details.append(ul);card.append(details);
 }
 function normalizedDivSearch(query){
-  const m=/^(?:div[\s-]*)?(\d{1,5})$/i.exec(query.trim());
+  const m=/^(?:div[\s-]*)?(\d{1,9})$/i.exec(query.trim());
   return m?'DIV-'+m[1].padStart(4,'0'):null;
 }
 async function copyId(id,button){
@@ -164,6 +165,13 @@ function renderNext(){
   for(let i=renderedCount;i<end;i++){
     const d=filtered[i],card=element('article',null,'result-card');
     const head=element('div',null,'result-heading');
+    const selection=element('input');selection.type='checkbox';selection.className='div-export-selection';selection.setAttribute('aria-label','Selecionar '+d.id+' para exportação');
+    const ids=d.ids_agrupados||[d.id],selected=new Set(currentReport.ids_selecionados||[]);
+    selection.checked=ids.every(id=>selected.has(id));selection.indeterminate=!selection.checked&&ids.some(id=>selected.has(id));
+    selection.addEventListener('change',async()=>{selection.disabled=true;const marked=selection.checked;
+      try{const r=await api('/api/relatorio/'+encodeURIComponent(currentId)+'/selecao/'+encodeURIComponent(d.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({selecionado:marked})});currentReport.ids_selecionados=r.ids_selecionados;selection.indeterminate=false;selectionSummary();}
+      catch(e){selection.checked=!marked;$('form-error').textContent=e.message;}finally{selection.disabled=false;}});
+    const label=element('label','Exportar');label.prepend(selection);head.append(label);
     head.append(element('strong',d.id),element('span',d.categoria||d.tipo,'result-chip section'),element('span',d.situacao,'result-chip'));
     if(d.revisao_manual==='confirmada')head.append(element('span','✓ Confirmada manualmente','reviewed-badge'));
     else head.append(element('span',d.classificacao_manual?'Classificação revisada':'Revisão pendente','result-chip'));
@@ -266,7 +274,7 @@ $('show-all-differences').addEventListener('change',refilter);
 $('search-results').addEventListener('input',refilter);
 $('filter-side').addEventListener('change',refilter);$('filter-type').addEventListener('change',refilter);$('filter-review').addEventListener('change',refilter);
 $('load-more').addEventListener('click',renderNext);
-document.querySelectorAll('[data-export]').forEach(b=>b.addEventListener('click',()=>{if(currentId)window.location.href='/download/'+currentId+'/'+b.dataset.export+($('export-scope').value==='completo'?'?completo=1':$('export-scope').value==='relevantes'?'?relevantes=1':'');}));
+document.querySelectorAll('[data-export]').forEach(b=>b.addEventListener('click',()=>downloadExport(b)));
 async function reviewDiv(divIds,situacao){
   if(!currentId)return;
   try{
@@ -382,7 +390,7 @@ function smartResults(d){
   box.append(rereads);
 }
 function displayReport(){
-  const d=currentReport;if(!d)return;
+  const d=currentReport;if(!d)return;selectionSummary();
   $('stat-divergencias').textContent=d.divergencias.filter(r=>!['baixa','editorial'].includes(r.classificacao)).length;
   const vals=Object.values(d.paginas||{});$('stat-a').textContent=vals[0]??0;$('stat-b').textContent=vals[1]??0;
   $('nav-count').textContent=$('stat-divergencias').textContent;
@@ -390,9 +398,10 @@ function displayReport(){
   const summary=$('report-summary');summary.hidden=false;summary.replaceChildren();
   const inconclusivo=d.situacao_analise==='inconclusivo',parcial=d.situacao_analise==='parcial';
   summary.classList.toggle('important-warning',inconclusivo||parcial);
-  const titulo=inconclusivo?'COMPARAÇÃO INCONCLUSIVA':parcial?'VERIFICAÇÃO PARCIAL':'COMPARAÇÃO CONCLUÍDA';
+  const titulo=d.estado_execucao==='falha'?'FALHA DA AUTOMAÇÃO — RELATÓRIO PARCIAL':inconclusivo?'COMPARAÇÃO INCONCLUSIVA':parcial?'VERIFICAÇÃO PARCIAL':'COMPARAÇÃO CONCLUÍDA';
   if(d.iniciado_em)summary.append(element('p','Início: '+d.iniciado_em+' · Fim do processamento: '+(d.finalizado_em||'em andamento')+' · Duração: '+formatDuration(d.duracao_segundos)));
   summary.append(element('strong',titulo+' · '+(d.site_nome||'Portal')));
+  if(d.erro_execucao||d.motivo_recuperacao)summary.append(element('p',d.erro_execucao||d.motivo_recuperacao));
   summary.append(element('p','Ocorrências originais: '+(d.ocorrencias_brutas??d.divergencias.length)+' · prioritárias: '+$('stat-divergencias').textContent+' · grupos disponíveis: '+d.divergencias.length));
   summary.append(element('p','Baixa relevância e editoriais ficam fora da lista principal. Use Mostrar todas as diferenças para consultar. Inconclusivos continuam visíveis.'));
   if(d.verificacao_cliques_ativa)summary.append(element('p','Testes opcionais de cliques: '+(d.cliques_testados||0)+' link(s) inspecionados. Resultados podem ser inconclusivos.'));
@@ -513,3 +522,38 @@ $('refresh-checkpoints').addEventListener('click',async()=>{
         b.addEventListener('click',async()=>{b.disabled=true;try{statusGeneration++;await api('/api/retomar/'+encodeURIComponent(r.id),{method:'POST'});setRunning(true);await poll();}catch(e){$('form-error').textContent=e.message;b.disabled=false;}});p.append(b);}box.append(p);}
   }catch(e){box.append(element('p',e.message));}
 });
+
+function selectionSummary(){
+  $('selected-count').textContent=(currentReport?.ids_selecionados||[]).length+' IDs selecionados';
+}
+$('export-scope').addEventListener('change',()=>{
+  $('export-suggestion').textContent=$('export-scope').value==='selecionadas'?'Sugestão: CSV para planilhas. Selecionar não confirma uma DIV.':'Sugestão: HTML para revisar o relatório completo.';
+});
+let lastSaveHandle=null;
+async function downloadExport(button){
+  if(!currentId)return;const ext=button.dataset.export,scope=$('export-scope').value,advanced=ext.startsWith('diagnostico-');
+  if(!advanced&&scope==='selecionadas'&&!(currentReport.ids_selecionados||[]).length){$('form-error').textContent='Selecione ao menos uma DIV para exportar.';return;}
+  const actualExt=ext.split('-').pop(),site=(currentReport.site_nome||'Portal').replace(/https?:\/\/\S+|\S+@\S+|\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g,'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9_-]+/g,'_').slice(0,64)||'Portal';
+  const tipo=advanced?'Diagnostico':scope==='selecionadas'?'DIVs_Selecionadas':'Comparacao';
+  const date=currentId.slice(0,4)+'-'+currentId.slice(4,6)+'-'+currentId.slice(6,8),name=site+'_'+tipo+'_'+date+'_'+currentId.slice(-6)+'.'+actualExt;
+  const mime={csv:'text/csv',html:'text/html',pdf:'application/pdf',json:'application/json',txt:'text/plain'}[actualExt];
+  let handle=null;button.disabled=true;
+  try{
+    if(window.showSaveFilePicker){
+      try{handle=await window.showSaveFilePicker({id:'ambidiff-exportacoes',suggestedName:name,startIn:lastSaveHandle||'downloads',types:[{description:actualExt.toUpperCase(),accept:{[mime]:['.'+actualExt]}}]});}
+      catch(e){if(e.name==='AbortError')return;if(e.name!=='SecurityError'&&e.name!=='TypeError')throw e;}
+    }
+    const args=advanced?'':scope==='selecionadas'?'?selecionadas=1':scope==='completo'?'?completo=1':scope==='relevantes'?'?relevantes=1':'';
+    const response=await fetch('/download/'+encodeURIComponent(currentId)+'/'+ext+args);
+    if(!response.ok){const data=await response.json();throw Error(data.erro||'Falha na exportação');}
+    const blob=await response.blob();
+    if(handle){
+      const file=await handle.getFile();if(file.size>0&&!window.confirm('O arquivo já contém dados. Deseja substituí-lo?'))return;
+      const writable=await handle.createWritable();try{await writable.write(blob);await writable.close();}catch(e){await writable.abort();throw e;}lastSaveHandle=handle;
+    }else{
+      const header=response.headers.get('Content-Disposition')||'',suggested=/filename="([^"]+)"/.exec(header)?.[1]||name;
+      const url=URL.createObjectURL(blob),a=element('a');a.href=url;a.download=suggested;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+      $('export-suggestion').textContent='Download enviado ao navegador. Para escolher a pasta sempre, habilite “Perguntar onde salvar” nas configurações do navegador.';
+    }
+  }catch(e){$('form-error').textContent='Não foi possível exportar: '+e.message;}finally{button.disabled=false;}
+}

@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urljoin, unquote
 from urllib.request import Request, build_opener, HTTPRedirectHandler,ProxyHandler
 
 from .core import normalizar, url_limpa
+from .resources import classificar as classificar_recurso
 
 MAX_PARES=10000
 MAX_REQUISICOES=20000
@@ -102,6 +103,7 @@ class Documentos:
                     nome=msg.get_filename() or unquote(urlsplit(url).path.rsplit('/',1)[-1])
                     return {'situacao':'acessivel' if mime in TIPOS and status in (200,206) else 'inconclusivo',
                         'url_inicial':inicial,'url':url,'status':status,'mime':mime,'nome':nome[:250],
+                        'recurso':classificar_recurso(url,mime=mime),
                         'tamanho_declarado':r.headers.get('Content-Length'),
                         'ultima_modificacao':r.headers.get('Last-Modified'),
                         'etag':r.headers.get('ETag'),'cache_control':r.headers.get('Cache-Control',''),
@@ -144,7 +146,9 @@ class Documentos:
                 classificacao='Possível divergência de destino, tipo ou finalidade'
             elif ta and tb and similaridade>=0.75 and normalizar(ia.nome)==normalizar(ib.nome):
                 classificacao='Documento acessível e provavelmente equivalente'
-        resultado={'classificacao':classificacao,'elemento':ia.nome,'contexto':ia.local,
+        if a.get('recurso')==b.get('recurso')=='midia':classificacao='Referência de mídia identificada por cabeçalhos; finalidade requer revisão'
+        elif {a.get('recurso'),b.get('recurso')}=={'documento','midia'}:classificacao='Possível divergência de tipo entre documento e mídia'
+        resultado={'divergencia_tipo_observada':{a.get('recurso'),b.get('recurso')}=={'documento','midia'},'classificacao':classificacao,'elemento':ia.nome,'contexto':ia.local,
                    'destino_a':ia.destino,'destino_b':ib.destino,'a':a,'b':b,
                    'nota':'Metadados não comprovam arquivos idênticos nem identidade do conteúdo.'}
         self.cache[chave]=(resultado,min(recebido_a+frescor(a),recebido_b+frescor(b)))

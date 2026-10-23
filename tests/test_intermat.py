@@ -38,7 +38,7 @@ class PW:
     def __enter__(self):return NS(chromium=NS(launch=lambda **_:Browser()))
     def __exit__(self,*args):pass
 
-def pipeline(n=4,stop=None,checkpoint=None,retomada=None,crash=None,clock=None,extracao_falha=None,ciclo=False,stop_na_extracao=None):
+def pipeline(n=4,stop=None,checkpoint=None,retomada=None,crash=None,clock=None,extracao_falha=None,ciclo=False,stop_na_extracao=None,ajustar=None):
     stop=stop or threading.Event();opened=[]
     def abrir(page,url):
         idx=int(urlsplit(url).path.rsplit('/',1)[-1] or '0')
@@ -53,7 +53,9 @@ def pipeline(n=4,stop=None,checkpoint=None,retomada=None,crash=None,clock=None,e
         itens=[option('Próximo',base+str(idx+1))] if idx+1<n else []
         if ciclo and idx+1==n:itens.extend([option('Voltar',base),option('Voltar',base)])
         if idx==0 and base==A:itens.append(option('ÁUDIOS',A+'audio.pdf',tipo='Documento'))
-        return Pagina(url,'','Portal',itens,trilha,coleta={'estavel':True,'rolagem_limitada':False})
+        pag=Pagina(url,'','Portal',itens,trilha,coleta={'estavel':True,'rolagem_limitada':False})
+        if ajustar:ajustar(pag)
+        return pag
     def log(msg):
         if checkpoint and msg.startswith('[PRD/DES]') and not retomada:stop.set()
     with ExitStack() as stack:

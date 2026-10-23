@@ -2,7 +2,7 @@
 
 **PRD × DES/LAB**, com comparação pareada, evidências e exportação local. Funciona no **Windows**, com Python + Playwright Chromium + painel Flask escuro. O programa lê páginas autorizadas sem editar sites.
 
-> **Estado do desenvolvimento:** esta atualização está na branch privada `perf/otimizacao-varredura`, sobre `ea8abad`, sem merge na `main` e sem incorporar as branches USEIA/CGE. Leia a [atualização para portais extensos, retomada e relatórios](docs/atualizacao-portais-extensos.md). O [relatório da entrega anterior](docs/proxima-atualizacao.md) permanece histórico. Os documentos de versões anteriores são históricos; os limites descritos nessa atualização prevalecem.
+> **Estado do desenvolvimento:** esta entrega reúne as 12 melhorias na branch `perf/otimizacao-varredura`, sobre `f7ba62e`, com commit e envio da branch autorizados pelo mantenedor. Não há merge na `main`, deploy ou GitHub Pages. Leia [implementação, testes, benchmarks e limitações das 12 melhorias](docs/atualizacao-12-melhorias.md). A [atualização anterior para portais extensos](docs/atualizacao-portais-extensos.md) e os demais relatos anteriores permanecem como histórico.
 
 ## Visão geral
 
@@ -15,7 +15,7 @@ O AmbiDiff é uma ferramenta **local de apoio a QA**: recebe as URLs de dois amb
 | Base desatualizada | Separar possíveis diferenças editoriais sem ocultar problemas de navegação ou estrutura |
 | Documentos e links | Conferir referências e, conforme as opções, respostas HTTP HEAD; **não lê o corpo de PDFs ou arquivos** |
 | Progresso e checkpoints | Acompanhar pares visitados/comparados, interromper e retomar a fila quando houver checkpoint válido |
-| Relatórios e revisão | Pesquisar DIVs, confirmar/reclassificar manualmente e exportar JSON, CSV, HTML e diagnósticos |
+| Relatórios e revisão | Pesquisar DIVs, confirmar/reclassificar, selecionar independentemente para CSV/HTML/PDF/JSON e baixar diagnósticos |
 
 **Leitura recomendada:** [Instalação no Windows](#instalação-no-windows-primeira-utilização) · [Primeira comparação](#primeira-comparação-passo-a-passo) · [Solução de problemas](#solução-de-problemas-no-windows) · [Arquivos e relatórios](#exportações-e-histórico) · [Atualização para portais extensos](docs/atualizacao-portais-extensos.md).
 
@@ -60,16 +60,18 @@ Se nenhum funcionar, instale/configure o Python pelo canal aprovado pela TI e ab
 
 ## Primeira comparação: passo a passo
 
-1. No painel, abra **Comparar ambientes** e informe um nome opcional para identificar a execução.
+1. No painel, abra **Comparar ambientes**. O nome do portal é identificado automaticamente por metadados, título inicial ou domínio; não há campo de nome no formulário.
 2. Em **Ambiente A** e **Ambiente B**, selecione PRD/DES/LAB conforme o caso e cole as URLs completas (`https://...`). Não use o mesmo ambiente nos dois campos.
 3. Se houver informação **confirmada** de que uma base está desatualizada, marque o ambiente correspondente. Isso modifica a classificação de possíveis conteúdos editoriais; não prova que uma diferença está correta.
-4. Deixe **Conferir destinos externos** e **Testar cliques** desativados na primeira execução. Só habilite essas opções nos portais e condições expressamente autorizados. A varredura inteligente é opcional; compare os modos se quiser avaliar cobertura e desempenho.
+4. **Opções avançadas** começa recolhida, com **Conferir destinos externos autorizados** e **Testar cliques de navegação internos** desmarcados. Só habilite essas opções nos portais e condições expressamente autorizados. A varredura inteligente é opcional; compare os modos se quiser avaliar cobertura e desempenho.
 5. Clique **Iniciar comparação**. Observe o terminal, o tempo decorrido e os contadores **descobertos / visitados / comparados / pendentes**. O percentual representa apenas a **fila conhecida**, que pode crescer.
 6. Ao terminar, abra **Divergências**. Verifique as diferenças principais e as seções informativas de dados, documentos e avisos técnicos; uma execução parcial não comprova equivalência.
 7. Use **Confirmar DIV** somente após sua revisão. O seletor de classificação permite **Automática, Relevante, Baixa relevância, Editorial ou Inconclusivo**. Marcação manual não significa que o site foi testado integralmente.
-8. Escolha o escopo em **Exportação**: **Relatório principal**, **Diagnóstico completo** ou **Somente relevantes**, e então clique no formato desejado. **Mudar o seletor não exporta sozinho.**
+8. Marque **Exportar** nas DIVs desejadas e escolha **Somente DIVs selecionadas**; a seleção é salva localmente por comparação e não confirma um defeito. Também estão disponíveis **Relatório completo**, **Relatório principal** e **Somente relevantes**. Clique no formato: **CSV** para planilhas, **HTML** para revisão visual, **PDF** para apresentação/arquivo ou **JSON** para dados estruturados. **Mudar o seletor não exporta sozinho.**
 
 **Interrupção e retomada:** use **Interromper** para solicitar uma parada cooperativa. A branch atual não impõe o antigo limite global de 45 minutos, mas conserva timeouts individuais, proteção contra ciclos/falhas e teto preventivo de páginas. Se existir um checkpoint compatível, use **Consultar checkpoints → Retomar** e confira as URLs e as opções antes de reiniciar. A retomada cria outro identificador de execução.
+
+Os estados distinguem execução concluída, parcial, interrompida e falha. Salvar um relatório parcial após uma falha não conclui a varredura nem leva o progresso a 100%. Após duas tentativas fatais no mesmo par, ele permanece identificado como falho e os demais ramos podem ser retomados. Logs de bloqueios são agrupados, sem query/credenciais nos exemplos; restrições que afetam componentes continuam no diagnóstico. Analytics bloqueado isoladamente não comprova defeito.
 
 ## Solução de problemas no Windows
 
@@ -223,6 +225,12 @@ Cada DIV tem botão **Confirmar DIV**. A escolha é preservada em arquivo auxili
 
 A pasta `relatorios` contém `comparacao_<id>.json`, `.html` e `.csv`, `diagnostico_<id>.json`, `log_<id>.txt` e a pasta de `evidencias_<id>/` quando disponíveis. As capturas são limitadas por duração e quantidade; alguns elementos não possuem evidência por timeout ou limitação de navegação.
 
+`selecoes_<id>.json` guarda a seleção de exportação separada das revisões, exclusões e do relatório bruto. Excluídos não entram na seleção exportada. Checkpoints e relatórios antigos continuam legíveis; nomes e caminhos internos não mudaram. Uma recuperação adicional preserva o bruto existente e usa `recuperacao_<id>.json` quando necessário.
+
+Os downloads usam nomes como `SEFAZ_DIVs_Selecionadas_2026-10-23_abcdef.csv`, sanitizados para Windows. Chrome/Edge compatível pode abrir **Salvar como**, sugerindo a última pasta quando permitido; há confirmação antes de substituir um arquivo com dados. Sem essa API, vale o download normal do navegador. Ative **Perguntar onde salvar cada arquivo** para escolher o local no fallback. Não há garantia de pasta persistente entre navegadores ou sessões.
+
+HTML incorpora PNGs locais com limite de **3 MB por captura e 20 MB por exportação**, indicando evidências ausentes ou excedentes. PDF é gerado localmente com Chromium, sem serviço externo, com orçamento de 60 s. Downloads usam arquivos temporários isolados; não substituem os originais. CSV conserva UTF-8 com BOM, `;` e proteção contra fórmulas. Diagnósticos JSON/TXT continuam disponíveis separadamente.
+
 O histórico é agrupado por site. É possível excluir uma execução ou várias, excluir DIVs individuais e confirmar resultados manualmente. Todas essas alterações ficam **somente no seu computador**.
 
 ### Migrando relatórios da versão 1.4
@@ -272,6 +280,8 @@ No CMD dentro da pasta:
 ```
 
 Os testes incluem regressão de links equivalentes, varredura pareada, menu não ocultado por defasagem, classificação de notícia e download do Liferay, ícones de SVG, geração de diagnóstico e marcação manual. Os testes simulados não garantem que os portais PRD/DES reais vão responder da mesma maneira, pois a rede corporativa é variável. Acessibilidade, reprodução pixel a pixel, comportamento integral de scripts, APIs e conteúdo do banco de dados não são verificados completamente.
+
+As regressões desta entrega estão em `tests/test_update12.py`: bloqueios e URLs inválidas, recuperação/retomada, classificação de recursos, seleção persistente, CSV, HTML/PDF com capturas e deduplicação. Resultados e benchmarks contra `f7ba62e` estão na [documentação das 12 melhorias](docs/atualizacao-12-melhorias.md). Ganho de CPU sintética não equivale a redução comprovada do tempo nos portais; não houve validação em produção ou do diálogo nativo no Windows.
 
 ## Estrutura
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
+from functools import lru_cache
 import re
 import time
 import unicodedata
@@ -35,10 +36,27 @@ def titulo_normalizado(txt: str) -> str:
 
 
 def url_limpa(url: str) -> str:
-    p = urlsplit(str(url))
+    if not isinstance(url,str):raise ValueError('URL deve ser texto HTTP/HTTPS.')
+    return _url_limpa(url)
+
+
+@lru_cache(maxsize=8192)
+def _url_limpa(url: str) -> str:
+    if not isinstance(url,str) or any(ord(c)<33 for c in url):raise ValueError('URL inválida: espaços ou caracteres de controle.')
+    p = urlsplit(url)
     if p.scheme not in ('https','http') or not p.netloc or p.username or p.password:
         raise ValueError('Informe uma URL HTTP/HTTPS completa, sem usuário ou senha.')
     if p.hostname is None: raise ValueError('Domínio inválido.')
+    host=p.hostname
+    if ':' in host:
+        import ipaddress
+        try:ipaddress.IPv6Address(host)
+        except ValueError as ex:raise ValueError('Domínio IPv6 inválido.') from ex
+    else:
+        try:host=host.encode('idna').decode('ascii')
+        except UnicodeError as ex:raise ValueError('Domínio inválido.') from ex
+        if len(host)>253 or any(not re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?',label) for label in host.rstrip('.').split('.')):raise ValueError('Domínio inválido.')
+    if p.port is not None and not 1<=p.port<=65535:raise ValueError('Porta inválida.')
     params = [(k,v) for k,v in parse_qsl(p.query, keep_blank_values=True)
               if k.casefold() not in IGNORAR_QUERY and not k.casefold().startswith('utm_')]
     path = re.sub(r'/+','/',p.path or '/')
@@ -101,6 +119,7 @@ class Item:
     componente_id: str = ''
     secao_id: str = ''
     controle_alvo: str = ''
+    recurso: str = ''
 
 
 @dataclass
@@ -215,7 +234,8 @@ JS_EXTRAIR = r'''() => {
     const name=clean(el.innerText||el.getAttribute('aria-label')||el.title||el.querySelector('img')?.alt||'');
     if(!name)continue;
     const pathname=(()=>{try{return new URL(href).pathname.toLowerCase()}catch(e){return ''}})();
-    const isDoc=/\.(pdf|docx?|xlsx?|csv|pptx?|zip|odt|ods)(\/|$)/i.test(pathname) || (!/\.(svg|png|jpe?g|gif|ico|webp)(\/|$)/i.test(pathname)&&/^\/documents\/d\//i.test(pathname)) || el.hasAttribute('download');
+    const preview=!!el.querySelector('img')&&!!el.closest('article,[class*="news" i],[class*="noticia" i],[class*="card" i]')&&!el.hasAttribute('download')&&!/pdf|portaria|legisla|requerimento|formul[aá]rio/i.test(name);
+    const isDoc=/\.(pdf|docx?|xlsx?|csv|pptx?|zip|odt|ods)(\/|$)/i.test(pathname) || (!/\.(svg|png|jpe?g|gif|ico|webp)(\/|$)/i.test(pathname)&&!preview&&/^\/documents\/d\//i.test(pathname)) || el.hasAttribute('download');
     const tipo=isDoc?'Documento':'Opção';
     add(tipo,name,name,el,href,!!clean(el.innerText));
     links.push({url:href,label:name,local:ctx(el),tipo,selector:selector(el)});
@@ -274,7 +294,8 @@ JS_EXTRAIR = r'''() => {
     if(tx.length>=10&&tx.length<400&&avisoRe.test(tx)&&!avisos.includes(tx))avisos.push(tx);
     if(avisos.length>=5)break;
   }
-  return {title:clean(document.title||document.querySelector('h1')?.textContent),itens:out,links,menus,avisos_ambiente:avisos};
+  const componentes_restritos=[...document.querySelectorAll('.g-recaptcha,iframe[src*="recaptcha"],script[src*="recaptcha"]')].map(e=>e.closest('form,[role="dialog"],[data-component]')).filter(Boolean).map(selector);
+  return {nome_site:clean(document.querySelector('meta[property="og:site_name"],meta[name="application-name"]')?.content),componentes_restritos,title:clean(document.title||document.querySelector('h1')?.textContent),itens:out,links,menus,avisos_ambiente:avisos};
 }'''
 
 
@@ -557,8 +578,10 @@ def inferir_site(pag_a:dict[str,Pagina],pag_b:dict[str,Pagina],base_a:str)->str:
     for pag in (pag_a,pag_b):
         inicial=pag.get('@inicio')
         if inicial:
+            meta=inicial.coleta.get('nome_site','').strip()
+            if meta and len(meta)>2 and '@' not in meta and not re.search(r'https?://|login|sign in',meta,re.I):return meta[:100]
             titulo=re.sub(r'^(PRD|LAB|DES)\s*[-–|:]\s*','',inicial.titulo,flags=re.I).strip()
-            if titulo and len(titulo)>3:return titulo[:100]
+            if titulo and len(titulo)>3 and titulo.casefold() not in ('login','sign in','home','portal','início','inicio','página inicial') and '@' not in titulo:return titulo[:100]
     return urlsplit(base_a).hostname or 'Comparação de ambientes'
 
 

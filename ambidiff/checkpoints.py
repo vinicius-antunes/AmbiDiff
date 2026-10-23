@@ -70,3 +70,32 @@ def validar(payload,urls=None):
 def restaurar_pagina(dados):
     d=dict(dados);d['itens']=[Item(**i) for i in d.get('itens',[])]
     return Pagina(**d)
+
+
+def recuperar(snapshot):
+    """Projeção de diagnóstico; nunca altera o arquivo de checkpoint original."""
+    from copy import deepcopy
+    from .paired import agrupar_registros,agrupar_referencias,_avisos
+    from .intelligence import agrupar_variacoes
+    snap=deepcopy(snapshot);payload=snap.pop('retomada',None)
+    estado=validar(payload) if payload else {}
+    brutos=snap.get('brutos',estado.get('brutos',[]))
+    editoriais=snap.get('registros_editoriais') or snap.get('variacoes_editoriais') or estado.get('editoriais',[])
+    from .security import restaurar
+    snap['bloqueios_seguranca']=list(restaurar(snap.get('bloqueios_seguranca',estado.get('bloqueios',{}))).values())
+    nomes=list(snap.get('ambientes',{}));a=nomes[0] if nomes else estado.get('configuracao',{}).get('nome_a','A')
+    b=nomes[1] if len(nomes)>1 else estado.get('configuracao',{}).get('nome_b','B')
+    fila=estado.get('fila',snap.get('fila_pendente',[]));visitados=estado.get('visitados',snap.get('pares_visitados',[]))
+    andam=dict(snap.get('andamento',{}))
+    andam.update(pares_descobertos=len(estado['pares_enfileirados']) if estado else andam.get('pares_descobertos',max((x.get('visitadas',0)+x.get('pendentes',0) for x in snap.get('meta_varredura',{}).values()),default=0)),
+        pares_visitados=len(visitados) if estado else andam.get('pares_visitados',max((x.get('visitadas',0) for x in snap.get('meta_varredura',{}).values()),default=0)),
+        pares_comparados=len(estado['paginas_a']) if estado else andam.get('pares_comparados',max(snap.get('paginas',{}).values(),default=0)),
+        pares_pendentes=len(fila) if estado else andam.get('pares_pendentes',max((x.get('pendentes',0) for x in snap.get('meta_varredura',{}).values()),default=0)),
+        pares_com_falha=len(estado['pares_falhos']) if 'pares_falhos' in estado else len({x.get('url') for x in snap.get('falhas',estado.get('falhas',[]))}))
+    snap.update(andamento=andam,fila_pendente=fila,pares_visitados=visitados,
+        divergencias=agrupar_registros(brutos),registros_editoriais=editoriais,
+        variacoes_dados=snap.get('variacoes_dados') or agrupar_variacoes(editoriais,snap.get('ambiente_desatualizado','')),
+        itens_editoriais_agrupados=len(editoriais),ocorrencias_brutas=len(brutos)+len(editoriais),
+        referencias_pendentes=snap.get('referencias_pendentes') or agrupar_referencias(estado.get('refs',[])),
+        avisos_tecnicos=snap.get('avisos_tecnicos') or _avisos(snap.get('falhas',[]),snap.get('meta_varredura',{})))
+    return snap

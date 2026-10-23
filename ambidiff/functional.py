@@ -41,13 +41,15 @@ def _um_clique(browser,pagina,item,base,detalhar=False):
                                   service_workers='block',accept_downloads=False)
     # A navegação só deve emitir GET/HEAD. Recursos de outros domínios são
     # bloqueados; toda tentativa de POST/PUT/DELETE é abortada.
-    download_solicitado=[];bloqueios=[];respostas_http=[]
+    download_solicitado=[];bloqueios=[];auxiliares=[];respostas_http=[]
     def filtro(route):
         req=route.request
         if e_arquivo(req.url):
             download_solicitado.append(req.url);route.abort();return
         if req.method not in ('GET','HEAD') or urlsplit(req.url).netloc!=origem or PROIBIDOS.search(req.url):
-            if req.is_navigation_request() or req.method not in ('GET','HEAD'):bloqueios.append(req.url)
+            from .security import categoria,url_diagnostica
+            cat=categoria(req.url);auxiliares.append({'categoria':cat,'url':url_diagnostica(req.url)})
+            if cat!='Google Analytics' and (req.is_navigation_request() or req.method not in ('GET','HEAD') or req.resource_type=='script'):bloqueios.append(url_diagnostica(req.url))
             route.abort()
         else:route.continue_()
     contexto.route('**/*',filtro)
@@ -63,7 +65,7 @@ def _um_clique(browser,pagina,item,base,detalhar=False):
     contexto.on('response',resposta_http)
     def resultado(codigo):
         final=next((p.url for p in nova_aba if p.url!='about:blank'),pagina_teste.url)
-        return {'resposta':codigo,'url_final':final,'nova_aba':bool(nova_aba),'respostas_http':respostas_http,'bloqueios':bloqueios} if detalhar else codigo
+        return {'resposta':codigo,'url_final':final,'nova_aba':bool(nova_aba),'respostas_http':respostas_http,'bloqueios':bloqueios,'restricoes_auxiliares':auxiliares} if detalhar else codigo
     try:
         resposta=pagina_teste.goto(pagina.url,wait_until='domcontentloaded',timeout=10000)
         if resposta and resposta.status>=400:return resultado('http_'+str(resposta.status))
