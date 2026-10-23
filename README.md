@@ -4,6 +4,118 @@
 
 > **Estado do desenvolvimento:** esta atualização está na branch privada `perf/otimizacao-varredura`, sobre `ea8abad`, sem merge na `main` e sem incorporar as branches USEIA/CGE. Leia a [atualização para portais extensos, retomada e relatórios](docs/atualizacao-portais-extensos.md). O [relatório da entrega anterior](docs/proxima-atualizacao.md) permanece histórico. Os documentos de versões anteriores são históricos; os limites descritos nessa atualização prevalecem.
 
+## Visão geral
+
+O AmbiDiff é uma ferramenta **local de apoio a QA**: recebe as URLs de dois ambientes autorizados, percorre páginas e compara elementos de interface, estrutura, textos, menus, opções e destinos de links. O resultado é um relatório com divergências, evidências e limitações de cobertura — **não um veredito automático de qual ambiente está correto**.
+
+| Recurso | Para que serve |
+|---|---|
+| Comparação PRD × DES/LAB | Detectar diferenças nos dois sentidos entre ambientes autorizados |
+| Varredura inteligente (opcional) | Reaproveitar evidências de equivalência e evitar certas inspeções redundantes com restrições de cobertura explícitas |
+| Base desatualizada | Separar possíveis diferenças editoriais sem ocultar problemas de navegação ou estrutura |
+| Documentos e links | Conferir referências e, conforme as opções, respostas HTTP HEAD; **não lê o corpo de PDFs ou arquivos** |
+| Progresso e checkpoints | Acompanhar pares visitados/comparados, interromper e retomar a fila quando houver checkpoint válido |
+| Relatórios e revisão | Pesquisar DIVs, confirmar/reclassificar manualmente e exportar JSON, CSV, HTML e diagnósticos |
+
+**Leitura recomendada:** [Instalação no Windows](#instalação-no-windows-primeira-utilização) · [Primeira comparação](#primeira-comparação-passo-a-passo) · [Solução de problemas](#solução-de-problemas-no-windows) · [Arquivos e relatórios](#exportações-e-histórico) · [Atualização para portais extensos](docs/atualizacao-portais-extensos.md).
+
+## Instalação no Windows (primeira utilização)
+
+Este projeto é executado com **Python + Flask + Playwright (Chromium)**. **Não há instalador `.exe`:** os dois arquivos `.bat` na raiz do projeto cuidam da instalação e da inicialização.
+
+### Antes de começar
+
+- Utilize **Windows**, em um computador onde a instalação e a execução de ferramentas de desenvolvimento sejam autorizadas.
+- Instale o **Python 3** (caso ainda não esteja disponível). O script procura `py -3` e, se não encontrar, tenta `python`.
+- Tenha acesso permitido à instalação das dependências e ao download do Chromium do Playwright. Em rede corporativa, consulte a TI se essas operações forem bloqueadas.
+- Confirme o acesso às URLs dos portais pelo navegador ou pela rede/VPN autorizada. Ter internet não garante acesso ao DES/LAB.
+- Use **uma instalação separada por computador**. Não copie a pasta `.venv` de outro PC.
+
+Para conferir o Python, abra o **Prompt de Comando (CMD)** e execute:
+
+```cmd
+py -3 --version
+```
+
+Caso o comando não exista, tente:
+
+```cmd
+python --version
+```
+
+Se nenhum funcionar, instale/configure o Python pelo canal aprovado pela TI e abra um novo terminal.
+
+### Passo a passo
+
+1. **Obtenha a versão correta.** No repositório privado, escolha a branch `perf/otimizacao-varredura` e utilize **Code → Download ZIP**, ou receba o pacote por canal interno autorizado. Confira a branch/versão: um ZIP da `main` ou uma cópia antiga pode ter outro comportamento.
+2. **Extraia todo o ZIP** para uma pasta própria, por exemplo `Documentos\AmbiDiff-Teste`. Não execute o projeto diretamente do arquivo compactado. Mantenha instalações antigas em pastas separadas.
+3. **Execute `instalar.bat`** na pasta extraída. Ele cria a `.venv`, instala as bibliotecas de `requirements.txt` e baixa o Chromium usado pelo Playwright. Aguarde a mensagem **"Instalacao concluida!"**. Se aparecer erro, mantenha a janela aberta e anote as últimas mensagens.
+4. **Execute `INICIAR_AMBIDIFF.bat`** na mesma pasta. Ele utiliza o Python da `.venv` e inicia o servidor local. **Não feche a janela preta** enquanto estiver usando o AmbiDiff.
+5. **Abra o painel** em `http://127.0.0.1:8765` se o navegador não abrir automaticamente. O endereço `127.0.0.1` aponta para **o computador em que o programa está rodando**, não para o PC de outro colega.
+6. **Faça primeiro uma comparação pequena** entre duas URLs autorizadas, usando [o roteiro abaixo](#primeira-comparação-passo-a-passo). Depois, amplie o escopo conforme a autorização do setor.
+
+**Se preferir iniciar pelo CMD**, abra o terminal na pasta extraída e execute `instalar.bat` (somente na instalação) e depois `INICIAR_AMBIDIFF.bat`. Em outro computador, repita a instalação localmente.
+
+> **Rede e privacidade:** o servidor Flask usa `127.0.0.1` por padrão e não deve ser publicado na rede. O AmbiDiff não fornece acesso a portais restritos, não contorna certificados, VPN ou login e não deve ser executado em sites não autorizados.
+
+## Primeira comparação: passo a passo
+
+1. No painel, abra **Comparar ambientes** e informe um nome opcional para identificar a execução.
+2. Em **Ambiente A** e **Ambiente B**, selecione PRD/DES/LAB conforme o caso e cole as URLs completas (`https://...`). Não use o mesmo ambiente nos dois campos.
+3. Se houver informação **confirmada** de que uma base está desatualizada, marque o ambiente correspondente. Isso modifica a classificação de possíveis conteúdos editoriais; não prova que uma diferença está correta.
+4. Deixe **Conferir destinos externos** e **Testar cliques** desativados na primeira execução. Só habilite essas opções nos portais e condições expressamente autorizados. A varredura inteligente é opcional; compare os modos se quiser avaliar cobertura e desempenho.
+5. Clique **Iniciar comparação**. Observe o terminal, o tempo decorrido e os contadores **descobertos / visitados / comparados / pendentes**. O percentual representa apenas a **fila conhecida**, que pode crescer.
+6. Ao terminar, abra **Divergências**. Verifique as diferenças principais e as seções informativas de dados, documentos e avisos técnicos; uma execução parcial não comprova equivalência.
+7. Use **Confirmar DIV** somente após sua revisão. O seletor de classificação permite **Automática, Relevante, Baixa relevância, Editorial ou Inconclusivo**. Marcação manual não significa que o site foi testado integralmente.
+8. Escolha o escopo em **Exportação**: **Relatório principal**, **Diagnóstico completo** ou **Somente relevantes**, e então clique no formato desejado. **Mudar o seletor não exporta sozinho.**
+
+**Interrupção e retomada:** use **Interromper** para solicitar uma parada cooperativa. A branch atual não impõe o antigo limite global de 45 minutos, mas conserva timeouts individuais, proteção contra ciclos/falhas e teto preventivo de páginas. Se existir um checkpoint compatível, use **Consultar checkpoints → Retomar** e confira as URLs e as opções antes de reiniciar. A retomada cria outro identificador de execução.
+
+## Solução de problemas no Windows
+
+| Sintoma | O que conferir primeiro |
+|---|---|
+| `instalar.bat` informa Python não encontrado | Teste `py -3 --version` e `python --version` no CMD; confirme a instalação/PATH com a TI |
+| Falha ao instalar bibliotecas ou Chromium | Leia o erro na janela do instalador; confira acesso permitido à internet, proxy corporativo e permissões. Não desative proteções para forçar a instalação |
+| `INICIAR_AMBIDIFF.bat` pede instalação | A pasta `.venv` não existe nessa cópia; execute `instalar.bat` no próprio computador |
+| O endereço `127.0.0.1:8765` não abre | Confirme que a janela preta está aberta e sem erro. Feche outra instância do AmbiDiff caso a porta esteja ocupada |
+| Painel abre, mas **Iniciar comparação** mostra **Failed to fetch** | Veja os passos de diagnóstico abaixo: normalmente é uma falha de comunicação navegador ↔ servidor, não uma DIV do portal |
+| DES/LAB não carrega, mas o painel funciona | Confira URL, DNS, rede/VPN autorizada e certificado com a TI; não presuma falha do AmbiDiff |
+| Navegação interrompida ou comparação parcial | Consulte o motivo de parada, as páginas pendentes, o diagnóstico e os logs. Parcial não significa equivalência |
+| Histórico ou capturas não aparecem após copiar a pasta | Confirme a cópia de `relatorios/` e `historico.json`; nos relatórios atuais preserve também `detalhes_<id>.json` junto do principal |
+
+### Quando aparece "Failed to fetch" ao iniciar uma comparação
+
+Esse aviso significa que o navegador **não conseguiu obter uma resposta válida da API local**. Não prova, por si só, que o portal PRD ou DES está indisponível.
+
+1. **Não clique várias vezes em Iniciar.** Verifique a janela do `INICIAR_AMBIDIFF.bat` para identificar se o servidor ainda está rodando ou se apareceu um erro.
+2. No **mesmo PC**, abra `http://127.0.0.1:8765/api/status` no navegador:
+   - Se surgir JSON com `"status": "executando"`, a execução pode ter começado; a interface pode ter perdido a comunicação.
+   - Se surgir `"status": "erro"`, consulte o diagnóstico ou as mensagens do terminal.
+   - Se o endereço não responder, investigue o servidor, a porta e a instalação.
+3. Pressione **F12 → Rede (Network)**, clique uma única vez em **Iniciar comparação** e localize a chamada `POST /api/comparar`. Selecione-a e confira o resultado:
+   - **200:** a API aceitou o início da execução; eventuais falhas posteriores aparecem no status/log.
+   - **400:** URL ou configuração inválida; leia a resposta.
+   - **409:** já existe comparação em andamento.
+   - **500:** erro interno do servidor; consulte o terminal.
+   - **(failed)/(canceled):** conexão interrompida, bloqueio ou requisição cancelada; verifique se o servidor continua respondendo.
+4. Se a API continuar ativa, tente **Ctrl+F5** para atualizar os arquivos do painel. Isso é especialmente útil após substituir uma cópia antiga por outra na mesma porta.
+5. Se o problema só acontece em outro computador, compare a **branch/versão**, repita `instalar.bat` naquela instalação e confira as restrições locais. Não use a `.venv` de outro computador.
+6. Para relatar o problema, registre **versão/commit, etapa, mensagem do terminal, código HTTP e horário**. Envie somente informações permitidas, **sem credenciais ou dados pessoais**.
+
+**Logs e diagnóstico:** ao iniciar uma execução, o painel pode oferecer **Baixar log completo**. Os arquivos locais em `relatorios/` incluem, quando gerados, `execucao_<id>.log`, `diagnostico_<id>.json` e `log_<id>.txt`. Se a falha ocorrer antes de criar a execução, esses arquivos podem ainda não existir.
+
+### Como atualizar em outro PC sem perder o histórico
+
+1. **Feche o programa** e mantenha a instalação antiga como cópia de segurança.
+2. Extraia a versão atualizada em **outra pasta**. Não misture códigos-fonte nem transfira `.venv`.
+3. Execute `instalar.bat` na nova pasta e abra o programa uma vez para conferir a instalação.
+4. Com o programa fechado, copie da instalação antiga **`historico.json` e a pasta `relatorios/` completa** para a nova, se precisar preservar o histórico. Inclua `comparacao_<id>.json`, `detalhes_<id>.json`, evidências, diagnósticos, checkpoints e demais arquivos existentes; não selecione só o HTML/CSV.
+5. Reabra o AmbiDiff e confira o histórico. Relatórios antigos mantêm o formato original e não ganham retroativamente novas verificações.
+
+**Atenção:** histórico, logs, capturas e checkpoints podem conter dados dos portais. Transfira-os somente quando autorizado e por meios aprovados pelo setor/TI.
+
+
 ## Testes internos com colegas do setor
 
 O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**, cada um com sua instalação local. O objetivo é verificar a qualidade das divergências detectadas, encontrar falsos positivos e identificar limitações de execução, antes de qualquer integração definitiva.
@@ -51,15 +163,6 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 **Critério de sucesso:** identificar diferenças relevantes sem ocultar problemas estruturais ou funcionais, registrar corretamente limites e falhas e preservar resultados parciais. PRD não é considerado automaticamente correto.
 
 
-
-## Instalação no Windows (primeira utilização)
-
-1. Extraia **todo** o ZIP da versão escolhida em uma pasta (não rode dentro do ZIP). A versão da branch experimental deve ficar separada da v1.5 anterior.
-2. Dentro da pasta extraída, execute **`instalar.bat`**. É preciso Python instalado (com `py` ou `python` no PATH) e internet para instalar o navegador do Playwright. Aguarde o instalador terminar.
-3. Execute **`INICIAR_AMBIDIFF.bat`**. O painel abrirá em `http://127.0.0.1:8765`.
-4. Escolha os nomes de PRD/DES ou LAB, insira os dois endereços e clique **Iniciar comparação**.
-
-> A ferramenta não deve ser exposta na rede: o servidor escuta apenas em `127.0.0.1`. Para endereços `*.des.mt.gov.br`, o computador precisa ter acesso pela própria rede/VPN autorizada. O programa não burla login ou restrições da rede.
 
 ## Novidades v1.5
 
