@@ -1,0 +1,283 @@
+{
+  "referencia": "b71d90f713141888163366b934807d49ca927550",
+  "execucoes": [
+    {
+      "paginas_por_ambiente": 50,
+      "medianas_segundos": {
+        "total": 0.035409644013270736,
+        "conversao": 0.00650480599142611,
+        "assinatura_json": 0.005760152009315789,
+        "serializacao_json": 0.0221060179756023,
+        "gravacao_e_metadados": 0.0011229850351810455,
+        "serializacao_gravacao": 0.023229003010783345,
+        "validacao": 0.010090506984852254
+      },
+      "amostras": [
+        {
+          "total": 0.03898434899747372,
+          "conversao": 0.009390960971359164,
+          "assinatura_json": 0.005852762027643621,
+          "serializacao_json": 0.022629068000242114,
+          "gravacao_e_metadados": 0.0011115579982288182,
+          "serializacao_gravacao": 0.023740625998470932,
+          "validacao": 0.010549729049671441
+        },
+        {
+          "total": 0.035409644013270736,
+          "conversao": 0.00650480599142611,
+          "assinatura_json": 0.005675835011061281,
+          "serializacao_json": 0.0221060179756023,
+          "gravacao_e_metadados": 0.0011229850351810455,
+          "serializacao_gravacao": 0.023229003010783345,
+          "validacao": 0.010023234994150698
+        },
+        {
+          "total": 0.03482126700691879,
+          "conversao": 0.0063302930211648345,
+          "assinatura_json": 0.005760152009315789,
+          "serializacao_json": 0.021554907027166337,
+          "gravacao_e_metadados": 0.001175914949271828,
+          "serializacao_gravacao": 0.022730821976438165,
+          "validacao": 0.010090506984852254
+        }
+      ],
+      "bytes_checkpoint": 1403024,
+      "pico_alocacoes_python_bytes": 2813424,
+      "dados_recuperados": true,
+      "conteudo_restaurado_igual": true,
+      "versao": "anterior"
+    },
+    {
+      "paginas_por_ambiente": 50,
+      "medianas_segundos": {
+        "total": 0.009568150038830936,
+        "conversao": 2.964498708024621e-05,
+        "assinatura_json": 0.005571635963860899,
+        "serializacao_json": 0.0030424160067923367,
+        "gravacao_e_metadados": 0.0009690099977888167,
+        "serializacao_gravacao": 0.003991556994151324,
+        "validacao": 0.009971002000384033
+      },
+      "amostras": [
+        {
+          "total": 0.017950462002772838,
+          "conversao": 0.008017637999728322,
+          "assinatura_json": 0.0056644059950485826,
+          "serializacao_json": 0.0030505299801006913,
+          "gravacao_e_metadados": 0.001217888027895242,
+          "serializacao_gravacao": 0.004268418007995933,
+          "validacao": 0.010866769007407129
+        },
+        {
+          "total": 0.009568150038830936,
+          "conversao": 2.8924026992172003e-05,
+          "assinatura_json": 0.005571635963860899,
+          "serializacao_json": 0.0030424160067923367,
+          "gravacao_e_metadados": 0.000925174041185528,
+          "serializacao_gravacao": 0.003967590047977865,
+          "validacao": 0.009971002000384033
+        },
+        {
+          "total": 0.009545644978061318,
+          "conversao": 2.964498708024621e-05,
+          "assinatura_json": 0.005524442996829748,
+          "serializacao_json": 0.0030225469963625073,
+          "gravacao_e_metadados": 0.0009690099977888167,
+          "serializacao_gravacao": 0.003991556994151324,
+          "validacao": 0.009627480001654476
+        }
+      ],
+      "bytes_checkpoint": 778128,
+      "pico_alocacoes_python_bytes": 2819215,
+      "dados_recuperados": true,
+      "conteudo_restaurado_igual": true,
+      "versao": "atual"
+    },
+    {
+      "paginas_por_ambiente": 200,
+      "medianas_segundos": {
+        "total": 0.1449914839467965,
+        "conversao": 0.027743119979277253,
+        "assinatura_json": 0.02396286401199177,
+        "serializacao_json": 0.08783218602184206,
+        "gravacao_e_metadados": 0.0043398349662311375,
+        "serializacao_gravacao": 0.09315393096767366,
+        "validacao": 0.04472335800528526
+      },
+      "amostras": [
+        {
+          "total": 0.14619552198564634,
+          "conversao": 0.026901994016952813,
+          "assinatura_json": 0.024119140987750143,
+          "serializacao_json": 0.0909141429583542,
+          "gravacao_e_metadados": 0.004260244022589177,
+          "serializacao_gravacao": 0.09517438698094338,
+          "validacao": 0.04278276301920414
+        },
+        {
+          "total": 0.1449914839467965,
+          "conversao": 0.028108033002354205,
+          "assinatura_json": 0.023729519976768643,
+          "serializacao_json": 0.08727042301325127,
+          "gravacao_e_metadados": 0.0058835079544223845,
+          "serializacao_gravacao": 0.09315393096767366,
+          "validacao": 0.04472335800528526
+        },
+        {
+          "total": 0.14387800497934222,
+          "conversao": 0.027743119979277253,
+          "assinatura_json": 0.02396286401199177,
+          "serializacao_json": 0.08783218602184206,
+          "gravacao_e_metadados": 0.0043398349662311375,
+          "serializacao_gravacao": 0.0921720209880732,
+          "validacao": 0.06723856501048431
+        }
+      ],
+      "bytes_checkpoint": 5602724,
+      "pico_alocacoes_python_bytes": 11595288,
+      "dados_recuperados": true,
+      "conteudo_restaurado_igual": true,
+      "versao": "anterior"
+    },
+    {
+      "paginas_por_ambiente": 200,
+      "medianas_segundos": {
+        "total": 0.041726739960722625,
+        "conversao": 9.70470136962831e-05,
+        "assinatura_json": 0.024268916982691735,
+        "serializacao_json": 0.013026809028815478,
+        "gravacao_e_metadados": 0.004333966935519129,
+        "serializacao_gravacao": 0.017360775964334607,
+        "validacao": 0.045443770999554545
+      },
+      "amostras": [
+        {
+          "total": 0.07055574801051989,
+          "conversao": 0.028349140018690377,
+          "assinatura_json": 0.024785521964076906,
+          "serializacao_json": 0.013433965970762074,
+          "gravacao_e_metadados": 0.003987120056990534,
+          "serializacao_gravacao": 0.017421086027752608,
+          "validacao": 0.044020771980285645
+        },
+        {
+          "total": 0.04071153997210786,
+          "conversao": 9.61959594860673e-05,
+          "assinatura_json": 0.023516426037531346,
+          "serializacao_json": 0.012472216039896011,
+          "gravacao_e_metadados": 0.004626701935194433,
+          "serializacao_gravacao": 0.017098917975090444,
+          "validacao": 0.045443770999554545
+        },
+        {
+          "total": 0.041726739960722625,
+          "conversao": 9.70470136962831e-05,
+          "assinatura_json": 0.024268916982691735,
+          "serializacao_json": 0.013026809028815478,
+          "gravacao_e_metadados": 0.004333966935519129,
+          "serializacao_gravacao": 0.017360775964334607,
+          "validacao": 0.047948567022103816
+        }
+      ],
+      "bytes_checkpoint": 3105228,
+      "pico_alocacoes_python_bytes": 11272311,
+      "dados_recuperados": true,
+      "conteudo_restaurado_igual": true,
+      "versao": "atual"
+    },
+    {
+      "paginas_por_ambiente": 800,
+      "medianas_segundos": {
+        "total": 0.5817196210264228,
+        "conversao": 0.12352427805308253,
+        "assinatura_json": 0.09305364900501445,
+        "serializacao_json": 0.3466892510186881,
+        "gravacao_e_metadados": 0.01736352895386517,
+        "serializacao_gravacao": 0.3653375710127875,
+        "validacao": 0.1688494500122033
+      },
+      "amostras": [
+        {
+          "total": 0.614151906047482,
+          "conversao": 0.12352427805308253,
+          "assinatura_json": 0.10051261796616018,
+          "serializacao_json": 0.3733481260132976,
+          "gravacao_e_metadados": 0.016766884014941752,
+          "serializacao_gravacao": 0.39011501002823934,
+          "validacao": 0.1742846270208247
+        },
+        {
+          "total": 0.5656672019977123,
+          "conversao": 0.10857081698486581,
+          "assinatura_json": 0.09175881400005892,
+          "serializacao_json": 0.3466892510186881,
+          "gravacao_e_metadados": 0.018648319994099438,
+          "serializacao_gravacao": 0.3653375710127875,
+          "validacao": 0.16705830104183406
+        },
+        {
+          "total": 0.5817196210264228,
+          "conversao": 0.12829244404565543,
+          "assinatura_json": 0.09305364900501445,
+          "serializacao_json": 0.3430099990218878,
+          "gravacao_e_metadados": 0.01736352895386517,
+          "serializacao_gravacao": 0.36037352797575295,
+          "validacao": 0.1688494500122033
+        }
+      ],
+      "bytes_checkpoint": 22403923,
+      "pico_alocacoes_python_bytes": 45061277,
+      "dados_recuperados": true,
+      "conteudo_restaurado_igual": true,
+      "versao": "anterior"
+    },
+    {
+      "paginas_por_ambiente": 800,
+      "medianas_segundos": {
+        "total": 0.1586187300272286,
+        "conversao": 0.000457541027572006,
+        "assinatura_json": 0.09198119404027238,
+        "serializacao_json": 0.049677371978759766,
+        "gravacao_e_metadados": 0.016538305033463985,
+        "serializacao_gravacao": 0.06623161199968308,
+        "validacao": 0.1698934839805588
+      },
+      "amostras": [
+        {
+          "total": 0.29121919098543003,
+          "conversao": 0.12717496400000528,
+          "assinatura_json": 0.09532731998478994,
+          "serializacao_json": 0.05271292797988281,
+          "gravacao_e_metadados": 0.016003979020752013,
+          "serializacao_gravacao": 0.06871690700063482,
+          "validacao": 0.1719881680328399
+        },
+        {
+          "total": 0.1586187300272286,
+          "conversao": 0.00040592398727312684,
+          "assinatura_json": 0.09198119404027238,
+          "serializacao_json": 0.049677371978759766,
+          "gravacao_e_metadados": 0.016554240020923316,
+          "serializacao_gravacao": 0.06623161199968308,
+          "validacao": 0.16979917098069564
+        },
+        {
+          "total": 0.15640204004012048,
+          "conversao": 0.000457541027572006,
+          "assinatura_json": 0.09081910096574575,
+          "serializacao_json": 0.048587093013338745,
+          "gravacao_e_metadados": 0.016538305033463985,
+          "serializacao_gravacao": 0.06512539804680273,
+          "validacao": 0.1698934839805588
+        }
+      ],
+      "bytes_checkpoint": 12416026,
+      "pico_alocacoes_python_bytes": 45073577,
+      "dados_recuperados": true,
+      "conteudo_restaurado_igual": true,
+      "versao": "atual"
+    }
+  ],
+  "limites": "Páginas e DIVs fabricadas, três snapshots do mesmo estado (primeiro frio). Mesmo conteúdo v1; arquivos temporários locais. Não mede portais nem disco Windows. Pico tracemalloc mede alocações Python de conversão e assinatura, não RSS do Chromium.",
+  "candidata": "Árvore local sobre b71d90f; sem commit/push. Medição sintética de 27/10/2026."
+}

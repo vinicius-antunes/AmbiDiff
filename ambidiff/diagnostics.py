@@ -47,6 +47,8 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
     return {**{k:resultado.get(k) for k in ('iniciado_em','finalizado_em','duracao_segundos','andamento','media_segundos_por_par','requisicoes_por_par')},'grupos_relacionados':resultado.get('grupos_relacionados',[]),'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_classificados',resultado.get('editoriais_preservados',[])),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
       'site_nome':resultado.get('site_nome',''),'ambientes':resultado.get('ambientes',{}),
       'situacao_analise':resultado.get('situacao_analise','inconclusivo'),
+      'cobertura':resultado.get('cobertura',{}),'motivo_encerramento':resultado.get('motivo_encerramento',''),
+      'equivalencias_compartilhamento':resultado.get('equivalencias_compartilhamento',[]),
       'modo_varredura':resultado.get('modo_varredura','atual'),
       'exportacao_worker_segundos':resultado.get('exportacao_worker_segundos'),'metricas':resultado.get('metricas',{}),'otimizacao':resultado.get('otimizacao',{}),
       'verificacoes_destinos':resultado.get('verificacoes_destinos',[]),'resultados_funcionais':resultado.get('resultados_funcionais',[]),'diferencas_esteticas':resultado.get('diferencas_esteticas',[]),'documentos_verificados':resultado.get('documentos_verificados',[]),

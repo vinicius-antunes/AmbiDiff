@@ -18,6 +18,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from ambidiff.core import executar,validacao_inicial
 from ambidiff.reports import exportar
+from ambidiff.checkpoints import gravar as gravar_checkpoint
 from ambidiff.diagnostics import montar_diagnostico,exportar_diagnostico
 from ambidiff.storage import (preparar_relatorio,excluir_div,excluir_execucoes,registrar_revisao,
     atomic_json,valid_run,ler_exclusoes)
@@ -72,10 +73,15 @@ def atualizar(**kw):
 def estado_publico(agora=None):
     with LOCK:
         dados={k:v for k,v in STATE.items() if k not in
-               ('inicio_monotonic','fim_monotonic','amostras_progresso','amostras_pares')}
+               ('inicio_monotonic','fim_monotonic','amostras_progresso','amostras_pares','andamento_monotonic')}
         dados['logs']=list(STATE['logs'])
         dados['interrupcao_solicitada']=PARAR.is_set() and dados['status']=='executando'
         d=STATE.get('andamento',{})
+        restante=d.get('orcamento_restante_segundos')
+        if isinstance(restante,(int,float)) and dados['status']=='executando':
+            instante=time.monotonic() if agora is None else agora
+            restante=max(0,restante-max(0,instante-STATE.get('andamento_monotonic',instante)))
+        dados['orcamento_restante_segundos']=restante
         total=d.get('pares_visitados',0)+d.get('pares_pendentes',0)
         dados['cobertura_conhecida_percentual']=min(99 if dados['status']!='concluido' else 100,round(100*d.get('pares_visitados',0)/total)) if total else None
         dados['progresso_semantica']='Fila descoberta até o momento, não conclusão global nem inspeção profunda'
@@ -121,7 +127,7 @@ def andamento(dados):
         if dados.get('pares_pendentes',0)>anterior.get('pares_pendentes',0):samples.clear()
         if dados.get('pares_comparados',0)>anterior.get('pares_comparados',0):samples.append((agora,dados['pares_comparados']))
         STATE['amostras_pares']=samples[-30:]
-        STATE['andamento']=dict(dados)
+        STATE['andamento']=dict(dados);STATE['andamento_monotonic']=agora
 
 
 
@@ -149,7 +155,8 @@ def worker(params,run_id):
                            verificar_cliques=params.get('verificar_cliques',False),
                            varredura_inteligente=params.get('varredura_inteligente',False),
                            ambiente_desatualizado=params.get('ambiente_desatualizado',''),
-                           checkpoint=lambda d:atomic_json(PASTA/f'checkpoint_{run_id}.json',dict(d,id=run_id)),
+                           checkpoint=lambda d:gravar_checkpoint(PASTA/f'checkpoint_{run_id}.json',dict(d,id=run_id)),
+                           estrategia=params.get('estrategia'),orcamento_minutos=params.get('orcamento_minutos'),
                            **({'retomada':params['retomada']} if params.get('retomada') else {}))
         if resultado is None:
             raise RuntimeError('A varredura não produziu relatório; consulte o diagnóstico.')
@@ -260,6 +267,8 @@ def comparar():
             if nome_a==nome_b:raise ValueError('Use nomes de ambientes diferentes.')
             site_nome=str(args.get('site_nome','')).strip()[:120]
             if any(ord(c)<32 for c in site_nome):raise ValueError('Nome da comparação inválido.')
+            from ambidiff.strategy import opcoes
+            estrategia,orcamento=opcoes(args.get('estrategia','progressiva'),args.get('orcamento_minutos',20))
             desatualizado=str(args.get('ambiente_desatualizado','')).strip().upper()
             if desatualizado not in ('',nome_a,nome_b):raise ValueError('Escolha um ambiente válido para a base desatualizada.')
         except (ValueError,TypeError) as e:return jsonify(erro=str(e)),400
@@ -276,8 +285,8 @@ def comparar():
         params=dict(url_a=url_a,url_b=url_b,nome_a=nome_a,nome_b=nome_b,site_nome=site_nome,
                     auditar_externos=(args.get('auditar_externos') is True),
                     verificar_cliques=(args.get('verificar_cliques') is True),
-                    varredura_inteligente=(args.get('varredura_inteligente') is True),
-                    ambiente_desatualizado=desatualizado)
+                    varredura_inteligente=(args.get('varredura_inteligente',True) is True),
+                    estrategia=estrategia,orcamento_minutos=orcamento,ambiente_desatualizado=desatualizado)
         threading.Thread(target=worker,args=(params,run_id),daemon=True).start()
         return jsonify(ok=True,id=run_id)
 
@@ -310,6 +319,11 @@ def retomar(run_id):
             estado=validar(payload.get('retomada',{}))
             if not estado['fila']:raise ValueError('Checkpoint sem pares pendentes.')
             params=dict(estado['configuracao'],retomada=payload['retomada'],retomada_de=run_id)
+            args=request.get_json(silent=True) or {}
+            if args.get('aprofundar') is True:params['estrategia']='profunda'
+            if 'orcamento_minutos' in args:
+                from ambidiff.strategy import opcoes
+                _,params['orcamento_minutos']=opcoes(params.get('estrategia','profunda'),args['orcamento_minutos'])
             novo=datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:6]
             # Nova execução: preserva arquivos e decisões do relatório anterior.
             for prefix in ('exclusoes','relevancia','revisoes','selecoes'):
@@ -409,6 +423,22 @@ def selecionar_div(run_id,div_id):
         return jsonify(ids_selecionados=ids)
     except ValueError as exc:return jsonify(erro=str(exc)),400
     except (KeyError,FileNotFoundError):return jsonify(erro='DIV não encontrada.'),404
+
+
+@app.put('/api/relatorio/<run_id>/selecao')
+def selecionar_divs_lote(run_id):
+    from ambidiff.storage import selecionar_lote
+    if not valid_run(run_id):return jsonify(erro='ID inválido.'),400
+    args=request.get_json(silent=True)
+    if not isinstance(args,dict) or set(args)-{'acao','filtros'}:return jsonify(erro='Operação em lote inválida.'),400
+    try:
+        with LOCK:
+            if STATE['status']=='executando':return jsonify(erro='Aguarde a conclusão.'),409
+            dados=selecionar_lote(PASTA,run_id,args.get('acao'),args.get('filtros'))
+        return jsonify(dados)
+    except (ValueError,TypeError) as exc:return jsonify(erro=str(exc)),400
+    except FileNotFoundError:return jsonify(erro='Relatório não encontrado.'),404
+    except OSError:return jsonify(erro='Não foi possível salvar a seleção. A seleção anterior foi preservada.'),500
 
 
 @app.get('/download/<run_id>/<ext>')

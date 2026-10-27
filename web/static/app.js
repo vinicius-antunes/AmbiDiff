@@ -23,6 +23,8 @@ function formatDuration(seconds){
   return m?m+'min '+String(sec).padStart(2,'0')+'s':sec+'s';
 }
 function updateProgressInfo(s){
+  const budget=s.orcamento_restante_segundos??s.andamento?.orcamento_restante_segundos;
+  $('progress-budget').textContent=typeof budget==='number'?'Orçamento restante desta etapa: '+formatDuration(budget):'Orçamento: sem limite ou ainda indisponível';
   const percent=Math.max(0,Math.min(100,Number(s.cobertura_conhecida_percentual??s.progresso)||0));
   $('progress-fill').style.width=percent+'%';
   $('progress-percent').textContent=percent+'%'+(typeof s.cobertura_conhecida_percentual==='number'?' da fila conhecida':'');
@@ -88,7 +90,7 @@ async function poll(){
     $('running-label').textContent=s.interrupcao_solicitada?'Interrupção solicitada — aguardando operação atual':({executando:'Executando',concluido:'Concluída',parcial:'Parcial',interrompido:'Interrompida',erro:'Falha',pronto:'Aguardando'})[s.status]||s.status;
     $('stat-status').textContent=$('running-label').textContent;
     const d=s.andamento||{};
-    $('execution-details').textContent='Etapa: '+(d.etapa||'início')+' · Par atual: '+(d.par_atual??'—')+' · Último par processado: '+(d.ultimo_par_processado??'—')+' · Comparação: '+(d.pares_descobertos?Math.round(100*(d.pares_comparados||0)/d.pares_descobertos)+'% dos pares descobertos':'—')+' · Descobertos: '+(d.pares_descobertos??'—')+' · Visitados: '+(d.pares_visitados??'—')+' · Comparados: '+(d.pares_comparados??'—')+' · Pendentes: '+(d.pares_pendentes??'—')+' · Pares com falha: '+(d.pares_com_falha??'—')+' · Ocorrências: '+(d.ocorrencias_preliminares??'—')+' · Última atividade: '+(d.ultima_atividade||'—');
+    $('execution-details').textContent='Etapa: '+(d.etapa||'início')+' · Par atual: '+(d.par_atual??'—')+' · Último par processado: '+(d.ultimo_par_processado??'—')+' · Comparação: '+(d.pares_descobertos?Math.round(100*(d.pares_comparados||0)/d.pares_descobertos)+'% dos pares descobertos':'—')+' · Descobertos: '+(d.pares_descobertos??'—')+' · Visitados: '+(d.pares_visitados??'—')+' · Comparados: '+(d.pares_comparados??'—')+' · Pendentes: '+(d.pares_pendentes??'—')+' · Pares com falha: '+(d.pares_com_falha??'—')+' · Não aprofundados por estratégia: '+(d.pares_nao_aprofundados??0)+' · Ocorrências: '+(d.ocorrencias_preliminares??'—')+' · Última atividade: '+(d.ultima_atividade||'—');
     const diag=$('failure-diagnostics');diag.hidden=!(s.status==='erro'&&s.ultimo_id);
     if(!diag.hidden){$('failure-json').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-json';$('failure-txt').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-txt';}
     if(!busy&&['concluido','parcial','interrompido','erro'].includes(s.status)&&(s.status!=='erro'||s.relatorio_disponivel)&&s.ultimo_id&&!openedRuns.has(s.ultimo_id)){
@@ -100,7 +102,8 @@ async function poll(){
 }
 $('compare-form').addEventListener('submit',async e=>{
   e.preventDefault();statusGeneration++;$('form-error').textContent='';$('failure-diagnostics').hidden=true;$('terminal').replaceChildren();updateProgressInfo({progresso:0,status:'executando',tempo_decorrido_segundos:0,tempo_restante_segundos:null});
-  const payload={varredura_inteligente:$('varredura-inteligente').checked,url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:'',auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
+  if(!$('orcamento-minutos').value.trim()){$('form-error').textContent='Informe o orçamento em minutos ou 0 para remover o limite.';return;}
+  const payload={estrategia:$('estrategia').value,orcamento_minutos:Number($('orcamento-minutos').value),varredura_inteligente:$('varredura-inteligente').checked,url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:'',auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
     ambiente_desatualizado:$('ambiente-desatualizado').value==='A'?$('nome-a').value: $('ambiente-desatualizado').value==='B'?$('nome-b').value:''};
   try{await api('/api/comparar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     setRunning(true);clearTimeout(timer);await poll();
@@ -168,9 +171,8 @@ function renderNext(){
     const selection=element('input');selection.type='checkbox';selection.className='div-export-selection';selection.setAttribute('aria-label','Selecionar '+d.id+' para exportação');
     const ids=d.ids_agrupados||[d.id],selected=new Set(currentReport.ids_selecionados||[]);
     selection.checked=ids.every(id=>selected.has(id));selection.indeterminate=!selection.checked&&ids.some(id=>selected.has(id));
-    selection.addEventListener('change',async()=>{selection.disabled=true;const marked=selection.checked;
-      try{const r=await api('/api/relatorio/'+encodeURIComponent(currentId)+'/selecao/'+encodeURIComponent(d.id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({selecionado:marked})});currentReport.ids_selecionados=r.ids_selecionados;selection.indeterminate=false;selectionSummary();}
-      catch(e){selection.checked=!marked;$('form-error').textContent=e.message;}finally{selection.disabled=false;}});
+    selection.dataset.divIds=JSON.stringify(ids);selection.disabled=selectionBusy;
+    selection.addEventListener('change',()=>saveSelection('/selecao/'+encodeURIComponent(d.id),{selecionado:selection.checked},'Seleção individual salva.'));
     const label=element('label','Exportar');label.prepend(selection);head.append(label);
     head.append(element('strong',d.id),element('span',d.categoria||d.tipo,'result-chip section'),element('span',d.situacao,'result-chip'));
     if(d.revisao_manual==='confirmada')head.append(element('span','✓ Confirmada manualmente','reviewed-badge'));
@@ -358,6 +360,7 @@ function pending(d){
 function smartResults(d){
   const box=$('smart-results');box.replaceChildren();
   box.append(element('p','Modo: '+(d.modo_varredura||'atual')));
+  if(d.resumo_compartilhamento)box.append(element('p','Compartilhamentos equivalentes: '+d.resumo_compartilhamento.grupos+' grupos / '+d.resumo_compartilhamento.ocorrencias+' ocorrências. Destinos preservados nos dados técnicos.'));
   const o=d.otimizacao||{},m=d.metricas||{};
   if(d.formato_relatorio===2&&!d.otimizacao){const b=element('button','Carregar detalhes técnicos locais','outline-button');b.type='button';
     b.addEventListener('click',async()=>{b.disabled=true;const id=currentId;try{const extra=await api('/api/relatorio/'+encodeURIComponent(id)+'/detalhes');if(id!==currentId)return;Object.assign(currentReport,extra);smartResults(currentReport);technical(currentReport);}catch(e){b.disabled=false;b.textContent='Tentar carregar detalhes: '+e.message;}});box.append(b);}
@@ -390,17 +393,18 @@ function smartResults(d){
   box.append(rereads);
 }
 function displayReport(){
-  const d=currentReport;if(!d)return;selectionSummary();
+  const d=currentReport;if(!d)return;selectionSummary();exportFeedback('Relatório aberto. Escolha o escopo e clique em um formato para exportar.');
   $('stat-divergencias').textContent=d.divergencias.filter(r=>!['baixa','editorial'].includes(r.classificacao)).length;
   const vals=Object.values(d.paginas||{});$('stat-a').textContent=vals[0]??0;$('stat-b').textContent=vals[1]??0;
   $('nav-count').textContent=$('stat-divergencias').textContent;
-  document.querySelectorAll('[data-export]').forEach(b=>b.disabled=!!(b.dataset.export.startsWith('diagnostico-') && d.versao!=='1.5'));
+  document.querySelectorAll('[data-export]').forEach(b=>b.disabled=exportBusy||!!(b.dataset.export.startsWith('diagnostico-') && d.versao!=='1.5'));
   const summary=$('report-summary');summary.hidden=false;summary.replaceChildren();
   const inconclusivo=d.situacao_analise==='inconclusivo',parcial=d.situacao_analise==='parcial';
   summary.classList.toggle('important-warning',inconclusivo||parcial);
   const titulo=d.estado_execucao==='falha'?'FALHA DA AUTOMAÇÃO — RELATÓRIO PARCIAL':inconclusivo?'COMPARAÇÃO INCONCLUSIVA':parcial?'VERIFICAÇÃO PARCIAL':'COMPARAÇÃO CONCLUÍDA';
   if(d.iniciado_em)summary.append(element('p','Início: '+d.iniciado_em+' · Fim do processamento: '+(d.finalizado_em||'em andamento')+' · Duração: '+formatDuration(d.duracao_segundos)));
   summary.append(element('strong',titulo+' · '+(d.site_nome||'Portal')));
+  if(d.cobertura){const c=d.cobertura;summary.append(element('p','Estratégia: '+c.estrategia+' · DOM aprofundado: '+c.pares_dom_aprofundado+' · DOM estrutural: '+c.pares_dom_estrutural+' · Não inspecionados: '+c.pares_nao_inspecionados+' · Importantes pendentes: '+c.importantes_pendentes));if(d.motivo_encerramento)summary.append(element('strong','Varredura encerrada por '+(d.motivo_encerramento==='orcamento'?'orçamento de tempo':'amostragem editorial')+' — cobertura parcial, continuação disponível.'));}
   if(d.erro_execucao||d.motivo_recuperacao)summary.append(element('p',d.erro_execucao||d.motivo_recuperacao));
   summary.append(element('p','Ocorrências originais: '+(d.ocorrencias_brutas??d.divergencias.length)+' · prioritárias: '+$('stat-divergencias').textContent+' · grupos disponíveis: '+d.divergencias.length));
   summary.append(element('p','Baixa relevância e editoriais ficam fora da lista principal. Use Mostrar todas as diferenças para consultar. Inconclusivos continuam visíveis.'));
@@ -430,7 +434,7 @@ function updateSelectionBar(){
   $('select-all-history').textContent=selectedRuns.size===allHistory.length&&allHistory.length?'Desmarcar todos':'Selecionar todos';
 }
 function clearReport(){
-  currentId=null;currentReport=null;filtered=[];
+  currentId=null;currentReport=null;filtered=[];selectionSummary();exportFeedback('Abra uma comparação para habilitar a exportação.');
   $('report-summary').hidden=true;$('result-list').replaceChildren(element('div','Selecione um relatório no histórico ou inicie uma comparação.','empty-state'));
   $('nav-count').textContent='0';$('stat-divergencias').textContent='—';
   document.querySelectorAll('[data-export]').forEach(b=>b.disabled=true);
@@ -519,41 +523,58 @@ $('refresh-checkpoints').addEventListener('click',async()=>{
     if(!rows.length)box.append(element('p','Nenhum checkpoint com fila pendente.'));
     for(const r of rows){const p=element('p',r.id+' · '+(r.valido?r.pendentes+' pares pendentes':r.motivo));
       if(r.valido){const c=r.configuracao||{};p.append(element('br'),element('span',(c.nome_a||'A')+': '+(c.url_a||'')+' · '+(c.nome_b||'B')+': '+(c.url_b||'')+' · Externos: '+(c.auditar_externos?'HEAD habilitado':'desabilitado')+' · Cliques: '+(c.verificar_cliques?'habilitados':'desabilitados')));const b=element('button','Retomar','outline-button');b.type='button';b.disabled=lastStatus?.status==='executando';
-        b.addEventListener('click',async()=>{b.disabled=true;try{statusGeneration++;await api('/api/retomar/'+encodeURIComponent(r.id),{method:'POST'});setRunning(true);await poll();}catch(e){$('form-error').textContent=e.message;b.disabled=false;}});p.append(b);}box.append(p);}
+        b.addEventListener('click',async()=>{b.disabled=true;try{statusGeneration++;await api('/api/retomar/'+encodeURIComponent(r.id),{method:'POST'});setRunning(true);await poll();}catch(e){$('form-error').textContent=e.message;b.disabled=false;}});p.append(b);const deep=element('button','Continuar aprofundando','outline-button');deep.type='button';deep.disabled=b.disabled;deep.addEventListener('click',async()=>{deep.disabled=true;try{statusGeneration++;await api('/api/retomar/'+encodeURIComponent(r.id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({aprofundar:true,orcamento_minutos:Number($('orcamento-minutos').value)})});setRunning(true);await poll();}catch(e){$('form-error').textContent=e.message;deep.disabled=false;}});p.append(deep);}box.append(p);}
   }catch(e){box.append(element('p',e.message));}
 });
 
+let selectionBusy=false,exportBusy=false;
+function exportFeedback(text,error=false){const box=$('export-feedback');box.textContent=text;box.classList.toggle('error-text',error);}
 function selectionSummary(){
-  $('selected-count').textContent=(currentReport?.ids_selecionados||[]).length+' IDs selecionados';
+  const selected=new Set(currentReport?.ids_selecionados||[]);
+  $('selected-count').textContent=selected.size+' IDs selecionados';
+  document.querySelectorAll('.div-export-selection').forEach(c=>{const ids=JSON.parse(c.dataset.divIds||'[]');if(!selectionBusy){c.checked=ids.length>0&&ids.every(i=>selected.has(i));c.indeterminate=!c.checked&&ids.some(i=>selected.has(i));}c.disabled=selectionBusy;});
+  for(const id of ['select-all-divs','select-filtered-divs','clear-selected-divs'])$(id).disabled=!currentReport||selectionBusy;
 }
+function appliedFilters(){return {busca:$('search-results').value,categoria:selectedCategory,lado:$('filter-side').value,tipo:$('filter-type').value,revisao:$('filter-review').value,mostrar_todas:$('show-all-differences').checked};}
+async function saveSelection(path,body,message){
+  if(!currentId||selectionBusy)return;const id=currentId;selectionBusy=true;selectionSummary();$('selection-feedback').textContent='Salvando seleção…';
+  try{const r=await api('/api/relatorio/'+encodeURIComponent(id)+path,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(id===currentId){currentReport.ids_selecionados=r.ids_selecionados;$('selection-feedback').textContent=message+' '+r.ids_selecionados.length+' IDs selecionados. Confirmações manuais preservadas.';}
+  }catch(e){if(id===currentId)$('selection-feedback').textContent='Seleção não salva: '+e.message;}
+  finally{selectionBusy=false;selectionSummary();}
+}
+$('select-all-divs').addEventListener('click',()=>saveSelection('/selecao',{acao:'todas'},'Marcadas todas as DIVs elegíveis do relatório.'));
+$('select-filtered-divs').addEventListener('click',()=>saveSelection('/selecao',{acao:'filtradas',filtros:appliedFilters()},'Marcados os resultados dos filtros; seleções fora deles preservadas.'));
+$('clear-selected-divs').addEventListener('click',()=>saveSelection('/selecao',{acao:'limpar'},'Seleção de exportação removida.'));
+
 $('export-scope').addEventListener('change',()=>{
   $('export-suggestion').textContent=$('export-scope').value==='selecionadas'?'Sugestão: CSV para planilhas. Selecionar não confirma uma DIV.':'Sugestão: HTML para revisar o relatório completo.';
 });
 let lastSaveHandle=null;
 async function downloadExport(button){
-  if(!currentId)return;const ext=button.dataset.export,scope=$('export-scope').value,advanced=ext.startsWith('diagnostico-');
-  if(!advanced&&scope==='selecionadas'&&!(currentReport.ids_selecionados||[]).length){$('form-error').textContent='Selecione ao menos uma DIV para exportar.';return;}
-  const actualExt=ext.split('-').pop(),site=(currentReport.site_nome||'Portal').replace(/https?:\/\/\S+|\S+@\S+|\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g,'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9_-]+/g,'_').slice(0,64)||'Portal';
+  if(!currentId){exportFeedback('Abra uma comparação para habilitar a exportação.');return;}if(exportBusy)return;const run=currentId;const ext=button.dataset.export,scope=$('export-scope').value,advanced=ext.startsWith('diagnostico-');
+  if(!advanced&&scope==='selecionadas'&&!(currentReport.ids_selecionados||[]).length){exportFeedback('Selecione ao menos uma DIV para exportar, ou escolha outro escopo.',true);return;}
+  const actualExt=ext.split('-').pop(),site=(currentReport.site_nome||'Portal').replace(/https?:\/\/\S+|\S+@\S+|\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g,'').replace(/\b\d{11,}\b/g,'identificador').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9_-]+/g,'_').slice(0,64)||'Portal';
   const tipo=advanced?'Diagnostico':scope==='selecionadas'?'DIVs_Selecionadas':'Comparacao';
   const date=currentId.slice(0,4)+'-'+currentId.slice(4,6)+'-'+currentId.slice(6,8),name=site+'_'+tipo+'_'+date+'_'+currentId.slice(-6)+'.'+actualExt;
   const mime={csv:'text/csv',html:'text/html',pdf:'application/pdf',json:'application/json',txt:'text/plain'}[actualExt];
-  let handle=null;button.disabled=true;
+  let handle=null;exportBusy=true;document.querySelectorAll('[data-export]').forEach(b=>b.disabled=true);button.setAttribute('aria-busy','true');exportFeedback('Preparando '+actualExt.toUpperCase()+'…');
   try{
     if(window.showSaveFilePicker){
       try{handle=await window.showSaveFilePicker({id:'ambidiff-exportacoes',suggestedName:name,startIn:lastSaveHandle||'downloads',types:[{description:actualExt.toUpperCase(),accept:{[mime]:['.'+actualExt]}}]});}
-      catch(e){if(e.name==='AbortError')return;if(e.name!=='SecurityError'&&e.name!=='TypeError')throw e;}
+      catch(e){if(e.name==='AbortError'){exportFeedback('Exportação cancelada no seletor de arquivos.');return;}if(e.name!=='SecurityError'&&e.name!=='TypeError')throw e;}
     }
     const args=advanced?'':scope==='selecionadas'?'?selecionadas=1':scope==='completo'?'?completo=1':scope==='relevantes'?'?relevantes=1':'';
-    const response=await fetch('/download/'+encodeURIComponent(currentId)+'/'+ext+args);
+    const response=await fetch('/download/'+encodeURIComponent(run)+'/'+ext+args);
     if(!response.ok){const data=await response.json();throw Error(data.erro||'Falha na exportação');}
     const blob=await response.blob();
     if(handle){
-      const file=await handle.getFile();if(file.size>0&&!window.confirm('O arquivo já contém dados. Deseja substituí-lo?'))return;
-      const writable=await handle.createWritable();try{await writable.write(blob);await writable.close();}catch(e){await writable.abort();throw e;}lastSaveHandle=handle;
+      const file=await handle.getFile();if(file.size>0&&!window.confirm('O arquivo já contém dados. Deseja substituí-lo?')){exportFeedback('Salvamento cancelado; arquivo existente preservado.');return;}
+      const writable=await handle.createWritable();try{await writable.write(blob);await writable.close();}catch(e){await writable.abort();throw e;}lastSaveHandle=handle;exportFeedback('Arquivo '+actualExt.toUpperCase()+' salvo no local escolhido.');
     }else{
       const header=response.headers.get('Content-Disposition')||'',suggested=/filename="([^"]+)"/.exec(header)?.[1]||name;
       const url=URL.createObjectURL(blob),a=element('a');a.href=url;a.download=suggested;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
-      $('export-suggestion').textContent='Download enviado ao navegador. Para escolher a pasta sempre, habilite “Perguntar onde salvar” nas configurações do navegador.';
+      exportFeedback('Download '+actualExt.toUpperCase()+' enviado ao navegador. Para escolher a pasta sempre, habilite “Perguntar onde salvar” nas configurações do navegador.');
     }
-  }catch(e){$('form-error').textContent='Não foi possível exportar: '+e.message;}finally{button.disabled=false;}
+  }catch(e){exportFeedback('Não foi possível exportar: '+e.message,true);}finally{exportBusy=false;button.removeAttribute('aria-busy');document.querySelectorAll('[data-export]').forEach(b=>b.disabled=!currentReport||!!(b.dataset.export.startsWith('diagnostico-')&&currentReport.versao!=='1.5'));}
 }

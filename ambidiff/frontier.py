@@ -6,8 +6,10 @@ from .core import normalizar
 
 
 def prioridade(par):
-    texto=normalizar(' '.join(par[-1])+' '+par[0])
+    texto=normalizar(par[-1][-1]+' '+par[0]) if par[-1] else normalizar(par[0])
     if len(par[-1])==1:return 0
+    from .strategy import IMPORTANTES
+    if re.search(IMPORTANTES,texto):return 1
     if re.search(r'pr[oó]xim|voltar|anterior|[?&](?:page|pagina|p_p_state|start)=',texto):return 5
     if re.search(r'not[ií]cia|/w/|/blog/|hist[oó]ric|imprensa',texto):return 4
     if re.search(r'institucional|estrutura|conselho|organograma|quem somos',texto):return 1
@@ -18,6 +20,7 @@ def prioridade(par):
 class Fila:
     def __init__(self,pares=()):
         self.heap=[];self.antigos=deque();self.ativos={};self.seq=0;self.saidas=0
+        self.adiados=[]
         for par in pares:self.append(par)
     def append(self,par):
         n=self.seq;self.seq+=1;self.ativos[n]=par
@@ -32,5 +35,6 @@ class Fila:
             _,n=heapq.heappop(self.heap)
             if n in self.ativos:return self.ativos.pop(n)
         raise IndexError('Fila vazia')
-    def __len__(self):return len(self.ativos)
-    def __iter__(self):return iter(self.ativos.values())
+    def adiar(self,par):self.adiados.append(par)
+    def __len__(self):return len(self.ativos)+len(self.adiados)
+    def __iter__(self):return iter([*self.ativos.values(),*self.adiados])

@@ -218,8 +218,8 @@ class SmartIntegrationTests(unittest.TestCase):
 
     def test_noticias_dados_defasados_reuso_e_modo_atual(self):
         with portais(4) as (bases,requisicoes):
-            atual=self.executar(bases,ambiente_desatualizado='DES')
-            otimizado=self.executar(bases,ambiente_desatualizado='DES',varredura_inteligente=True)
+            atual=self.executar(bases,ambiente_desatualizado='DES',estrategia='profunda',orcamento_minutos=0)
+            otimizado=self.executar(bases,ambiente_desatualizado='DES',varredura_inteligente=True,estrategia='profunda',orcamento_minutos=0)
         self.assertEqual(atual['paginas'],otimizado['paginas'])
         self.assertEqual(atual['divergencias'],[])
         self.assertEqual(otimizado['divergencias'],[])
@@ -309,7 +309,8 @@ class SmartIntegrationTests(unittest.TestCase):
                     page.route('http://ambidiff.test/**',responder)
                     page.goto('http://ambidiff.test/',wait_until='networkidle')
                     page.locator('[data-section="comparar"]').click()
-                    self.assertFalse(page.locator('#varredura-inteligente').is_checked())
+                    self.assertTrue(page.locator('#varredura-inteligente').is_checked())
+                    page.locator('details.advanced-options > summary').click()
                     page.locator('#varredura-inteligente').check()
                     page.locator('#url-a').fill(A);page.locator('#url-b').fill(B)
                     page.locator('#run-button').click();page.wait_for_timeout(200)

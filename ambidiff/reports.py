@@ -150,6 +150,7 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None)-
     <h1>{esc(dados.get('site_nome','Comparação de ambientes'))}</h1>
     <p>Início: {esc(dados.get('iniciado_em','não disponível'))} · Fim do processamento: {esc(dados.get('finalizado_em','não disponível'))} · Duração: {esc(dados.get('duracao_segundos','não disponível'))} s</p>
     <p>Escopo: {esc(dados.get('escopo_exportacao','Relatório principal'))}</p>
+    <p>Cobertura e estratégia: {esc(json.dumps(dados.get('cobertura',{}),ensure_ascii=False))}</p>
     <p>Ambientes: {' · '.join(esc(k)+': '+link(v) for k,v in dados.get('ambientes',{}).items())}</p>
     <p>Gerado em {esc(dados.get('gerado_em',''))} · Estado: <b>{esc(state)}</b></p>
     <p>{len(dados['divergencias'])} grupo(s) de divergência · {esc(dados.get('ocorrencias_brutas',len(dados['divergencias'])))} ocorrência(s) antes do agrupamento</p>

@@ -585,10 +585,10 @@ def inferir_site(pag_a:dict[str,Pagina],pag_b:dict[str,Pagina],base_a:str)->str:
     return urlsplit(base_a).hostname or 'Comparação de ambientes'
 
 
-def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,varredura_inteligente=False,observador=None,retomada=None):
+def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,varredura_inteligente=True,observador=None,retomada=None,estrategia=None,orcamento_minutos=None):
     """v1.5: comparação pareada, com variações editoriais separadas."""
     from .paired import executar_pareado
     return executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,
                            site_nome=site_nome,evidencias_dir=evidencias_dir, auditar_externos=auditar_externos,
                            ambiente_desatualizado=ambiente_desatualizado,checkpoint=checkpoint,retomada=retomada,
-                           verificar_cliques=verificar_cliques,varredura_inteligente=varredura_inteligente,observador=observador)
+                           verificar_cliques=verificar_cliques,varredura_inteligente=varredura_inteligente,observador=observador,estrategia=estrategia,orcamento_minutos=orcamento_minutos)

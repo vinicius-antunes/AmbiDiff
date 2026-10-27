@@ -2,6 +2,11 @@
 import hashlib
 import json
 import math
+import os
+from pathlib import Path
+import tempfile
+import time
+from dataclasses import asdict
 from datetime import datetime
 from .core import Pagina,Item,validacao_inicial,permitido
 
@@ -12,9 +17,40 @@ def assinar(estado):
     return hashlib.sha256(json.dumps(estado,sort_keys=True,ensure_ascii=False,separators=(',',':'),allow_nan=False).encode()).hexdigest()
 
 
-def empacotar(estado):
-    return {'versao_checkpoint':VERSAO,'salvo_em':datetime.now().astimezone().isoformat(),
+def empacotar(estado,metricas=None):
+    inicio=time.perf_counter()
+    pacote={'versao_checkpoint':VERSAO,'salvo_em':datetime.now().astimezone().isoformat(),
             'sha256_estado':assinar(estado),'estado':estado}
+    if metricas:metricas.tempos['checkpoint_assinatura_json']+=time.perf_counter()-inicio
+    return pacote
+
+
+class PaginasSerializadas:
+    """Só páginas concluídas: substituir a coleta invalida a entrada por identidade."""
+    def __init__(self):self.cache={};self.convertidas=0;self.reutilizadas=0
+    def converter(self,paginas):
+        out={}
+        for url,pagina in paginas.items():
+            anterior=self.cache.get(url)
+            if anterior is None or anterior[0] is not pagina:
+                anterior=(pagina,asdict(pagina));self.cache[url]=anterior;self.convertidas+=1
+            else:self.reutilizadas+=1
+            out[url]=anterior[1]
+        return out
+
+
+def gravar(path,snapshot):
+    """Mesmo JSON v1, compacto. Só substitui o anterior após flush/fsync e close."""
+    path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
+    inicio=time.perf_counter();texto=json.dumps(snapshot,ensure_ascii=False,separators=(',',':'),allow_nan=False)
+    serializacao=time.perf_counter()-inicio;inicio=time.perf_counter();temp=None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=path.parent,prefix=path.name+'.',suffix='.tmp',delete=False) as out:
+            temp=Path(out.name);out.write(texto);out.flush();os.fsync(out.fileno())
+        os.replace(temp,path)
+    finally:
+        if temp:temp.unlink(missing_ok=True)
+    return {'serializacao_json':serializacao,'gravacao':time.perf_counter()-inicio,'bytes':len(texto.encode('utf-8'))}
 
 
 def validar(payload,urls=None):
@@ -24,8 +60,11 @@ def validar(payload,urls=None):
     if not isinstance(estado,dict) or payload.get('sha256_estado')!=assinar(estado):
         raise ValueError('Checkpoint inválido: integridade do estado não confirmada.')
     params=estado.get('configuracao',{})
-    if not isinstance(params,dict) or set(params)!={'url_a','url_b','nome_a','nome_b','site_nome','auditar_externos','verificar_cliques','varredura_inteligente','ambiente_desatualizado'}:
+    obrigatorios={'url_a','url_b','nome_a','nome_b','site_nome','auditar_externos','verificar_cliques','varredura_inteligente','ambiente_desatualizado'}
+    if not isinstance(params,dict) or not obrigatorios<=set(params) or set(params)-obrigatorios-{'estrategia','orcamento_minutos'}:
         raise ValueError('Configuração incompleta/incompatível no checkpoint.')
+    from .strategy import opcoes
+    opcoes(params.get('estrategia','profunda'),params.get('orcamento_minutos',0))
     if not all(isinstance(params[k],str) for k in ('url_a','url_b','nome_a','nome_b','site_nome','ambiente_desatualizado')) or not all(type(params[k]) is bool for k in ('auditar_externos','verificar_cliques','varredura_inteligente')):
         raise ValueError('Tipos da configuração inválidos.')
     if not params['nome_a'] or not params['nome_b']:raise ValueError('Nomes de ambientes ausentes.')
@@ -77,11 +116,13 @@ def recuperar(snapshot):
     from copy import deepcopy
     from .paired import agrupar_registros,agrupar_referencias,_avisos
     from .intelligence import agrupar_variacoes
+    inicio_recuperacao=time.perf_counter()
     snap=deepcopy(snapshot);payload=snap.pop('retomada',None)
     estado=validar(payload) if payload else {}
     brutos=snap.get('brutos',estado.get('brutos',[]))
     editoriais=snap.get('registros_editoriais') or snap.get('variacoes_editoriais') or estado.get('editoriais',[])
     from .security import restaurar
+    snap.setdefault('segmentos_coleta',estado.get('segmentos',[]))
     snap['bloqueios_seguranca']=list(restaurar(snap.get('bloqueios_seguranca',estado.get('bloqueios',{}))).values())
     nomes=list(snap.get('ambientes',{}));a=nomes[0] if nomes else estado.get('configuracao',{}).get('nome_a','A')
     b=nomes[1] if len(nomes)>1 else estado.get('configuracao',{}).get('nome_b','B')
@@ -98,4 +139,6 @@ def recuperar(snapshot):
         itens_editoriais_agrupados=len(editoriais),ocorrencias_brutas=len(brutos)+len(editoriais),
         referencias_pendentes=snap.get('referencias_pendentes') or agrupar_referencias(estado.get('refs',[])),
         avisos_tecnicos=snap.get('avisos_tecnicos') or _avisos(snap.get('falhas',[]),snap.get('meta_varredura',{})))
+    tempos=snap.setdefault('metricas',{}).setdefault('tempos_segundos',{})
+    tempos['checkpoint_recuperacao_em_falha']=round(time.perf_counter()-inicio_recuperacao,6)
     return snap

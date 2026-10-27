@@ -445,7 +445,7 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
                 qtd+=1
     finally:context.close()
 
-def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False,observador=None,retomada=None):
+def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False,observador=None,retomada=None,estrategia=None,orcamento_minutos=None):
     from playwright.sync_api import sync_playwright
     metricas=Metricas();metricas.parar=parar;inteligencia=Inteligencia(metricas);documentos=Documentos(metricas,parar,permitir_range=False,observacao_por_execucao=True)
     from .destinations import Destinos
@@ -465,17 +465,28 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     visitados=set();paginas_a={};paginas_b={};brutos=[];falhas=[];pendencias=[];refs=[]
     excluded=Counter();externos=[];avisos_coleta=[];consecutivos=0;parada='';inicio=time.monotonic()
     eventos=[];editoriais=[];cliques_testados=0;MAX_CLIQUES=12;modo_defasado=ambiente_desatualizado if ambiente_desatualizado in (nome_a,nome_b) else ''
+    from .strategy import Escopo,grupo_editorial
+    estado=None
+    if retomada:
+        from .checkpoints import validar
+        with metricas.medir('checkpoint_recuperacao_validacao'):estado=validar(retomada,(base_a,base_b))
+    anterior=estado['configuracao'] if estado else {}
+    estrategia=estrategia if estrategia is not None else anterior.get('estrategia','profunda' if estado else 'progressiva')
+    orcamento_minutos=orcamento_minutos if orcamento_minutos is not None else anterior.get('orcamento_minutos',0 if estado else 20)
+    escopo=Escopo(estrategia,orcamento_minutos);motivo_encerramento=''
     configuracao=dict(url_a=base_a,url_b=base_b,nome_a=nome_a,nome_b=nome_b,site_nome=site_nome,
         auditar_externos=auditar_externos,verificar_cliques=verificar_cliques,
-        varredura_inteligente=varredura_inteligente,ambiente_desatualizado=ambiente_desatualizado)
+        varredura_inteligente=varredura_inteligente,ambiente_desatualizado=ambiente_desatualizado,estrategia=estrategia,orcamento_minutos=orcamento_minutos)
     segmentos=[];bloqueios={};tentativas_fatais={}
     from .security import registrar,Resumos,url_diagnostica
     resumos_seguranca=Resumos()
     if retomada:
         from .checkpoints import validar,restaurar_pagina
-        estado=validar(retomada,(base_a,base_b))
-        if estado['configuracao']!=configuracao:raise ValueError('Configuração difere do checkpoint; retomada recusada.')
-        fila=Fila(estado['fila']);visitados=set(map(tuple,estado['visitados']));fila.saidas=len(visitados)
+        esperado=dict(configuracao,estrategia=anterior.get('estrategia','profunda'),orcamento_minutos=anterior.get('orcamento_minutos',0))
+        legado=dict(anterior,estrategia=anterior.get('estrategia','profunda'),orcamento_minutos=anterior.get('orcamento_minutos',0))
+        if legado!=esperado or (legado['estrategia']=='profunda' and estrategia!='profunda'):
+            raise ValueError('Configuração incompatível: preserve ambientes/opções; aprofundar ou renovar o orçamento é permitido.')
+        fila=Fila(estado['fila']);visitados=set(map(tuple,estado['visitados']));fila.saidas=estado.get('fila_saidas',len(visitados))
         pares_enfileirados=set(map(tuple,estado['pares_enfileirados']))
         pares_falhos=set(map(tuple,estado.get('pares_falhos',[])))
         if not pares_falhos:
@@ -488,7 +499,10 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         documentos_relatorio=estado['documentos_relatorio'];verificacoes_destinos=estado['verificacoes_destinos']
         resultados_funcionais=estado['resultados_funcionais'];diferencas_esteticas=estado['diferencas_esteticas']
         excluded.update(estado['excluded']);cliques_testados=estado['cliques_testados']
+        validacao_atual=metricas.tempos.get('checkpoint_recuperacao_validacao',0)
         metricas.tempos.update(estado['metricas']['tempos_segundos'])
+        metricas.tempos['checkpoint_recuperacao_validacao']+=validacao_atual
+        escopo.editoriais_observados=set(map(tuple,estado.get('editoriais_observados',[])))
         metricas.contagens.update(estado['metricas']['contagens'])
         metricas.releituras=estado['metricas'].get('releituras',[])
         metricas.inicio-=estado['duracao_acumulada'];metricas.iniciado_em=estado['iniciado_em']
@@ -501,17 +515,38 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         bloqueios=restaurar(estado.get('bloqueios',{}))
         log('[Retomada] Fila e resultados restaurados; novas observações terão outro horário.')
     from datetime import datetime
-    segmentos=segmentos+[{'iniciado_em':datetime.now().astimezone().isoformat(),'retomada':bool(retomada)}]
-    ultimo_checkpoint=time.monotonic()
+    segmentos=segmentos+[{'iniciado_em':datetime.now().astimezone().isoformat(),'retomada':bool(retomada),'estrategia':estrategia,'orcamento_minutos':orcamento_minutos,'amostras_editoriais':escopo.representantes}]
+    ultimo_checkpoint=time.monotonic();custo_checkpoint=0
+    from .checkpoints import PaginasSerializadas
+    cache_paginas=PaginasSerializadas()
     def emitir(etapa):
         from datetime import datetime
+        andamento.update(estrategia=estrategia,orcamento_minutos=orcamento_minutos,orcamento_restante_segundos=escopo.restante(),pares_nao_aprofundados=len(fila.adiados),pares_editoriais_amostrados=len(escopo.representantes))
+        if brutos and 'ate_primeira_div_relevante' not in metricas.tempos:
+            from .relevance import classificar
+            if any(classificar(d,{nome_a:base_a,nome_b:base_b})[0]=='relevante' for d in brutos):metricas.tempos['ate_primeira_div_relevante']=time.perf_counter()-escopo.inicio
         andamento.update(etapa=etapa,pares_descobertos=len(pares_enfileirados),pares_visitados=len(visitados),pares_comparados=len(paginas_a),pares_pendentes=len(fila),pares_com_falha=len(pares_falhos),ocorrencias_preliminares=len(brutos),ultima_atividade=datetime.now().astimezone().isoformat())
         if observador:observador(dict(andamento))
+    def resumo_cobertura():
+        return {'estrategia':estrategia,'orcamento_minutos':orcamento_minutos,'motivo_encerramento':motivo_encerramento,
+                'pares_dom_aprofundado':sum(p.coleta.get('inspecao_profunda',True) for p in paginas_a.values()),
+                'pares_dom_estrutural':sum(not p.coleta.get('inspecao_profunda',True) for p in paginas_a.values()),
+                'pares_nao_inspecionados':len(fila),'pares_adiados_editoriais':len(fila.adiados),
+                'representantes_segmento':escopo.representantes,
+                'importantes_pendentes':sum(1 for p in fila if grupo_editorial(p,escopo.editoriais_observados) is None),
+                'limite':'Representantes não validam páginas omitidas. DOM aprofundado não comprova funcionamento integral.'}
+
     def snapshot():
         from .checkpoints import empacotar
-        estado=dict(pares_falhos=[list(p) for p in sorted(pares_falhos)],configuracao=configuracao,fila=[list(p) for p in fila],visitados=[list(p) for p in sorted(visitados)],
+        inicio_snapshot=time.perf_counter();inicio_conversao=time.perf_counter()
+        serial_a=cache_paginas.converter(paginas_a);serial_b=cache_paginas.converter(paginas_b)
+        conversao=time.perf_counter()-inicio_conversao
+        metricas.tempos['checkpoint_conversao_paginas']+=conversao
+        metricas.contagens['checkpoint_paginas_convertidas']=cache_paginas.convertidas
+        metricas.contagens['checkpoint_paginas_reutilizadas']=cache_paginas.reutilizadas
+        estado=dict(editoriais_observados=[list(p) for p in sorted(escopo.editoriais_observados)],fila_saidas=fila.saidas,amostragem_representantes=escopo.representantes,motivo_encerramento=motivo_encerramento,pares_falhos=[list(p) for p in sorted(pares_falhos)],configuracao=configuracao,fila=[list(p) for p in fila],visitados=[list(p) for p in sorted(visitados)],
             pares_enfileirados=[list(p) for p in sorted(pares_enfileirados)],
-            paginas_a={k:asdict(v) for k,v in paginas_a.items()},paginas_b={k:asdict(v) for k,v in paginas_b.items()},
+            paginas_a=serial_a,paginas_b=serial_b,
             brutos=brutos,falhas=falhas,pendencias=pendencias,refs=refs,editoriais=editoriais,eventos=eventos,
             avisos_coleta=avisos_coleta,documentos_relatorio=documentos_relatorio,verificacoes_destinos=verificacoes_destinos,
             resultados_funcionais=resultados_funcionais,diferencas_esteticas=diferencas_esteticas,
@@ -519,7 +554,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             duracao_acumulada=metricas.temporal()['duracao_segundos'],iniciado_em=metricas.iniciado_em,segmentos=segmentos,bloqueios=bloqueios,tentativas_fatais=tentativas_fatais,
             inteligencia={**{k:getattr(inteligencia,k) for k in ('equivalencias','inconclusivos','omissoes','estruturas')},
                 'componentes':list(inteligencia.componentes),'templates':dict(inteligencia.templates),'nao_pareadas':list(inteligencia.nao_pareadas)})
-        return {'retomada':empacotar(estado),**metricas.temporal(),'site_nome':site_nome,'ambientes':{nome_a:base_a,nome_b:base_b},
+        assinatura_antes=metricas.tempos['checkpoint_assinatura_json']
+        pacote=empacotar(estado,metricas)
+        resultado={'retomada':pacote,'cobertura':resumo_cobertura(),'motivo_encerramento':motivo_encerramento,**metricas.temporal(),'site_nome':site_nome,'ambientes':{nome_a:base_a,nome_b:base_b},
             'paginas':{nome_a:len(paginas_a),nome_b:len(paginas_b)},
             'bloqueios_seguranca':list(bloqueios.values()),'andamento':dict(andamento),'brutos':brutos,'variacoes_editoriais':editoriais,'falhas':falhas,
             'modo_varredura':'inteligente' if varredura_inteligente else 'atual',
@@ -529,6 +566,30 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             'meta_varredura':{nome_a:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':parada or 'Execução ainda em andamento','referencias_excluidas':dict(excluded)},
               nome_b:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':parada or 'Execução ainda em andamento','referencias_excluidas':{}}},
             'ambiente_desatualizado':modo_defasado}
+        assinatura=metricas.tempos['checkpoint_assinatura_json']-assinatura_antes
+        metricas.tempos['checkpoint_construcao_exclusiva']+=max(0,time.perf_counter()-inicio_snapshot-conversao-assinatura)
+        return resultado
+    def salvar_checkpoint(motivo,forcar=False):
+        nonlocal ultimo_checkpoint,custo_checkpoint
+        if not checkpoint:return
+        # Um único agendamento: evita disparos de tempo e de contagem no mesmo par.
+        if not forcar and time.monotonic()-ultimo_checkpoint<max(30,min(120,custo_checkpoint*20)):return
+        inicio_cp=time.perf_counter()
+        try:
+            metricas.contagens['operacoes_checkpoint']+=1
+            dados=snapshot();dados['motivo_checkpoint']=motivo
+            io=checkpoint(dados)
+            if isinstance(io,dict):
+                for k in ('serializacao_json','gravacao'):metricas.tempos['checkpoint_'+k]+=io.get(k,0)
+                metricas.contagens['checkpoint_bytes_gravados']+=io.get('bytes',0)
+            metricas.contagens['checkpoints_salvos']+=1
+        except Exception as exc:
+            metricas.contagens['checkpoint_falhas']+=1
+            log('[Diagnóstico] Checkpoint não salvo; último arquivo válido preservado: '+str(exc)[:110])
+        finally:
+            custo_checkpoint=time.perf_counter()-inicio_cp
+            metricas.tempos['checkpoint']+=custo_checkpoint
+            ultimo_checkpoint=time.monotonic()
     def registrar_fatal(ua,ub,trilha,ex):
         key=ua+' | '+ub;tentativas_fatais[key]=tentativas_fatais.get(key,0)+1
         if tentativas_fatais[key]<2:
@@ -538,7 +599,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             falhas.append({'ambiente':'AUTOMAÇÃO','url':ua,'url_b':ub,'tipo_erro':'EXTRACAO','erro':'Limite de duas tentativas fatais: '+str(ex)[:180]})
             pendencias.append({'ambiente':nome_a+' / '+nome_b,'url':ua,'url_b':ub,'motivo':'Par falho após duas tentativas; outras páginas permanecem na fila'})
         emitir('falha')
-        if checkpoint:checkpoint(snapshot())
+        salvar_checkpoint('falha_fatal',True)
     def validar_itens(pag):
         for i in pag.itens:
             if not i.destino:continue
@@ -553,9 +614,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             except (ValueError,TypeError) as exc:
                 pendencias.append({'ambiente':'Referência','url':pag.url,'referencia':url_diagnostica(i.destino),'elemento':i.nome,'motivo':'URL inválida: '+str(exc)[:160]})
                 pag.coleta.setdefault('referencias_invalidas',[]).append(i.nome);i.destino=''
-    if checkpoint:
-        try:checkpoint(snapshot())
-        except Exception as ex:log('[Diagnóstico] Checkpoint inicial não salvo: '+str(ex)[:110])
+    salvar_checkpoint('inicial',True)
     with sync_playwright() as pw:
         try:
             browser=pw.chromium.launch(headless=True)
@@ -589,17 +648,19 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         page_a=ctx_a.new_page();page_b=ctx_b.new_page()
         try:
             while fila and not parar.is_set():
+                if escopo.expirou():
+                    motivo_encerramento='orcamento';parada='Orçamento de tempo alcançado — cobertura parcial, continuação disponível';break
+                if not fila.ativos:
+                    motivo_encerramento='estrategia_editorial';parada='Amostragem editorial encerrada — cobertura parcial, continuação disponível';break
                 if len(visitados)>=MAX_URLS_SEGURANCA:
                     parada='Limite preventivo interno de páginas alcançado';break
                 if consecutivos>=MAX_FALHAS_CONSECUTIVAS:
                     parada='Muitas falhas consecutivas';break
-                if checkpoint and time.monotonic()-ultimo_checkpoint>=15:
-                    try:
-                        with metricas.medir('checkpoint'):checkpoint(snapshot())
-                        ultimo_checkpoint=time.monotonic()
-                    except Exception as ex:log('[Diagnóstico] Checkpoint de início de par não salvo: '+str(ex)[:100])
+                salvar_checkpoint('periodico')
                 ua,ub,trilha=fila.popleft()
                 if (ua,ub) in visitados:continue
+                if escopo.adiar((ua,ub,trilha)):
+                    fila.adiar((ua,ub,trilha));emitir('adiamento_editorial');continue
                 visitados.add((ua,ub))
                 if e_arquivo(ua) or e_arquivo(ub):
                     excluded['Arquivos não tratados como páginas HTML']+=1
@@ -879,6 +940,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                             if len(pares_enfileirados)>=MAX_URLS_SEGURANCA:
                                 pendencias.append({'ambiente':nome_a+' / '+nome_b,'url':da,'url_b':db,'motivo':'Teto de memória de URLs descobertas; referência preservada'})
                                 parada='Teto preventivo de memória (100000 pares descobertos)';continue
+                            if item_editorial(ia,pa) and item_editorial(ib,pb):escopo.editoriais_observados.add((da,db))
                             fila.append((da,db,(trilha+[ia.nome])[-12:]))
                             pares_enfileirados.add((da,db))
                         else:metricas.contagens['urls_duplicadas']+=1
@@ -890,9 +952,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 emitir('par_processado')
                 log(f'[{nome_a}/{nome_b}] {len(paginas_a)} pares, {len(brutos)} ocorrências preliminares')
                 progresso(min(.92,len(visitados)/max(1,len(visitados)+len(fila))*.85))
-                if checkpoint and len(visitados)%20==0:
-                    try:checkpoint(snapshot())
-                    except Exception as ex:log('[Diagnóstico] Checkpoint não salvo: '+str(ex)[:110])
+                salvar_checkpoint('par_processado')
                 time.sleep(.04)
             if parar.is_set():parada='Interrompida pelo usuário (resultado parcial preservado)'
             resumos_seguranca.emitir(bloqueios,log,final=True)
@@ -900,14 +960,12 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             if not (paginas_a and paginas_b):completos=False
             if parada:log('Varredura parcial: '+parada)
             emitir('processamento_final')
-            if checkpoint:
-                try:checkpoint(snapshot())
-                except Exception as ex:log('[Diagnóstico] Checkpoint final não salvo: '+str(ex)[:110])
+            salvar_checkpoint('encerramento',True)
             metricas.tempos['varredura']=time.perf_counter()-metricas.inicio
             inicio_final=time.perf_counter()
             emitir('processamento_final')
             divergencias=agrupar_registros(brutos)
-            if paginas_a and paginas_b and not parar.is_set():
+            if paginas_a and paginas_b and not parar.is_set() and not escopo.expirou():
                 emitir('capturas')
                 with metricas.medir('capturas'):_salvar_evidencias(browser,divergencias,evidencias_dir,parar,log,nome_a,nome_b,metricas=metricas)
             progresso(.94)
@@ -916,9 +974,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 externos_result=[] # Conferência HEAD já registrada; nenhuma exploração externa.
             if parar.is_set():
                 parada='Interrompida pelo usuário (resultado parcial preservado)';completos=False
-                if varredura_inteligente and checkpoint:
-                    try:checkpoint(snapshot())
-                    except Exception as ex:log('[Diagnóstico] Checkpoint final não salvo: '+str(ex)[:110])
+                salvar_checkpoint('interrupcao_final',True)
             progresso(.98)
             metricas.contagens['paginas_visitadas']=metricas.contagens['operacoes_navegacao']
             metricas.contagens['paginas_coletadas']=len(paginas_a)+len(paginas_b)
@@ -944,8 +1000,11 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             metricas.contagens['pares_comparados']=len(paginas_a)
             metricas.contagens['pares_pendentes']=len(fila)
             metricas.contagens['preparacoes_profundas']=metricas.contagens['operacoes_preparacao']
+            metricas.contagens['pares_editoriais_amostrados']=len(escopo.representantes)
+            metricas.contagens['pares_nao_aprofundados']=len(fila.adiados)
             metricas.finalizar()
-            return {**metricas.temporal(),'segmentos_coleta':segmentos,'estado_execucao':'interrompido' if parar.is_set() else 'finalizado','andamento':dict(andamento),
+            cobertura=resumo_cobertura()
+            return {**metricas.temporal(),'cobertura':cobertura,'motivo_encerramento':motivo_encerramento,'fila_pendente':[list(p) for p in fila],'segmentos_coleta':segmentos,'estado_execucao':'interrompido' if parar.is_set() else 'finalizado','andamento':dict(andamento),
                 'media_segundos_por_par':round(metricas.duracao/len(paginas_a),6) if paginas_a else None,
                 'requisicoes_por_par':round(metricas.resultado()['contagens']['requisicoes_total']/len(paginas_a),3) if paginas_a else None,
                 'versao':'1.5','ambientes':{nome_a:base_a,nome_b:base_b},

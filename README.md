@@ -2,7 +2,7 @@
 
 **PRD × DES/LAB**, com comparação pareada, evidências e exportação local. Funciona no **Windows**, com Python + Playwright Chromium + painel Flask escuro. O programa lê páginas autorizadas sem editar sites.
 
-> **Estado do desenvolvimento:** esta entrega reúne as 12 melhorias na branch `perf/otimizacao-varredura`, sobre `f7ba62e`, com commit e envio da branch autorizados pelo mantenedor. Não há merge na `main`, deploy ou GitHub Pages. Leia [implementação, testes, benchmarks e limitações das 12 melhorias](docs/atualizacao-12-melhorias.md). A [atualização anterior para portais extensos](docs/atualizacao-portais-extensos.md) e os demais relatos anteriores permanecem como histórico.
+> **Estado do desenvolvimento:** as melhorias **13 a 17** integram esta entrega da branch `perf/otimizacao-varredura`, sobre `b71d90f`, com commit e envio autorizados pelo mantenedor. Não há merge na `main`, deploy ou GitHub Pages. Leia [diagnóstico, testes e benchmarks desta rodada](docs/atualizacao-13-17.md). A [entrega das 12 melhorias](docs/atualizacao-12-melhorias.md) permanece como referência histórica.
 
 ## Visão geral
 
@@ -11,7 +11,7 @@ O AmbiDiff é uma ferramenta **local de apoio a QA**: recebe as URLs de dois amb
 | Recurso | Para que serve |
 |---|---|
 | Comparação PRD × DES/LAB | Detectar diferenças nos dois sentidos entre ambientes autorizados |
-| Varredura inteligente (opcional) | Reaproveitar evidências de equivalência e evitar certas inspeções redundantes com restrições de cobertura explícitas |
+| Varredura progressiva (padrão) | Priorizar estrutura e serviços, amostrar áreas editoriais e pausar com resultados preservados; orçamento de 20 minutos por etapa, configurável |
 | Base desatualizada | Separar possíveis diferenças editoriais sem ocultar problemas de navegação ou estrutura |
 | Documentos e links | Conferir referências e, conforme as opções, respostas HTTP HEAD; **não lê o corpo de PDFs ou arquivos** |
 | Progresso e checkpoints | Acompanhar pares visitados/comparados, interromper e retomar a fila quando houver checkpoint válido |
@@ -63,13 +63,13 @@ Se nenhum funcionar, instale/configure o Python pelo canal aprovado pela TI e ab
 1. No painel, abra **Comparar ambientes**. O nome do portal é identificado automaticamente por metadados, título inicial ou domínio; não há campo de nome no formulário.
 2. Em **Ambiente A** e **Ambiente B**, selecione PRD/DES/LAB conforme o caso e cole as URLs completas (`https://...`). Não use o mesmo ambiente nos dois campos.
 3. Se houver informação **confirmada** de que uma base está desatualizada, marque o ambiente correspondente. Isso modifica a classificação de possíveis conteúdos editoriais; não prova que uma diferença está correta.
-4. **Opções avançadas** começa recolhida, com **Conferir destinos externos autorizados** e **Testar cliques de navegação internos** desmarcados. Só habilite essas opções nos portais e condições expressamente autorizados. A varredura inteligente é opcional; compare os modos se quiser avaliar cobertura e desempenho.
-5. Clique **Iniciar comparação**. Observe o terminal, o tempo decorrido e os contadores **descobertos / visitados / comparados / pendentes**. O percentual representa apenas a **fila conhecida**, que pode crescer.
+4. Sem ajustes, a execução usa **estratégia inteligente e progressiva**, com **20 minutos por etapa**. Em **Opções avançadas**, escolha aprofundamento ou outro orçamento; **0 remove o limite de tempo**. Destinos externos e cliques continuam desmarcados. Só os habilite quando autorizados. Reconhecimento de equivalências estáticas começa habilitado e pode ser configurado nessa gaveta.
+5. Clique **Iniciar varredura**. Observe o terminal, o tempo decorrido e os contadores **descobertos / visitados / comparados / pendentes**. O percentual representa apenas a **fila conhecida**, que pode crescer.
 6. Ao terminar, abra **Divergências**. Verifique as diferenças principais e as seções informativas de dados, documentos e avisos técnicos; uma execução parcial não comprova equivalência.
 7. Use **Confirmar DIV** somente após sua revisão. O seletor de classificação permite **Automática, Relevante, Baixa relevância, Editorial ou Inconclusivo**. Marcação manual não significa que o site foi testado integralmente.
 8. Marque **Exportar** nas DIVs desejadas e escolha **Somente DIVs selecionadas**; a seleção é salva localmente por comparação e não confirma um defeito. Também estão disponíveis **Relatório completo**, **Relatório principal** e **Somente relevantes**. Clique no formato: **CSV** para planilhas, **HTML** para revisão visual, **PDF** para apresentação/arquivo ou **JSON** para dados estruturados. **Mudar o seletor não exporta sozinho.**
 
-**Interrupção e retomada:** use **Interromper** para solicitar uma parada cooperativa. A branch atual não impõe o antigo limite global de 45 minutos, mas conserva timeouts individuais, proteção contra ciclos/falhas e teto preventivo de páginas. Se existir um checkpoint compatível, use **Consultar checkpoints → Retomar** e confira as URLs e as opções antes de reiniciar. A retomada cria outro identificador de execução.
+**Interrupção e retomada:** use **Interromper** para solicitar uma parada cooperativa. O orçamento padrão de 20 minutos é configurável; as operações em andamento precisam devolver o controle. Ao alcançar o orçamento ou a amostragem editorial, a execução preserva resultados e a fila e informa **cobertura parcial**. Use **Consultar checkpoints → Retomar** para continuar com novos representantes, ou **Continuar aprofundando** para trabalhar nas ramificações restantes sem a cota editorial, respeitando o orçamento das opções avançadas. A retomada cria outro identificador, preservando a anterior, revisões e seleção. Timeouts e limites preventivos de memória/falhas continuam ativos; não há teto funcional fixo de pares.
 
 Os estados distinguem execução concluída, parcial, interrompida e falha. Salvar um relatório parcial após uma falha não conclui a varredura nem leva o progresso a 100%. Após duas tentativas fatais no mesmo par, ele permanece identificado como falho e os demais ramos podem ser retomados. Logs de bloqueios são agrupados, sem query/credenciais nos exemplos; restrições que afetam componentes continuam no diagnóstico. Analytics bloqueado isoladamente não comprova defeito.
 
@@ -137,7 +137,7 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 2. Execute `INICIAR_AMBIDIFF.bat` para abrir o painel em `http://127.0.0.1:8765`. Caso a porta esteja ocupada, feche outra instância do programa antes de iniciar.
 3. Informe **dois endereços autorizados** (PRD e DES/LAB), com seus respectivos nomes. Se a base de algum ambiente estiver desatualizada, marque essa condição no formulário.
 4. Faça primeiro uma comparação pequena, observando páginas iniciais, menus, avisos institucionais, links e documentos. Depois, se autorizado, amplie o escopo.
-5. Compare os modos **convencional** e **Varredura inteligente (otimizada)** quando houver tempo. Compare também cobertura, duração, divergências relevantes e resultados inconclusivos.
+5. Compare as estratégias **progressiva** e **aprofundada**, registrando o orçamento usado, cobertura, duração, divergências relevantes e resultados inconclusivos. Não compare apenas a quantidade de DIVs.
 6. Revise os alertas, utilize **Mostrar todas as diferenças** e, quando pertinente, **Confirme DIV** ou reclassifique a relevância. Uma classificação automática nunca substitui a conferência manual.
 7. Registre os achados no formulário/planilha definido pelo setor, com os dados mínimos abaixo.
 
@@ -145,7 +145,7 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 |---|---|
 | Versão usada | Branch `perf/otimizacao-varredura` e commit, se conhecido |
 | Ambientes | Identificação do portal, PRD e DES/LAB (sem credenciais) |
-| Modo de comparação | Convencional ou inteligente; base desatualizada, se aplicável |
+| Modo de comparação | Progressiva ou aprofundada, orçamento e reconhecimento estático; base desatualizada, se aplicável |
 | Localização | Caminho da página, seção e elemento afetado |
 | Resultado observado | Divergência correta, possível falso positivo, diferença editorial ou falha da automação |
 | Evidência e impacto | Descrição breve, horário, ID da DIV (se houver) e imagem **sem dados sensíveis** |
@@ -194,7 +194,7 @@ Após cada execução v1.5, na seção **Divergências**, você pode baixar:
 - **Diagnóstico JSON**: lista técnica estruturada, URLs, ambiente, eventos de navegação, número do par, falhas conhecidas, possíveis causas, motivo da parada e quantidade de páginas pendentes.
 - **Log TXT**: resumo legível e últimas mensagens do terminal, incluindo orientações por erro.
 
-Erros reconhecidos: DNS, certificado TLS, timeout, status HTTP, navegação interrompida, downloads, extração e desconhecido. **Possível causa não é causa comprovada.** Se o programa for interrompido pelo usuário, tenta exportar o que já coletou. Mantém *checkpoints* a cada 20 pares comparados para permitir recuperar parte do trabalho após falha inesperada. Se ocorrer falha antes do primeiro checkpoint, somente o diagnóstico de exceção poderá estar disponível; não há garantia de recuperação total.
+Erros reconhecidos: DNS, certificado TLS, timeout, status HTTP, navegação interrompida, downloads, extração e desconhecido. **Possível causa não é causa comprovada.** Se o programa for interrompido pelo usuário, tenta exportar o que já coletou. Tenta manter *checkpoints* num agendamento único, normalmente a cada 30 segundos e adaptado ao custo até 120 segundos, além de salvamentos no início, encerramento, interrupção e erro fatal. A gravação compacta é atômica e o formato v1 continua legível. Uma queda abrupta ainda pode perder trabalho posterior ao último checkpoint válido. Se ocorrer falha antes do primeiro checkpoint, somente o diagnóstico de exceção poderá estar disponível; não há garantia de recuperação total.
 
 ### 5. Revisão manual das DIVs
 
@@ -231,6 +231,10 @@ Os downloads usam nomes como `SEFAZ_DIVs_Selecionadas_2026-10-23_abcdef.csv`, sa
 
 HTML incorpora PNGs locais com limite de **3 MB por captura e 20 MB por exportação**, indicando evidências ausentes ou excedentes. PDF é gerado localmente com Chromium, sem serviço externo, com orçamento de 60 s. Downloads usam arquivos temporários isolados; não substituem os originais. CSV conserva UTF-8 com BOM, `;` e proteção contra fórmulas. Diagnósticos JSON/TXT continuam disponíveis separadamente.
 
+**Seleção em massa:** use **Marcar todas do relatório**, **Marcar apenas as filtradas** ou **Desmarcar todas**. A operação inclui itens ainda não renderizados, trata membros dos grupos e preserva confirmações e classificações. Marcar filtradas mantém seleções fora dos filtros. A busca por ID conserva a regra da tela: ignora categoria/lado/tipo, mas respeita revisão e visibilidade de baixa relevância. Uma única requisição em lote aplica os filtros no servidor e salva a seleção atomicamente.
+
+Com relatório aberto, os quatro formatos têm foco/hover e feedback próximo dos controles. Sem relatório, a tela explica a indisponibilidade; sem DIV marcada no escopo selecionado, orienta a seleção. Falhas e cancelamentos ficam na própria tela de resultados.
+
 O histórico é agrupado por site. É possível excluir uma execução ou várias, excluir DIVs individuais e confirmar resultados manualmente. Todas essas alterações ficam **somente no seu computador**.
 
 ### Migrando relatórios da versão 1.4
@@ -245,14 +249,15 @@ Você também pode manter a v1.4 intacta e começar um histórico separado na v1
 
 ## Testes locais
 
-### Varredura inteligente (opcional)
+### Varredura progressiva e reconhecimento estático
 
-O formulário permite selecionar **Varredura inteligente (otimizada)**. Desmarcada,
-mantém o modo atual. A opção acrescenta evidências de equivalência estática,
-reutilização de componentes, checagem rápida de documentos por cabeçalhos e
-limitações de cobertura no relatório.
+A estratégia progressiva e o reconhecimento de equivalências estáticas são o
+padrão. O aprofundamento e o orçamento ficam nas opções avançadas. A estratégia
+inspeciona representantes editoriais e conserva os demais na fila, sem afirmar
+que suas páginas foram validadas. Rotas `/w/` do Liferay exigem contexto editorial
+observado para adiamento; a rota isolada também pode ser institucional.
 
-Notícias pareadas continuam recebendo navegação e inspeção estrutural. Somente
+Notícias escolhidas para inspeção recebem navegação e coleta. Somente
 templates estáticos comprovados por duas amostras profundas, sem scripts ou
 marcadores conhecidos de interação/lazy loading, podem dispensar preparação
 profunda quando a defasagem tiver sido declarada. Páginas institucionais e
@@ -326,7 +331,7 @@ Diferenças puramente técnicas/decorativas de SVG ficam nas observações técn
 sem DIV isolada e sem presumir equivalência visual. Há reclassificação manual e exportação principal ou
 completa. Veja [critérios, formatos e limitações](docs/filtro-relevancia.md).
 
-## Otimização de preparação e releitura
+## Histórico: otimização de preparação e releitura
 
 A branch `perf/otimizacao-varredura` acrescenta preparação por sinais do DOM,
 releitura seletiva, tags de evidência, relações entre ocorrências e horários/duração
@@ -354,7 +359,8 @@ atendidos, limites de HEAD/cliques, comandos, resultados e validação manual.
 
 ## Portais extensos, retomada e revisão
 
-A execução não tem limite global de 45 minutos; timeouts individuais e proteções
+A execução usa orçamento padrão de 20 minutos por etapa; `0` nas opções
+avançadas permite execução sem orçamento. Timeouts individuais e proteções
 contra ciclos, crescimento excessivo e falhas consecutivas continuam ativos.
 A fila prioriza áreas institucionais e atende periodicamente referências antigas.
 O teto preventivo de memória passou para 100.000 pares/URLs; sua aplicação
@@ -377,3 +383,11 @@ O painel carrega os dados técnicos sob demanda, pesquisa IDs dentro de grupos,
 filtra revisão pendente/confirmada e oferece exportação somente de relevantes.
 
 Confira [arquivos, testes, benchmark, limites e roteiro Windows](docs/atualizacao-portais-extensos.md).
+
+## Melhorias 13 a 17 — revisão local
+
+Consulte [o relatório técnico](docs/atualizacao-13-17.md) para causas confirmadas,
+compatibilidade de checkpoints/API, cenários de regressão, resultados controlados
+e limitações. A meta de uma primeira comparação útil em 15–20 minutos ainda
+precisa de validação no Windows e em portais autorizados. Os tempos sintéticos
+não garantem desempenho real e a amostragem nunca comprova páginas não abertas.

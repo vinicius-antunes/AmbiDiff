@@ -175,6 +175,45 @@ def selecionar(root,run_id,div_id,marcada):
     return sorted(atuais-ler_exclusoes(root,run_id))
 
 
+def filtrar_divergencias(rows,filtros):
+    """Mesma busca da tela, incluindo busca por ID que ignora categoria/lado/tipo."""
+    if not isinstance(filtros,dict) or set(filtros)-{'busca','categoria','lado','tipo','revisao','mostrar_todas'}:raise ValueError('Filtros inválidos.')
+    for k,v in filtros.items():
+        if k=='mostrar_todas':
+            if type(v) is not bool:raise ValueError('Filtro mostrar_todas deve ser booleano.')
+        elif not isinstance(v,str) or len(v)>500:raise ValueError('Filtro textual inválido.')
+    review=filtros.get('revisao','todos')
+    if review not in ('todos','pendentes','confirmadas'):raise ValueError('Filtro de revisão inválido.')
+    q=filtros.get('busca','').strip().lower();m=re.fullmatch(r'(?:div[\s-]*)?(\d{1,9})',q,re.I)
+    busca_id='DIV-'+m[1].zfill(4) if m else None
+    out=[]
+    for d in rows:
+        if review=='pendentes' and d.get('revisao_manual') or review=='confirmadas' and not d.get('revisao_manual'):continue
+        if not filtros.get('mostrar_todas',False) and d.get('classificacao') in ('baixa','editorial'):continue
+        if busca_id:
+            if busca_id==d['id'] or busca_id in d.get('ids_agrupados',[]):out.append(d)
+            continue
+        if any(filtros.get(k,'todas' if k=='categoria' else 'todos') not in ('todas','todos',d.get(campo)) for k,campo in (('categoria','categoria'),('lado','presente_em'),('tipo','tipo'))):continue
+        campos=[json.dumps(d.get('itens_agrupados',[]),ensure_ascii=False,separators=(',',':')),*[d.get(k,'') for k in ('id','elemento','pagina','descricao','local','caminho','posicao','destino_a','destino_b','url_presente','url_comparada')]]
+        if not q or any(q in str(v or '').lower() for v in campos):out.append(d)
+    return out
+
+
+def selecionar_lote(root,run_id,acao,filtros=None):
+    if acao not in ('todas','filtradas','limpar'):raise ValueError('Ação de seleção inválida.')
+    report=preparar_relatorio(root,run_id)
+    def membros(rows):
+        ids={i for row in rows for i in (row.get('ids_agrupados') or [row['id']])}
+        if any(not isinstance(i,str) or not DIV_RE.fullmatch(i) for i in ids):raise ValueError('IDs incompatíveis no relatório.')
+        return ids-ler_exclusoes(root,run_id)
+    elegiveis=membros(report['divergencias'])
+    rows=filtrar_divergencias(report['divergencias'],{} if filtros is None else filtros) if acao=='filtradas' else report['divergencias']
+    anteriores=ler_selecao(root,run_id)&elegiveis
+    ids=set() if acao=='limpar' else elegiveis if acao=='todas' else anteriores|membros(rows)
+    atomic_json(root/f'selecoes_{run_id}.json',{'ids':sorted(ids)})
+    return {'ids_selecionados':sorted(ids),'acao':acao,'total_elegivel':len(elegiveis),'grupos_afetados':len(rows)}
+
+
 def somente_selecionadas(report,ids):
     from copy import deepcopy
     # Exportar uma seleção não deve carregar DOM, grupos ou referências de DIVs
@@ -182,12 +221,13 @@ def somente_selecionadas(report,ids):
     contexto=('id','versao','site_nome','ambientes','gerado_em','iniciado_em',
         'finalizado_em','duracao_segundos','situacao_analise','estado_execucao',
         'paginas','completo','meta_varredura','modo_varredura','ambiente_desatualizado',
-        'retomada_de','site_id')
+        'retomada_de','site_id','cobertura','motivo_encerramento')
     out={k:deepcopy(report[k]) for k in contexto if k in report};rows=[];seen=set()
     for group in report['divergencias']:
         for r in group.get('registros_agrupados') or [group]:
             if r['id'] in ids and r['id'] not in seen:rows.append(deepcopy(r));seen.add(r['id'])
     out.update(divergencias=rows,registros_originais=rows,escopo_exportacao='Somente DIVs selecionadas',exportacao_selecionada=True,exportacao_completa=False,formato_compacto=False,formato_relatorio=1)
+    if 'cobertura' in out:out['cobertura'].pop('representantes_segmento',None)
     metricas=report.get('metricas',{})
     out['metricas']={k:deepcopy(metricas[k]) for k in ('iniciado_em','finalizado_em',
         'duracao_segundos','tempo_total_segundos','tempos_segundos','contagens',

@@ -19,7 +19,7 @@ def classificar(row, ambientes=None):
     # Exige endpoint reconhecido nos dois lados, não apenas o nome Messenger.
     if row.get('tipo')=='Redirecionamento' and all(_messenger(u) for u in urls):
         return ('baixa','Mesmo widget externo Messenger e mesmo destinatário.') if urls[0]==urls[1] else ('relevante','Destinatários externos diferentes.')
-    if row.get('tipo')=='Redirecionamento' and _share_equivalent(urls,ambientes or {}):
+    if row.get('tipo') in ('Redirecionamento','Destino verificado') and row.get('situacao')!='LINK_INACESSIVEL' and _share_equivalent(urls,ambientes or {}):
         return 'baixa','Compartilhamento difere somente pela origem dos ambientes.'
     return 'relevante','Diferença preservada para revisão; não determina qual ambiente está correto.'
 
@@ -29,21 +29,45 @@ def _messenger(url):
         return u.scheme=='https' and u.hostname=='m.me' and bool(u.path.strip('/')) and not u.query and not u.fragment
     except ValueError:return False
 
-def _share_equivalent(urls,ambientes):
+def evidencia_compartilhamento(urls,ambientes):
+    """Prova sintática: endpoint conhecido e destino no ambiente de cada lado."""
     try:
-        origins={urlsplit(v).netloc for v in ambientes.values() if isinstance(v,str)}
+        from .core import url_limpa
+        from .paired import link_equivalente
+        bases=list(ambientes.values())
+        if len(bases)!=2 or len(urls)!=2:return None
+        for v in urls:url_limpa(v)
         parsed=[urlsplit(v) for v in urls]
-        if len(origins)<2 or any(u.scheme!='https' or (u.hostname,u.path) not in
-            {('www.facebook.com','/sharer/sharer.php'),('twitter.com','/intent/tweet')} for u in parsed):return False
-        if parsed[0].netloc!=parsed[1].netloc or parsed[0].path!=parsed[1].path or parsed[0].fragment!=parsed[1].fragment:return False
-        qs=[parse_qs(u.query,keep_blank_values=True) for u in parsed]
-        key='u' if parsed[0].hostname=='www.facebook.com' else 'url'
-        if any(len(q.get(key,[]))!=1 for q in qs):return False
-        target=[urlsplit(q[key][0]) for q in qs]
-        if any(u.scheme not in ('http','https') or u.netloc not in origins for u in target):return False
-        for q,u in zip(qs,target):q[key]=[u._replace(scheme='',netloc='').geturl()]
-        return qs[0]==qs[1] and target[0].netloc!=target[1].netloc
-    except (ValueError,TypeError):return False
+        endpoints={('www.facebook.com','/sharer/sharer.php'):'u',
+            ('facebook.com','/sharer/sharer.php'):'u',('twitter.com','/intent/tweet'):'url',
+            ('www.twitter.com','/intent/tweet'):'url',('x.com','/intent/tweet'):'url'}
+        chave=(parsed[0].netloc,parsed[0].path)
+        if chave not in endpoints or any(p.scheme!='https' or p.fragment or (p.netloc,p.path)!=chave for p in parsed):return None
+        qs=[parse_qs(p.query,keep_blank_values=True) for p in parsed];key=endpoints[chave]
+        if any(len(q.get(key,[]))!=1 for q in qs):return None
+        targets=[q[key][0] for q in qs]
+        for target in targets:url_limpa(target)
+        for target,base in zip(targets,bases):
+            t,b=urlsplit(target),urlsplit(url_limpa(base))
+            if (t.scheme,t.netloc)!=(b.scheme,b.netloc):return None
+            root=b.path.rstrip('/')
+            if root and t.path!=root and not t.path.startswith(root+'/'):return None
+        # Não descarta queries nem transforma %2F em separador de caminho.
+        import re
+        def unreserved(u):
+            return re.sub(r'%([0-9a-fA-F]{2})',lambda m:chr(int(m[1],16)) if chr(int(m[1],16)) in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~' else '%'+m[1].upper(),u)
+        if not link_equivalente(*map(unreserved,targets),*bases):return None
+        for q in qs:q.pop(key)
+        if qs[0]!=qs[1]:return None
+        return {'endpoint':parsed[0].netloc+parsed[0].path,'destino_a':targets[0],'destino_b':targets[1],
+            'evidencias':['endpoint conhecido','origem correta em cada ambiente','caminho e parâmetros correspondentes'],
+            'limite':'Equivalência de referência; disponibilidade, clique e intenção editorial não comprovados.'}
+    except (ValueError,TypeError,AttributeError):return None
+
+
+def _share_equivalent(urls,ambientes):
+    return evidencia_compartilhamento(urls,ambientes) is not None
+
 
 def preparar(dados, manuais=None):
     report=deepcopy(dados)
@@ -51,9 +75,12 @@ def preparar(dados, manuais=None):
     for r in report.get('divergencias',[]):
         rows.extend(deepcopy(r.get('registros_agrupados') or [r]))
     report['registros_originais']=deepcopy(report.get('registros_originais',rows))
-    groups={};out=[]
+    groups={};out=[];shares=[]
     for row in rows:
         auto,motivo=classificar(row,report.get('ambientes'))
+        if auto=='baixa':
+            ev=evidencia_compartilhamento([row.get('destino_a',''),row.get('destino_b','')],report.get('ambientes',{}))
+            if ev:shares.append(dict(ev,id=row.get('id'),ocorrencias=row.get('ocorrencias_total',1)))
         # Old hand-confirmations must remain visible.
         manual=(manuais or {}).get(row.get('id')) or row.get('classificacao_manual')
         row.update(classificacao_automatica=auto,classificacao=manual or ('relevante' if row.get('revisao_manual')=='confirmada' else auto),motivo_relevancia=motivo)
@@ -76,6 +103,8 @@ def preparar(dados, manuais=None):
     out=agrupar_documentos(agrupar_relacionados(enriquecer(out)))
     report['grupos_relacionados']=relacionar(out)
     for row in out:row['grupos_relacionados']=[g['id'] for g in report['grupos_relacionados'] if row.get('id') in g['ids']]
+    report['equivalencias_compartilhamento']=shares
+    report['resumo_compartilhamento']={'registros':len(shares),'ocorrencias':sum(x['ocorrencias'] for x in shares),'grupos':sum(any(x['id'] in (r.get('ids_agrupados') or [r.get('id')]) for x in shares) for r in out)}
     report['divergencias']=out
     report['resumo_relevancia']=dict(Counter(r['classificacao'] for r in out))
     report['editoriais_preservados']=deepcopy(report.get('registros_editoriais',report.get('variacoes_dados',[])))

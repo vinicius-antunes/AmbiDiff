@@ -38,7 +38,7 @@ class PW:
     def __enter__(self):return NS(chromium=NS(launch=lambda **_:Browser()))
     def __exit__(self,*args):pass
 
-def pipeline(n=4,stop=None,checkpoint=None,retomada=None,crash=None,clock=None,extracao_falha=None,ciclo=False,stop_na_extracao=None,ajustar=None):
+def pipeline(n=4,stop=None,checkpoint=None,retomada=None,crash=None,clock=None,extracao_falha=None,ciclo=False,stop_na_extracao=None,ajustar=None,**opcoes):
     stop=stop or threading.Event();opened=[]
     def abrir(page,url):
         idx=int(urlsplit(url).path.rsplit('/',1)[-1] or '0')
@@ -66,7 +66,7 @@ def pipeline(n=4,stop=None,checkpoint=None,retomada=None,crash=None,clock=None,e
         stack.enter_context(patch('ambidiff.adaptive.decidir_releitura',return_value=[]))
         stack.enter_context(patch('ambidiff.paired.time.sleep'))
         if clock:stack.enter_context(patch('ambidiff.paired.time.monotonic',side_effect=clock))
-        r=executar_pareado(A,B,'PRD','DES',stop,log,lambda _:None,checkpoint=checkpoint,retomada=retomada)
+        r=executar_pareado(A,B,'PRD','DES',stop,log,lambda _:None,checkpoint=checkpoint,retomada=retomada,**opcoes)
     return r,opened
 
 class ExecutionTests(unittest.TestCase):
