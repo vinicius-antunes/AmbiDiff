@@ -169,7 +169,8 @@ def worker(params,run_id):
         exportar(resultado,PASTA,run_id)
         resultado['exportacao_worker_segundos']=time.monotonic()-inicio_exportacao
         exportar_diagnostico(montar_diagnostico(resultado,list(STATE.get('logs',[]))),PASTA,run_id)
-        if not PARAR.is_set() and not resultado.get('andamento',{}).get('pares_pendentes'):
+        cobertura=resultado.get('cobertura',{})
+        if not PARAR.is_set() and not resultado.get('andamento',{}).get('pares_pendentes') and not (cobertura.get('teto_atingido') or cobertura.get('referencias_nao_admitidas')):
             (PASTA/f'checkpoint_{run_id}.json').unlink(missing_ok=True)
         from ambidiff.sections import agrupar_documentos
         total_agrupado=len(agrupar_documentos(resultado['divergencias']))
@@ -268,7 +269,7 @@ def comparar():
             site_nome=str(args.get('site_nome','')).strip()[:120]
             if any(ord(c)<32 for c in site_nome):raise ValueError('Nome da comparação inválido.')
             from ambidiff.strategy import opcoes
-            estrategia,orcamento=opcoes(args.get('estrategia','progressiva'),args.get('orcamento_minutos',20))
+            estrategia,orcamento=opcoes(args.get('estrategia','dinamica'),args.get('orcamento_minutos',0))
             desatualizado=str(args.get('ambiente_desatualizado','')).strip().upper()
             if desatualizado not in ('',nome_a,nome_b):raise ValueError('Escolha um ambiente válido para a base desatualizada.')
         except (ValueError,TypeError) as e:return jsonify(erro=str(e)),400
@@ -320,7 +321,8 @@ def retomar(run_id):
             if not estado['fila']:raise ValueError('Checkpoint sem pares pendentes.')
             params=dict(estado['configuracao'],retomada=payload['retomada'],retomada_de=run_id)
             args=request.get_json(silent=True) or {}
-            if args.get('aprofundar') is True:params['estrategia']='profunda'
+            # Atualiza checkpoints antigos sem pausar por tempo ou amostragem.
+            params['estrategia']='dinamica';params['orcamento_minutos']=0
             if 'orcamento_minutos' in args:
                 from ambidiff.strategy import opcoes
                 _,params['orcamento_minutos']=opcoes(params.get('estrategia','profunda'),args['orcamento_minutos'])

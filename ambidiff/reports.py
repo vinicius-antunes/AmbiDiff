@@ -131,6 +131,9 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None)-
         'verificacoes_destinos':dados.get('verificacoes_destinos',[]),'resultados_funcionais':dados.get('resultados_funcionais',[]),'diferencas_esteticas':dados.get('diferencas_esteticas',[]),'documentos_verificados':dados.get('documentos_verificados',[]),'grupos_relacionados':dados.get('grupos_relacionados',[])},ensure_ascii=False,indent=2))
     if dados.get('formato_compacto') and not dados.get('exportacao_completa'):
         smart_html=esc('Detalhes técnicos completos disponíveis no diagnóstico local. Metadados não comprovam identidade dos arquivos.')
+    cobertura=dados.get('cobertura',{})
+    cobertura_html=('<small>Limite de admissão: '+esc(cobertura['limite_pares_html'])+' pares HTML · Admitidos: '+esc(cobertura.get('pares_admitidos_html',0))+'. A fila analisada não comprova cobertura integral do portal.</small>') if cobertura.get('limite_pares_html') else ''
+    cobertura_html+='<details><summary>Cobertura e estratégia</summary><pre style="white-space:pre-wrap">'+esc(json.dumps(cobertura,ensure_ascii=False,indent=2))+'</pre></details>'
     doc=f'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>AmbiDiff · {esc(dados.get('site_nome',''))}</title><style>
     body{{font:14px/1.65 system-ui,Arial;background:#10111c;color:#ededf5;max-width:1100px;margin:auto;padding:30px}}
@@ -150,7 +153,7 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None)-
     <h1>{esc(dados.get('site_nome','Comparação de ambientes'))}</h1>
     <p>Início: {esc(dados.get('iniciado_em','não disponível'))} · Fim do processamento: {esc(dados.get('finalizado_em','não disponível'))} · Duração: {esc(dados.get('duracao_segundos','não disponível'))} s</p>
     <p>Escopo: {esc(dados.get('escopo_exportacao','Relatório principal'))}</p>
-    <p>Cobertura e estratégia: {esc(json.dumps(dados.get('cobertura',{}),ensure_ascii=False))}</p>
+    {cobertura_html}
     <p>Ambientes: {' · '.join(esc(k)+': '+link(v) for k,v in dados.get('ambientes',{}).items())}</p>
     <p>Gerado em {esc(dados.get('gerado_em',''))} · Estado: <b>{esc(state)}</b></p>
     <p>{len(dados['divergencias'])} grupo(s) de divergência · {esc(dados.get('ocorrencias_brutas',len(dados['divergencias'])))} ocorrência(s) antes do agrupamento</p>

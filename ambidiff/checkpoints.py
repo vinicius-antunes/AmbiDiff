@@ -83,18 +83,44 @@ def validar(payload,urls=None):
     fila=estado.get('fila');visitados=estado.get('visitados')
     if not isinstance(fila,list) or not isinstance(visitados,list):raise ValueError('Fila/visitados ausentes no checkpoint.')
     vistos=set()
-    for par in fila:
+    candidatos=estado.get('candidatos_html',[])
+    if not isinstance(candidatos,list):raise ValueError('Candidatos HTML inválidos.')
+    for par in fila+candidatos:
         if not isinstance(par,list) or len(par)!=3 or not isinstance(par[2],list) or not all(isinstance(x,str) for x in par[2]):raise ValueError('Par inválido no checkpoint.')
-        if not permitido(par[0],a) or not permitido(par[1],b):raise ValueError('Par fora do escopo autorizado.')
+        exclusivo=estado.get('politica_html')==1 and (par[0]=='' or par[1]=='') and bool(par[0] or par[1])
+        if not all((u=='' and exclusivo) or permitido(u,base) for u,base in zip(par[:2],(a,b))):raise ValueError('Par fora do escopo autorizado.')
         key=tuple(par[:2])
         if key in vistos:raise ValueError('Fila duplicada no checkpoint.')
         vistos.add(key)
+    vistos={tuple(p[:2]) for p in fila}
     if any(not isinstance(p,list) or len(p)!=2 for p in visitados):raise ValueError('Visitados inválidos.')
     if any(not isinstance(u,str) for p in visitados for u in p):raise ValueError('URLs visitadas inválidas.')
     if len(set(map(tuple,visitados)))!=len(visitados):raise ValueError('Visitados duplicados.')
     if not isinstance(estado.get('pares_enfileirados'),list):raise ValueError('Descobertas ausentes.')
     if any(not isinstance(p,list) or len(p)!=2 or not all(isinstance(u,str) for u in p) for p in estado['pares_enfileirados']):raise ValueError('Descobertas inválidas.')
     descobertos=set(map(tuple,estado['pares_enfileirados']))
+    if estado.get('politica_html')==1:
+        limite=estado.get('limite_html')
+        if type(limite) is not int or not 1000<=limite<=100000:raise ValueError('Limite HTML inválido.')
+        nao_html=set(map(tuple,estado.get('pares_nao_html',[])))
+        if not nao_html<=descobertos or (params.get('estrategia')=='dinamica' and len(descobertos-nao_html)>limite):raise ValueError('Admissões HTML inconsistentes.')
+        if {tuple(p[:2]) for p in candidatos}&descobertos:raise ValueError('Candidato já admitido no checkpoint.')
+        estados=estado.get('estados_pares',[])
+        if not isinstance(estados,list):raise ValueError('Estados dos pares inválidos.')
+        terminais=set();visitados_set=set(map(tuple,visitados))
+        for registro in estados:
+            if not isinstance(registro,dict) or not isinstance(registro.get('par'),list) or len(registro['par'])!=2 or not all(isinstance(u,str) for u in registro['par']) or registro.get('estado') not in ('comparado','falha','sem_contraparte','redirecionamento','fora_escopo','nao_html','inconclusivo'):raise ValueError('Estado de par inválido.')
+            key=tuple(registro['par'])
+            if key in terminais or key not in visitados_set:raise ValueError('Estado terminal sem visita única.')
+            terminais.add(key)
+        for registro in estado.get('categorias_html',[]):
+            if not isinstance(registro,dict) or not isinstance(registro.get('par'),list) or len(registro['par'])!=2 or type(registro.get('categoria')) is not int or not 0<=registro['categoria']<=5:raise ValueError('Categoria HTML inválida.')
+        for env,paginas in estado.get('paginas_exclusivas',{}).items():
+            if env not in (params['nome_a'],params['nome_b']) or not isinstance(paginas,dict):raise ValueError('Páginas exclusivas inválidas.')
+            base=a if env==params['nome_a'] else b
+            for url,pagina in paginas.items():
+                if url!=pagina.get('url') or not permitido(url,base):raise ValueError('Página exclusiva fora do escopo.')
+                restaurar_pagina(pagina)
     if not (vistos|set(map(tuple,visitados)))<=descobertos:raise ValueError('Fila/visitados sem descoberta correspondente.')
     if vistos.intersection(map(tuple,visitados)):raise ValueError('Par pendente já consta como visitado.')
     for lado in ('paginas_a','paginas_b'):
@@ -130,7 +156,7 @@ def recuperar(snapshot):
     andam=dict(snap.get('andamento',{}))
     andam.update(pares_descobertos=len(estado['pares_enfileirados']) if estado else andam.get('pares_descobertos',max((x.get('visitadas',0)+x.get('pendentes',0) for x in snap.get('meta_varredura',{}).values()),default=0)),
         pares_visitados=len(visitados) if estado else andam.get('pares_visitados',max((x.get('visitadas',0) for x in snap.get('meta_varredura',{}).values()),default=0)),
-        pares_comparados=len(estado['paginas_a']) if estado else andam.get('pares_comparados',max(snap.get('paginas',{}).values(),default=0)),
+        pares_comparados=sum(p['estado']=='comparado' for p in estado['estados_pares']) if 'estados_pares' in estado else len(estado['paginas_a']) if estado else andam.get('pares_comparados',max(snap.get('paginas',{}).values(),default=0)),
         pares_pendentes=len(fila) if estado else andam.get('pares_pendentes',max((x.get('pendentes',0) for x in snap.get('meta_varredura',{}).values()),default=0)),
         pares_com_falha=len(estado['pares_falhos']) if 'pares_falhos' in estado else len({x.get('url') for x in snap.get('falhas',estado.get('falhas',[]))}))
     snap.update(andamento=andam,fila_pendente=fila,pares_visitados=visitados,
@@ -139,6 +165,9 @@ def recuperar(snapshot):
         itens_editoriais_agrupados=len(editoriais),ocorrencias_brutas=len(brutos)+len(editoriais),
         referencias_pendentes=snap.get('referencias_pendentes') or agrupar_referencias(estado.get('refs',[])),
         avisos_tecnicos=snap.get('avisos_tecnicos') or _avisos(snap.get('falhas',[]),snap.get('meta_varredura',{})))
+    for registro in snap['divergencias']:
+        registro.update(estado.get('evidencias_preservadas',{}).get(registro['id'],{}))
+    snap['estados_pares']=estado.get('estados_pares',snap.get('estados_pares',[]))
     tempos=snap.setdefault('metricas',{}).setdefault('tempos_segundos',{})
     tempos['checkpoint_recuperacao_em_falha']=round(time.perf_counter()-inicio_recuperacao,6)
     return snap

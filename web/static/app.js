@@ -24,7 +24,7 @@ function formatDuration(seconds){
 }
 function updateProgressInfo(s){
   const budget=s.orcamento_restante_segundos??s.andamento?.orcamento_restante_segundos;
-  $('progress-budget').textContent=typeof budget==='number'?'Orçamento restante desta etapa: '+formatDuration(budget):'Orçamento: sem limite ou ainda indisponível';
+  $('progress-budget').textContent=(s.andamento?.estrategia==='dinamica')?'Até '+(s.andamento.limite_pares_html||1000)+' pares HTML · sem prazo global':typeof budget==='number'?'Orçamento restante desta etapa: '+formatDuration(budget):'Sem prazo global';
   const percent=Math.max(0,Math.min(100,Number(s.cobertura_conhecida_percentual??s.progresso)||0));
   $('progress-fill').style.width=percent+'%';
   $('progress-percent').textContent=percent+'%'+(typeof s.cobertura_conhecida_percentual==='number'?' da fila conhecida':'');
@@ -90,7 +90,7 @@ async function poll(){
     $('running-label').textContent=s.interrupcao_solicitada?'Interrupção solicitada — aguardando operação atual':({executando:'Executando',concluido:'Concluída',parcial:'Parcial',interrompido:'Interrompida',erro:'Falha',pronto:'Aguardando'})[s.status]||s.status;
     $('stat-status').textContent=$('running-label').textContent;
     const d=s.andamento||{};
-    $('execution-details').textContent='Etapa: '+(d.etapa||'início')+' · Par atual: '+(d.par_atual??'—')+' · Último par processado: '+(d.ultimo_par_processado??'—')+' · Comparação: '+(d.pares_descobertos?Math.round(100*(d.pares_comparados||0)/d.pares_descobertos)+'% dos pares descobertos':'—')+' · Descobertos: '+(d.pares_descobertos??'—')+' · Visitados: '+(d.pares_visitados??'—')+' · Comparados: '+(d.pares_comparados??'—')+' · Pendentes: '+(d.pares_pendentes??'—')+' · Pares com falha: '+(d.pares_com_falha??'—')+' · Não aprofundados por estratégia: '+(d.pares_nao_aprofundados??0)+' · Ocorrências: '+(d.ocorrencias_preliminares??'—')+' · Última atividade: '+(d.ultima_atividade||'—');
+    $('execution-details').textContent='Etapa: '+(d.etapa||'início')+' · Par atual: '+(d.par_atual??'—')+' · Último par processado: '+(d.ultimo_par_processado??'—')+' · Comparação: '+(d.pares_descobertos?Math.round(100*(d.pares_comparados||0)/d.pares_descobertos)+'% dos pares descobertos':'—')+' · Descobertos: '+(d.pares_descobertos??'—')+' · Visitados: '+(d.pares_visitados??'—')+' · Comparados: '+(d.pares_comparados??'—')+' · Pendentes: '+(d.pares_pendentes??'—')+' · Pares com falha: '+(d.pares_com_falha??'—')+' · Inconclusivos: '+(d.pares_inconclusivos??0)+' · Ocorrências: '+(d.ocorrencias_preliminares??'—')+' · Última atividade: '+(d.ultima_atividade||'—');
     const diag=$('failure-diagnostics');diag.hidden=!(s.status==='erro'&&s.ultimo_id);
     if(!diag.hidden){$('failure-json').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-json';$('failure-txt').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-txt';}
     if(!busy&&['concluido','parcial','interrompido','erro'].includes(s.status)&&(s.status!=='erro'||s.relatorio_disponivel)&&s.ultimo_id&&!openedRuns.has(s.ultimo_id)){
@@ -102,8 +102,7 @@ async function poll(){
 }
 $('compare-form').addEventListener('submit',async e=>{
   e.preventDefault();statusGeneration++;$('form-error').textContent='';$('failure-diagnostics').hidden=true;$('terminal').replaceChildren();updateProgressInfo({progresso:0,status:'executando',tempo_decorrido_segundos:0,tempo_restante_segundos:null});
-  if(!$('orcamento-minutos').value.trim()){$('form-error').textContent='Informe o orçamento em minutos ou 0 para remover o limite.';return;}
-  const payload={estrategia:$('estrategia').value,orcamento_minutos:Number($('orcamento-minutos').value),varredura_inteligente:$('varredura-inteligente').checked,url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:'',auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
+  const payload={varredura_inteligente:true,url_a:$('url-a').value.trim(),url_b:$('url-b').value.trim(),nome_a:$('nome-a').value,nome_b:$('nome-b').value,site_nome:'',auditar_externos:$('auditar-externos').checked,verificar_cliques:$('verificar-cliques').checked,
     ambiente_desatualizado:$('ambiente-desatualizado').value==='A'?$('nome-a').value: $('ambiente-desatualizado').value==='B'?$('nome-b').value:''};
   try{await api('/api/comparar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     setRunning(true);clearTimeout(timer);await poll();
@@ -404,7 +403,7 @@ function displayReport(){
   const titulo=d.estado_execucao==='falha'?'FALHA DA AUTOMAÇÃO — RELATÓRIO PARCIAL':inconclusivo?'COMPARAÇÃO INCONCLUSIVA':parcial?'VERIFICAÇÃO PARCIAL':'COMPARAÇÃO CONCLUÍDA';
   if(d.iniciado_em)summary.append(element('p','Início: '+d.iniciado_em+' · Fim do processamento: '+(d.finalizado_em||'em andamento')+' · Duração: '+formatDuration(d.duracao_segundos)));
   summary.append(element('strong',titulo+' · '+(d.site_nome||'Portal')));
-  if(d.cobertura){const c=d.cobertura;summary.append(element('p','Estratégia: '+c.estrategia+' · DOM aprofundado: '+c.pares_dom_aprofundado+' · DOM estrutural: '+c.pares_dom_estrutural+' · Não inspecionados: '+c.pares_nao_inspecionados+' · Importantes pendentes: '+c.importantes_pendentes));if(d.motivo_encerramento)summary.append(element('strong','Varredura encerrada por '+(d.motivo_encerramento==='orcamento'?'orçamento de tempo':'amostragem editorial')+' — cobertura parcial, continuação disponível.'));}
+  if(d.cobertura){const c=d.cobertura;if(c.limite_pares_html)summary.append(element('p','Limite de admissão: '+c.limite_pares_html+' pares HTML · Admitidos: '+c.pares_admitidos_html+(c.teto_atingido?' · Teto alcançado; cobertura limitada ao escopo admitido.':'. A fila descoberta não garante cobertura integral do portal.')));summary.append(element('p','Estratégia: '+c.estrategia+' · DOM aprofundado: '+c.pares_dom_aprofundado+' · DOM estrutural: '+c.pares_dom_estrutural+' · Não inspecionados: '+c.pares_nao_inspecionados+' · Importantes pendentes: '+c.importantes_pendentes));if(d.motivo_encerramento&&['orcamento','estrategia_editorial'].includes(d.motivo_encerramento))summary.append(element('strong','Varredura encerrada por '+(d.motivo_encerramento==='orcamento'?'orçamento de tempo':'amostragem editorial')+' — cobertura parcial, continuação disponível.'));}
   if(d.erro_execucao||d.motivo_recuperacao)summary.append(element('p',d.erro_execucao||d.motivo_recuperacao));
   summary.append(element('p','Ocorrências originais: '+(d.ocorrencias_brutas??d.divergencias.length)+' · prioritárias: '+$('stat-divergencias').textContent+' · grupos disponíveis: '+d.divergencias.length));
   summary.append(element('p','Baixa relevância e editoriais ficam fora da lista principal. Use Mostrar todas as diferenças para consultar. Inconclusivos continuam visíveis.'));
@@ -523,7 +522,7 @@ $('refresh-checkpoints').addEventListener('click',async()=>{
     if(!rows.length)box.append(element('p','Nenhum checkpoint com fila pendente.'));
     for(const r of rows){const p=element('p',r.id+' · '+(r.valido?r.pendentes+' pares pendentes':r.motivo));
       if(r.valido){const c=r.configuracao||{};p.append(element('br'),element('span',(c.nome_a||'A')+': '+(c.url_a||'')+' · '+(c.nome_b||'B')+': '+(c.url_b||'')+' · Externos: '+(c.auditar_externos?'HEAD habilitado':'desabilitado')+' · Cliques: '+(c.verificar_cliques?'habilitados':'desabilitados')));const b=element('button','Retomar','outline-button');b.type='button';b.disabled=lastStatus?.status==='executando';
-        b.addEventListener('click',async()=>{b.disabled=true;try{statusGeneration++;await api('/api/retomar/'+encodeURIComponent(r.id),{method:'POST'});setRunning(true);await poll();}catch(e){$('form-error').textContent=e.message;b.disabled=false;}});p.append(b);const deep=element('button','Continuar aprofundando','outline-button');deep.type='button';deep.disabled=b.disabled;deep.addEventListener('click',async()=>{deep.disabled=true;try{statusGeneration++;await api('/api/retomar/'+encodeURIComponent(r.id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({aprofundar:true,orcamento_minutos:Number($('orcamento-minutos').value)})});setRunning(true);await poll();}catch(e){$('form-error').textContent=e.message;deep.disabled=false;}});p.append(deep);}box.append(p);}
+        b.addEventListener('click',async()=>{b.disabled=true;try{statusGeneration++;await api('/api/retomar/'+encodeURIComponent(r.id),{method:'POST'});setRunning(true);await poll();}catch(e){$('form-error').textContent=e.message;b.disabled=false;}});p.append(b);}box.append(p);}
   }catch(e){box.append(element('p',e.message));}
 });
 

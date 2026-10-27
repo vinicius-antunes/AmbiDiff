@@ -72,7 +72,7 @@ def pipeline(n=4,stop=None,checkpoint=None,retomada=None,crash=None,clock=None,e
 class ExecutionTests(unittest.TestCase):
     def test_portal_2603_pares_ultrapassa_hora_sem_limite_global_e_sem_ciclos(self):
         tick=iter(range(0,100000000,4000))
-        r,opened=pipeline(2603,clock=lambda:next(tick))
+        r,opened=pipeline(2603,clock=lambda:next(tick),estrategia='profunda',orcamento_minutos=0)
         self.assertEqual(r['paginas'],{'PRD':2603,'DES':2603})
         self.assertEqual(len(opened),5206);self.assertEqual(len(set(opened)),5206)
         self.assertEqual(r['andamento']['pares_pendentes'],0)

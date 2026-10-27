@@ -11,7 +11,7 @@ O AmbiDiff é uma ferramenta **local de apoio a QA**: recebe as URLs de dois amb
 | Recurso | Para que serve |
 |---|---|
 | Comparação PRD × DES/LAB | Detectar diferenças nos dois sentidos entre ambientes autorizados |
-| Varredura progressiva (padrão) | Priorizar estrutura e serviços, amostrar áreas editoriais e pausar com resultados preservados; orçamento de 20 minutos por etapa, configurável |
+| Varredura inteligente (padrão) | Até 1.000 pares HTML, fila dinâmica e continuação automática, sem prazo global; arquivos fora do teto |
 | Base desatualizada | Separar possíveis diferenças editoriais sem ocultar problemas de navegação ou estrutura |
 | Documentos e links | Conferir referências e, conforme as opções, respostas HTTP HEAD; **não lê o corpo de PDFs ou arquivos** |
 | Progresso e checkpoints | Acompanhar pares visitados/comparados, interromper e retomar a fila quando houver checkpoint válido |
@@ -63,13 +63,13 @@ Se nenhum funcionar, instale/configure o Python pelo canal aprovado pela TI e ab
 1. No painel, abra **Comparar ambientes**. O nome do portal é identificado automaticamente por metadados, título inicial ou domínio; não há campo de nome no formulário.
 2. Em **Ambiente A** e **Ambiente B**, selecione PRD/DES/LAB conforme o caso e cole as URLs completas (`https://...`). Não use o mesmo ambiente nos dois campos.
 3. Se houver informação **confirmada** de que uma base está desatualizada, marque o ambiente correspondente. Isso modifica a classificação de possíveis conteúdos editoriais; não prova que uma diferença está correta.
-4. Sem ajustes, a execução usa **estratégia inteligente e progressiva**, com **20 minutos por etapa**. Em **Opções avançadas**, escolha aprofundamento ou outro orçamento; **0 remove o limite de tempo**. Destinos externos e cliques continuam desmarcados. Só os habilite quando autorizados. Reconhecimento de equivalências estáticas começa habilitado e pode ser configurado nessa gaveta.
+4. A **varredura inteligente** está sempre ativa: admite até **1.000 pares HTML únicos**, organiza as prioridades e continua até dar um resultado a todos os pares admitidos, sem prazo global. O teto não é configurável na tela. **Opções avançadas** conserva apenas destinos externos e cliques internos, desmarcados; habilite-os somente quando autorizados.
 5. Clique **Iniciar varredura**. Observe o terminal, o tempo decorrido e os contadores **descobertos / visitados / comparados / pendentes**. O percentual representa apenas a **fila conhecida**, que pode crescer.
 6. Ao terminar, abra **Divergências**. Verifique as diferenças principais e as seções informativas de dados, documentos e avisos técnicos; uma execução parcial não comprova equivalência.
 7. Use **Confirmar DIV** somente após sua revisão. O seletor de classificação permite **Automática, Relevante, Baixa relevância, Editorial ou Inconclusivo**. Marcação manual não significa que o site foi testado integralmente.
 8. Marque **Exportar** nas DIVs desejadas e escolha **Somente DIVs selecionadas**; a seleção é salva localmente por comparação e não confirma um defeito. Também estão disponíveis **Relatório completo**, **Relatório principal** e **Somente relevantes**. Clique no formato: **CSV** para planilhas, **HTML** para revisão visual, **PDF** para apresentação/arquivo ou **JSON** para dados estruturados. **Mudar o seletor não exporta sozinho.**
 
-**Interrupção e retomada:** use **Interromper** para solicitar uma parada cooperativa. O orçamento padrão de 20 minutos é configurável; as operações em andamento precisam devolver o controle. Ao alcançar o orçamento ou a amostragem editorial, a execução preserva resultados e a fila e informa **cobertura parcial**. Use **Consultar checkpoints → Retomar** para continuar com novos representantes, ou **Continuar aprofundando** para trabalhar nas ramificações restantes sem a cota editorial, respeitando o orçamento das opções avançadas. A retomada cria outro identificador, preservando a anterior, revisões e seleção. Timeouts e limites preventivos de memória/falhas continuam ativos; não há teto funcional fixo de pares.
+**Interrupção e retomada:** use **Interromper** uma vez para solicitar a parada cooperativa; a operação atual precisa devolver o controle. Resultados e fila são preservados. Use **Consultar checkpoints → Retomar** para continuar com outro identificador, mantendo o histórico, as revisões, a seleção e a contagem acumulada de admissões. A execução não pausa por 20 minutos nem por cota editorial. Referências além do teto não são admitidas; a fila já aceita é concluída. Checkpoints anteriores já acima de 1.000 conservam suas admissões, sem criar novas vagas. Timeouts individuais e proteção de memória continuam ativos.
 
 Os estados distinguem execução concluída, parcial, interrompida e falha. Salvar um relatório parcial após uma falha não conclui a varredura nem leva o progresso a 100%. Após duas tentativas fatais no mesmo par, ele permanece identificado como falho e os demais ramos podem ser retomados. Logs de bloqueios são agrupados, sem query/credenciais nos exemplos; restrições que afetam componentes continuam no diagnóstico. Analytics bloqueado isoladamente não comprova defeito.
 
@@ -137,7 +137,7 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 2. Execute `INICIAR_AMBIDIFF.bat` para abrir o painel em `http://127.0.0.1:8765`. Caso a porta esteja ocupada, feche outra instância do programa antes de iniciar.
 3. Informe **dois endereços autorizados** (PRD e DES/LAB), com seus respectivos nomes. Se a base de algum ambiente estiver desatualizada, marque essa condição no formulário.
 4. Faça primeiro uma comparação pequena, observando páginas iniciais, menus, avisos institucionais, links e documentos. Depois, se autorizado, amplie o escopo.
-5. Compare as estratégias **progressiva** e **aprofundada**, registrando o orçamento usado, cobertura, duração, divergências relevantes e resultados inconclusivos. Não compare apenas a quantidade de DIVs.
+5. Registre cobertura, admissões HTML, duração, divergências relevantes e resultados inconclusivos. Compare somente medições com escopo e condições equivalentes; não use apenas a quantidade de DIVs.
 6. Revise os alertas, utilize **Mostrar todas as diferenças** e, quando pertinente, **Confirme DIV** ou reclassifique a relevância. Uma classificação automática nunca substitui a conferência manual.
 7. Registre os achados no formulário/planilha definido pelo setor, com os dados mínimos abaixo.
 
@@ -145,7 +145,7 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 |---|---|
 | Versão usada | Branch `perf/otimizacao-varredura` e commit, se conhecido |
 | Ambientes | Identificação do portal, PRD e DES/LAB (sem credenciais) |
-| Modo de comparação | Progressiva ou aprofundada, orçamento e reconhecimento estático; base desatualizada, se aplicável |
+| Configuração | Varredura inteligente; admissões HTML, opções autorizadas e base desatualizada, se aplicável |
 | Localização | Caminho da página, seção e elemento afetado |
 | Resultado observado | Divergência correta, possível falso positivo, diferença editorial ou falha da automação |
 | Evidência e impacto | Descrição breve, horário, ID da DIV (se houver) e imagem **sem dados sensíveis** |
@@ -249,13 +249,15 @@ Você também pode manter a v1.4 intacta e começar um histórico separado na v1
 
 ## Testes locais
 
-### Varredura progressiva e reconhecimento estático
+### Fila dinâmica e reconhecimento estático
 
-A estratégia progressiva e o reconhecimento de equivalências estáticas são o
-padrão. O aprofundamento e o orçamento ficam nas opções avançadas. A estratégia
-inspeciona representantes editoriais e conserva os demais na fila, sem afirmar
-que suas páginas foram validadas. Rotas `/w/` do Liferay exigem contexto editorial
-observado para adiamento; a rota isolada também pode ser institucional.
+A estratégia dinâmica e o reconhecimento de equivalências estáticas são o padrão.
+Não há seletor de estratégia ou orçamento na interface. A ordem é menus/navegação,
+serviços, notícias, legislação, institucional e histórico, com rodízio entre
+categorias para evitar inanição. Representantes editoriais são inspecionados
+primeiro; as demais páginas admitidas continuam automaticamente. Uma amostra
+não conclui outra página. Páginas exclusivas são inspecionadas apenas onde o
+link foi encontrado e ficam sem comparação quando não há contraparte comprovada.
 
 Notícias escolhidas para inspeção recebem navegação e coleta. Somente
 templates estáticos comprovados por duas amostras profundas, sem scripts ou
@@ -359,12 +361,13 @@ atendidos, limites de HEAD/cliques, comandos, resultados e validação manual.
 
 ## Portais extensos, retomada e revisão
 
-A execução usa orçamento padrão de 20 minutos por etapa; `0` nas opções
-avançadas permite execução sem orçamento. Timeouts individuais e proteções
-contra ciclos, crescimento excessivo e falhas consecutivas continuam ativos.
-A fila prioriza áreas institucionais e atende periodicamente referências antigas.
-O teto preventivo de memória passou para 100.000 pares/URLs; sua aplicação
-continua produzindo resultado parcial, sem equivalência presumida.
+A execução admite até **1.000 pares HTML**, incluindo unidades com apenas um
+ambiente. PDFs, imagens e recursos auxiliares não usam vagas. Referências ainda
+sem tipo conhecido reservam uma vaga conservadora; respostas identificadas como
+não HTML liberam-na. A descoberta/admissão para no teto, mas a fila admitida
+continua até concluir ou registrar uma falha. Não existe prazo global de execução.
+O teto preventivo de memória de 100.000 referências candidatas permanece separado.
+A cobertura nunca é apresentada como integral por ter esgotado a fila conhecida.
 
 Use **Consultar checkpoints → Retomar** para continuar uma fila persistida em
 nova execução, preservando o relatório anterior e as revisões. Confira os
@@ -384,10 +387,19 @@ filtra revisão pendente/confirmada e oferece exportação somente de relevantes
 
 Confira [arquivos, testes, benchmark, limites e roteiro Windows](docs/atualizacao-portais-extensos.md).
 
-## Melhorias 13 a 17 — revisão local
+## Melhorias 13 a 17 — histórico da evolução
 
 Consulte [o relatório técnico](docs/atualizacao-13-17.md) para causas confirmadas,
 compatibilidade de checkpoints/API, cenários de regressão, resultados controlados
-e limitações. A meta de uma primeira comparação útil em 15–20 minutos ainda
-precisa de validação no Windows e em portais autorizados. Os tempos sintéticos
-não garantem desempenho real e a amostragem nunca comprova páginas não abertas.
+e limitações daquela entrega. A etapa seguinte substitui o orçamento e a pausa
+editorial por continuação automática. Tempos sintéticos não garantem desempenho
+real, e a amostragem nunca comprova páginas não abertas.
+
+## Nova otimização — fila dinâmica de até 1.000 pares HTML
+
+Consulte [decisões, testes e medições](docs/otimizacao-fila-dinamica.md).
+A referência de até 1.000 comparações em cerca de **1h30** orienta o trabalho;
+não é prazo de parada nem garantia para qualquer portal. Não houve validação
+em produção ou em recursos corporativos. No uso normal, Chromium fica visível,
+com contextos isolados e um par por vez. Para testes em Linux sem interface,
+use `AMBIDIFF_HEADLESS=1`; essa variável é uma opção interna de teste.

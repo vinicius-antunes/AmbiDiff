@@ -104,7 +104,7 @@ class StrategyTests(unittest.TestCase):
         return snaps[0]['retomada']
 
     def test_progressiva_padrao_amostra_editorial_preserva_importantes_e_continua(self):
-        snaps=[];r,abertas=pipeline(n=2,retomada=self.vazio(),ajustar=portal_editorial,checkpoint=lambda d:snaps.append(copy.deepcopy(d)))
+        snaps=[];r,abertas=pipeline(n=2,estrategia='progressiva',orcamento_minutos=0,retomada=self.vazio(),ajustar=portal_editorial,checkpoint=lambda d:snaps.append(copy.deepcopy(d)))
         self.assertEqual(r['cobertura']['estrategia'],'progressiva');self.assertEqual(r['motivo_encerramento'],'estrategia_editorial')
         self.assertEqual(r['cobertura']['pares_adiados_editoriais'],297)
         self.assertIn(A+'servicos/999',abertas);self.assertIn(A+'consulta/1000',abertas)
@@ -117,18 +117,18 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(len(mais),594)
 
     def test_mais_de_mil_paginas_importantes_sem_teto_funcional(self):
-        r,opened=pipeline(n=1005,ciclo=True)
+        r,opened=pipeline(n=1005,ciclo=True,estrategia='profunda',orcamento_minutos=0)
         self.assertEqual(r['paginas']['PRD'],1005);self.assertEqual(len(set(opened)),2010)
         self.assertEqual(r['andamento']['pares_pendentes'],0)
 
     def test_orcamento_cooperativo_preserva_fila_e_retomada(self):
         from ambidiff.strategy import Escopo
-        with patch('ambidiff.strategy.time.perf_counter',return_value=0):e=Escopo()
+        with patch('ambidiff.strategy.time.perf_counter',return_value=0):e=Escopo('progressiva',20)
         with patch('ambidiff.strategy.time.perf_counter',return_value=1201):self.assertTrue(e.expirou())
         contador={'n':0};snaps=[]
         def ajustar(p):contador['n']+=1
         with patch.object(Escopo,'expirou',lambda _:contador['n']>=4):
-            r,_=pipeline(n=8,ajustar=ajustar,retomada=self.vazio(),checkpoint=lambda d:snaps.append(copy.deepcopy(d)))
+            r,_=pipeline(n=8,estrategia='progressiva',orcamento_minutos=20,ajustar=ajustar,retomada=self.vazio(),checkpoint=lambda d:snaps.append(copy.deepcopy(d)))
         self.assertEqual(r['motivo_encerramento'],'orcamento');self.assertGreater(r['andamento']['pares_pendentes'],0)
         self.assertEqual(r['situacao_analise'],'parcial');self.assertNotEqual(r['estado_execucao'],'interrompido')
         r2,opened=pipeline(n=8,retomada=snaps[-1]['retomada'])
@@ -137,7 +137,7 @@ class StrategyTests(unittest.TestCase):
     def test_checkpoint_anterior_permanece_profundo_sem_orcamento(self):
         old=self.vazio();old['estado']['configuracao'].pop('estrategia');old['estado']['configuracao'].pop('orcamento_minutos')
         r,_=pipeline(retomada=cp.empacotar(old['estado']))
-        self.assertEqual(r['cobertura']['estrategia'],'profunda');self.assertEqual(r['cobertura']['orcamento_minutos'],0)
+        self.assertEqual(r['cobertura']['estrategia'],'dinamica');self.assertEqual(r['cobertura']['orcamento_minutos'],0)
 
     def test_liferay_w_sem_contexto_editorial_nao_e_adiado(self):
         def ajustar(p):
@@ -148,7 +148,7 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(r['paginas']['PRD'],8);self.assertFalse(r['cobertura']['pares_adiados_editoriais'])
 
     def test_continuacao_progressiva_avanca_sem_repetir_representantes(self):
-        snaps=[];r,_=pipeline(n=2,retomada=self.vazio(),ajustar=portal_editorial,checkpoint=lambda d:snaps.append(copy.deepcopy(d)))
+        snaps=[];r,_=pipeline(n=2,estrategia='progressiva',orcamento_minutos=0,retomada=self.vazio(),ajustar=portal_editorial,checkpoint=lambda d:snaps.append(copy.deepcopy(d)))
         r2,opened=pipeline(n=2,retomada=snaps[-1]['retomada'],ajustar=portal_editorial)
         self.assertEqual(r2['cobertura']['pares_adiados_editoriais'],294)
         self.assertFalse(set(opened)&{A+'noticias/'+str(i) for i in range(1,4)})
@@ -218,7 +218,7 @@ class BulkSelectionTests(unittest.TestCase):
             with patch('web.server.threading.Thread') as worker:
                 r=client.post('/api/comparar',json={'url_a':A,'url_b':B});self.assertEqual(r.status_code,200)
                 params=worker.call_args.kwargs['args'][0]
-                self.assertEqual(params['estrategia'],'progressiva');self.assertEqual(params['orcamento_minutos'],20);self.assertTrue(params['varredura_inteligente'])
+                self.assertEqual(params['estrategia'],'dinamica');self.assertEqual(params['orcamento_minutos'],0);self.assertTrue(params['varredura_inteligente'])
             server.STATE['status']='pronto'
             for valor in (-1,True,'20',None,1441):
                 with patch('web.server.threading.Thread') as worker:
@@ -260,7 +260,7 @@ class BrowserUI17Tests(unittest.TestCase):
     def test_sem_relatorio_exportacao_orientada_e_defaults_avancados(self):
         self.assertTrue(self.p.locator('[data-export="csv"]').is_disabled())
         self.assertIn('Abra uma comparação',self.p.locator('#export-feedback').inner_text())
-        self.assertEqual(self.p.locator('#orcamento-minutos').input_value(),'20');self.assertEqual(self.p.locator('#estrategia').input_value(),'progressiva')
+        self.assertEqual(self.p.locator('#orcamento-minutos,#estrategia,#varredura-inteligente').count(),0)
         self.assertFalse(self.p.locator('.advanced-options').evaluate('(e)=>e.open'))
         self.abrir();self.p.locator('[data-export="csv"]').click()
         self.assertIn('Selecione ao menos',self.p.locator('#export-feedback').inner_text())

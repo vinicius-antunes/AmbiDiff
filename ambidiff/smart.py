@@ -35,7 +35,7 @@ class Metricas:
     def resultado(self):
         self.contagens['requisicoes_total']=sum(self.contagens[k] for k in ('requisicoes_navegador','requisicoes_documentos','requisicoes_api_externa','requisicoes_destinos'))
         return {**self.temporal(),'tempo_total_segundos':self.temporal()['duracao_segundos'],
-                'releituras':self.releituras,'nota_tempos':'Tempos de releitura incluem preparação e extração; operações aninhadas não devem ser somadas.',
+                'releituras':self.releituras,'nota_tempos':'Releitura inclui preparação/extração; espera_carregamento é parte da preparação (inclui esperas após rolagem); checkpoint inclui construção/assinatura/I/O. Operações aninhadas não devem ser somadas.',
                 'tempos_segundos':{k:round(v,6) for k,v in self.tempos.items()},
                 'contagens':dict(self.contagens),
                 'nota_deduplicacao':'Pares únicos usam a fila existente; cache reaproveita somente normalização/classificação/comparação sintática de URLs exatas, sem inferir funcionamento. Páginas reutilizadas não inclui componentes ou preparação dispensada. Tempo editorial/paginação é heurístico por rótulo e rota.',
