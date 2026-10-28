@@ -171,7 +171,7 @@ class ExportTests(unittest.TestCase):
             self.assertIn(b'/Subtype /Image',pdf.data)
             if shutil.which('pdftotext'):
                 f=root/'validacao.pdf';f.write_bytes(pdf.data)
-                text=subprocess.check_output(['pdftotext',str(f),'-'],text=True)
+                text=subprocess.check_output(['pdftotext','-enc','UTF-8',str(f),'-'],text=True,encoding='utf-8')
                 self.assertIn('DIV-0003',text);self.assertNotIn('DIV-0001',text)
             pdf.close()
             (ev/'DIV-0002_PRD.png').write_bytes(image.read_bytes())
