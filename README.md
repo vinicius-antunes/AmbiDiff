@@ -420,3 +420,9 @@ respeita o escopo escolhido; **Diagnósticos técnicos** oferece separadamente J
 da execução e log TXT. CSV, HTML e PDF local continuam disponíveis, assim como
 seleção persistente, confirmação manual, agrupamento, exclusões e filtros. Telas
 sem DIVs ocultam os filtros vazios e informam as limitações da análise.
+
+## Infraestrutura de manutenção
+
+[Guia de manutenção assistida por IA](docs/manutencao-ia.md): `AGENTS.md`, Skills
+locais de diagnóstico, otimização e validação e CI de testes no GitHub Actions.
+Esses recursos orientam o desenvolvimento; não alteram o funcionamento do AmbiDiff.
