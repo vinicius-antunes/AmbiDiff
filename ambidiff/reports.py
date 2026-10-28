@@ -117,6 +117,8 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None)-
     pendencias=''.join(f'<li>{esc(x.get("ambiente"))} · {link(x.get("url"))} — {esc(x.get("motivo"))}</li>' for x in dados.get('pendencias',[])[:100])
     ref_html=''.join(f'<li><b>{esc(x.get("elemento","Imagem"))}</b> — {esc(x.get("motivo","Referências diferentes"))}<p>Local: {esc(x.get("caminho",""))}; {esc(x.get("posicao",""))}</p> {link(x.get("destino_a"))} / {link(x.get("destino_b"))}</li>' for x in dados.get('referencias_pendentes',[]))
     state=dados.get('situacao_analise','parcial')
+    fila=dados.get('fila_execucao',{})
+    estado_fila={'concluida':'Concluída','concluida_com_falhas':'Concluída com falhas','parcial':'Parcial','interrompida':'Interrompida'}.get(fila.get('estado'),'Não informado no relatório anterior')
     variations=dados.get('variacoes_dados',[])
     variance_html=''.join(f'<details><summary>{esc(v.get("categoria"))} — {v.get("quantidade_itens",0)} itens editoriais</summary>'
        + '<p>'+esc(v.get('motivo',''))+'</p><ul>'
@@ -155,7 +157,7 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None)-
     <p>Escopo: {esc(dados.get('escopo_exportacao','Relatório principal'))}</p>
     {cobertura_html}
     <p>Ambientes: {' · '.join(esc(k)+': '+link(v) for k,v in dados.get('ambientes',{}).items())}</p>
-    <p>Gerado em {esc(dados.get('gerado_em',''))} · Estado: <b>{esc(state)}</b></p>
+    <p>Gerado em {esc(dados.get('gerado_em',''))} · Cobertura/análise: <b>{esc(state)}</b> · Fila admitida: <b>{esc(estado_fila)}</b></p>
     <p>{len(dados['divergencias'])} grupo(s) de divergência · {esc(dados.get('ocorrencias_brutas',len(dados['divergencias'])))} ocorrência(s) antes do agrupamento</p>
     <p>{('DIVs excluídas pelo revisor: '+str(dados['divergencias_ocultadas'])+'.') if dados.get('divergencias_ocultadas') else ''}</p>
     <p>{' · '.join(esc(k)+': '+str(v)+' páginas lidas' for k,v in dados.get('paginas',{}).items())}</p>

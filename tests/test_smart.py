@@ -314,7 +314,7 @@ class SmartIntegrationTests(unittest.TestCase):
                     page.locator('#url-a').fill(A);page.locator('#url-b').fill(B)
                     page.locator('#run-button').click();page.wait_for_timeout(200)
                     self.assertTrue(enviados[0]['varredura_inteligente'])
-                    page.evaluate('smartResults({divergencias:[]})')
+                    page.evaluate('nav("resultados");smartResults({divergencias:[]})');page.locator('#smart-results').locator('..').locator('summary').first.click()
                     self.assertIn('Modo: atual',page.locator('#smart-results').inner_text())
                     self.assertFalse(erros)
                 finally:browser.close()

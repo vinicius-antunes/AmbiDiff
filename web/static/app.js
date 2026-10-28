@@ -4,10 +4,12 @@ let allHistory=[],selectedCategory='todas',selectionMode=false,selectedRuns=new 
 const $=id=>document.getElementById(id);
 function element(tag,text,cls){const x=document.createElement(tag);if(text!==undefined&&text!==null)x.textContent=text;if(cls)x.className=cls;return x;}
 function nav(section){
+  const changed=!$('section-'+section).classList.contains('active');
   document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('active',x.id==='section-'+section));
   document.querySelectorAll('.nav-btn').forEach(x=>x.classList.toggle('active',x.dataset.section===section));
   $('breadcrumb').textContent=({dashboard:'Visão geral / Dashboard',comparar:'Verificações / Comparar',resultados:'Relatórios / Divergências',historico:'Sistema / Histórico',ajuda:'Sistema / Guia'})[section];
   $('sidebar').classList.remove('show');
+  if(changed)window.scrollTo(0,0);
   if(section==='historico')loadHistory();
 }
 document.querySelectorAll('.nav-btn').forEach(x=>x.addEventListener('click',()=>nav(x.dataset.section)));
@@ -22,12 +24,36 @@ function formatDuration(seconds){
   if(h)return h+'h '+String(m).padStart(2,'0')+'min';
   return m?m+'min '+String(sec).padStart(2,'0')+'s':sec+'s';
 }
+const statusNames={executando:'Executando',concluido:'Fila concluída',concluido_com_falhas:'Concluída com falhas',parcial:'Parcial',interrompido:'Interrompida',erro:'Falha',pronto:'Aguardando'};
+function filaContadores(d){
+  const total=Number(d.pares_descobertos??d.pares_admitidos??0),pending=Number(d.pares_pendentes||0);
+  if(!total)return null;
+  const done=Math.min(total,Number(d.pares_concluidos??Math.min(total-pending,(d.pares_comparados||0)+(d.pares_com_falha||0))));
+  return {total,pending,done,percent:Math.floor(100*Math.max(0,done)/total)};
+}
+function executionSummary(s){
+  $('running-label').textContent=s.interrupcao_solicitada?'Interrupção solicitada — aguardando operação atual':statusNames[s.status]||s.status;
+  const d=s.andamento||{},f=filaContadores(d),box=$('execution-summary');box.replaceChildren();
+  for(const [label,value] of [['Admitidos',f?.total??'—'],['Comparados',d.pares_comparados??'—'],['Pendentes',f?.pending??'—'],['Pares com falha',d.pares_com_falha??0],['Ocorrências preliminares',d.ocorrencias_preliminares??0],['Encerrados',f?f.done+' / '+f.total:'—']]){
+    const item=element('div');item.append(element('span',label),element('strong',value));box.append(item);
+  }
+  $('execution-current').textContent='Etapa: '+(d.etapa||'aguardando')+' · Em processamento: '+(d.pares_em_processamento??0)+(d.url_a?' · A: '+d.url_a:'')+(d.url_b?' · B: '+d.url_b:'');
+  const error=$('failure-diagnostics'),show=['erro','parcial','interrompido','concluido_com_falhas'].includes(s.status);
+  error.hidden=!show;
+  if(show){
+    const e=s.falha_principal||{};
+    $('failure-title').textContent=s.status==='concluido_com_falhas'?'Fila concluída com falhas — resultados preservados.':s.status==='parcial'?'Execução parcial — resultados preservados.':'Varredura interrompida — resultados parciais preservados.';
+    $('failure-reason').textContent=e.erro||s.erro||(s.status==='interrompido'?'Interrupção solicitada pelo usuário.':'Consulte as limitações e o diagnóstico da execução.');
+    $('failure-context').textContent=(e.ambiente?'Ambiente: '+e.ambiente+' · ':'')+(e.url?'URL: '+e.url+' · ':'')+'Pares encerrados: '+(f?.done??0)+' · Pendentes: '+(f?.pending??0)+(e.orientacao?' · '+e.orientacao:'');
+    for(const [id,ext] of [['failure-json','diagnostico-json'],['failure-txt','diagnostico-txt']]){$(id).hidden=!s.ultimo_id;if(s.ultimo_id)$(id).href='/download/'+encodeURIComponent(s.ultimo_id)+'/'+ext;}
+  }
+}
 function updateProgressInfo(s){
   const budget=s.orcamento_restante_segundos??s.andamento?.orcamento_restante_segundos;
   $('progress-budget').textContent=(s.andamento?.estrategia==='dinamica')?'Até '+(s.andamento.limite_pares_html||1000)+' pares HTML · sem prazo global':typeof budget==='number'?'Orçamento restante desta etapa: '+formatDuration(budget):'Sem prazo global';
-  const percent=Math.max(0,Math.min(100,Number(s.cobertura_conhecida_percentual??s.progresso)||0));
+  const percent=Math.max(0,Math.min(100,Number(filaContadores(s.andamento||{})?.percent??s.cobertura_conhecida_percentual??s.progresso)||0));
   $('progress-fill').style.width=percent+'%';
-  $('progress-percent').textContent=percent+'%'+(typeof s.cobertura_conhecida_percentual==='number'?' da fila conhecida':'');
+  $('progress-percent').textContent=percent+'%'+(filaContadores(s.andamento||{})||typeof s.cobertura_conhecida_percentual==='number'?' dos pares admitidos encerrados':'');
   $('progress-track').setAttribute('aria-valuenow',String(percent));
   $('progress-elapsed').textContent='Decorrido: '+(typeof s.tempo_decorrido_segundos==='number'?formatDuration(s.tempo_decorrido_segundos):'—');
   if(s.status==='executando'){
@@ -35,7 +61,7 @@ function updateProgressInfo(s){
     else if(percent>=85)$('progress-eta').textContent='Etapas finais: sem previsão confiável';
     else $('progress-eta').textContent=typeof s.tempo_decorrido_segundos==='number'&&s.tempo_decorrido_segundos<30?'Restante: calculando...':'Restante: estimativa indisponível';
   }else if(s.status==='parcial')$('progress-eta').textContent='Resultado parcial; cobertura incompleta';
-  else if(s.status==='concluido')$('progress-eta').textContent='Execução encerrada';
+  else if(['concluido','concluido_com_falhas'].includes(s.status))$('progress-eta').textContent='Execução encerrada';
   else if(s.status==='erro')$('progress-eta').textContent='Execução encerrada com erro';
   else if(s.status==='interrompido')$('progress-eta').textContent='Execução interrompida';
   else $('progress-eta').textContent='Restante: aguardando início';
@@ -87,16 +113,15 @@ async function poll(){
     $('connection-state').textContent='Comunicação ativa';updateProgressInfo(s);printLogs(s);
     const busy=s.status==='executando';retry=busy;setRunning(busy);
     $('stop-button').disabled=!busy||s.interrupcao_solicitada;
-    $('running-label').textContent=s.interrupcao_solicitada?'Interrupção solicitada — aguardando operação atual':({executando:'Executando',concluido:'Concluída',parcial:'Parcial',interrompido:'Interrompida',erro:'Falha',pronto:'Aguardando'})[s.status]||s.status;
+    $('running-label').textContent=s.interrupcao_solicitada?'Interrupção solicitada — aguardando operação atual':statusNames[s.status]||s.status;
     $('stat-status').textContent=$('running-label').textContent;
     const d=s.andamento||{};
     $('execution-details').textContent='Etapa: '+(d.etapa||'início')+' · Par atual: '+(d.par_atual??'—')+' · Último par processado: '+(d.ultimo_par_processado??'—')+' · Comparação: '+(d.pares_descobertos?Math.round(100*(d.pares_comparados||0)/d.pares_descobertos)+'% dos pares descobertos':'—')+' · Descobertos: '+(d.pares_descobertos??'—')+' · Visitados: '+(d.pares_visitados??'—')+' · Comparados: '+(d.pares_comparados??'—')+' · Pendentes: '+(d.pares_pendentes??'—')+' · Pares com falha: '+(d.pares_com_falha??'—')+' · Inconclusivos: '+(d.pares_inconclusivos??0)+' · Ocorrências: '+(d.ocorrencias_preliminares??'—')+' · Última atividade: '+(d.ultima_atividade||'—');
-    const diag=$('failure-diagnostics');diag.hidden=!(s.status==='erro'&&s.ultimo_id);
-    if(!diag.hidden){$('failure-json').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-json';$('failure-txt').href='/download/'+encodeURIComponent(s.ultimo_id)+'/diagnostico-txt';}
-    if(!busy&&['concluido','parcial','interrompido','erro'].includes(s.status)&&(s.status!=='erro'||s.relatorio_disponivel)&&s.ultimo_id&&!openedRuns.has(s.ultimo_id)){
+    executionSummary(s);
+    if(!busy&&['concluido','concluido_com_falhas','parcial','interrompido','erro'].includes(s.status)&&(s.status!=='erro'||s.relatorio_disponivel)&&s.ultimo_id&&!openedRuns.has(s.ultimo_id)){
       if(await openReport(s.ultimo_id)){openedRuns.add(s.ultimo_id);try{await loadHistory();}catch(e){$('connection-state').textContent='Relatório aberto; histórico temporariamente indisponível';}}else retry=true;
     }
-    if(s.erro)$('form-error').textContent=s.erro;
+    if(s.erro)$('form-error').textContent='';
   }catch(e){retry=true;pollFailures++;$('connection-state').textContent='Comunicação temporariamente indisponível — reconectando';}
   finally{polling=false;if(retry)timer=setTimeout(poll,Math.min(10000,1500*2**Math.min(pollFailures,3)));}
 }
@@ -269,7 +294,7 @@ function refilter(){
       (side==='todos'||d.presente_em===side)&&(type==='todos'||d.tipo===type)&&
       (!q||[JSON.stringify(d.itens_agrupados||[]),d.id,d.elemento,d.pagina,d.descricao,d.local,d.caminho,d.posicao,d.destino_a,d.destino_b,d.url_presente,d.url_comparada].some(v=>(v||'').toLocaleLowerCase('pt-BR').includes(q)))));
   $('visible-count').textContent=filtered.length+' divergência(s) agrupada(s)';$('result-list').replaceChildren();renderedCount=0;
-  if(filtered.length)renderNext();else $('result-list').append(element('div','Nenhuma divergência nesta categoria ou filtro.','empty-state'));
+  if(filtered.length)renderNext();else $('result-list').append(element('div',currentReport.divergencias.length?'Nenhuma divergência nesta categoria ou filtro.':'Nenhuma divergência identificada nos pares efetivamente comparados.'+((currentReport.fila_execucao?.pares_nao_analisados||['parcial','inconclusivo'].includes(currentReport.situacao_analise))?' A análise incompleta não permite concluir sobre as páginas pendentes.':''),'empty-state'));
 }
 $('show-all-differences').addEventListener('change',refilter);
 $('search-results').addEventListener('input',refilter);
@@ -317,7 +342,7 @@ function technical(d){
     det.append(element('summary',`${av.ambiente} · ${av.tipo} — ${av.quantidade} ocorrência(s)`));
     const ul=element('ul');for(const url of (av.exemplos||[])){const li=element('li');li.append(/^https?:\/\//.test(url)?safeLink(url):element('span',url));ul.append(li);}
     if(av.quantidade>(av.exemplos||[]).length)ul.append(element('li','Outras ocorrências registradas no JSON exportado.'));
-    det.append(ul);container.append(det);
+    det.append(ul);for(const f of (d.falhas||[]).filter(f=>(av.exemplos||[]).includes(f.url))){det.append(element('p',(f.tipo_erro||'Falha técnica')+': '+f.erro));if(f.orientacao)det.append(element('p',f.orientacao));}container.append(det);
   }
 }
 function references(d){
@@ -367,6 +392,7 @@ function smartResults(d){
   if(m.tempo_total_segundos!==undefined)box.append(element('p','Tempo medido: '+m.tempo_total_segundos+' s · '+JSON.stringify(m.contagens||{})));
   box.append(element('p',o.nota||'Relatório anterior sem medições de equivalência.'));
   function lista(titulo,rows){
+    if(!rows.length)return;
     const det=element('details');det.append(element('summary',titulo+' ('+rows.length+')'));
     for(const x of rows){const p=element('p',x.elemento||x.categoria||x.classificacao||'Registro');
       p.append(element('span',' · '+(x.classificacao||x.motivo||x.nivel||'')));
@@ -392,30 +418,29 @@ function smartResults(d){
   box.append(rereads);
 }
 function displayReport(){
-  const d=currentReport;if(!d)return;selectionSummary();exportFeedback('Relatório aberto. Escolha o escopo e clique em um formato para exportar.');
+  const d=currentReport;if(!d)return;selectionSummary();exportFeedback('Relatório aberto. Escolha o escopo, o formato e use Baixar relatório.');
+  $('difference-controls').hidden=!d.divergencias.length;
+  if(!d.divergencias.length){$('export-scope').value='completo';$('export-format').value='html';updateExportFormat();}
   $('stat-divergencias').textContent=d.divergencias.filter(r=>!['baixa','editorial'].includes(r.classificacao)).length;
   const vals=Object.values(d.paginas||{});$('stat-a').textContent=vals[0]??0;$('stat-b').textContent=vals[1]??0;
   $('nav-count').textContent=$('stat-divergencias').textContent;
   document.querySelectorAll('[data-export]').forEach(b=>b.disabled=exportBusy||!!(b.dataset.export.startsWith('diagnostico-') && d.versao!=='1.5'));
   const summary=$('report-summary');summary.hidden=false;summary.replaceChildren();
-  const inconclusivo=d.situacao_analise==='inconclusivo',parcial=d.situacao_analise==='parcial';
-  summary.classList.toggle('important-warning',inconclusivo||parcial);
-  const titulo=d.estado_execucao==='falha'?'FALHA DA AUTOMAÇÃO — RELATÓRIO PARCIAL':inconclusivo?'COMPARAÇÃO INCONCLUSIVA':parcial?'VERIFICAÇÃO PARCIAL':'COMPARAÇÃO CONCLUÍDA';
-  if(d.iniciado_em)summary.append(element('p','Início: '+d.iniciado_em+' · Fim do processamento: '+(d.finalizado_em||'em andamento')+' · Duração: '+formatDuration(d.duracao_segundos)));
+  const inconclusivo=d.situacao_analise==='inconclusivo',parcial=d.situacao_analise==='parcial',f=d.fila_execucao;
+  summary.classList.toggle('important-warning',d.estado_execucao==='falha'||f?.estado==='parcial'||f?.estado==='interrompida');
+  const titulos={concluida:'FILA CONCLUÍDA',concluida_com_falhas:'FILA CONCLUÍDA COM FALHAS',parcial:'EXECUÇÃO PARCIAL',interrompida:'EXECUÇÃO INTERROMPIDA'};
+  const titulo=d.estado_execucao==='falha'?'VARREDURA INTERROMPIDA — RESULTADOS PARCIAIS PRESERVADOS':f?titulos[f.estado]:inconclusivo?'COMPARAÇÃO INCONCLUSIVA':parcial?'VERIFICAÇÃO PARCIAL':'COMPARAÇÃO CONCLUÍDA';
   summary.append(element('strong',titulo+' · '+(d.site_nome||'Portal')));
-  if(d.cobertura){const c=d.cobertura;if(c.limite_pares_html)summary.append(element('p','Limite de admissão: '+c.limite_pares_html+' pares HTML · Admitidos: '+c.pares_admitidos_html+(c.teto_atingido?' · Teto alcançado; cobertura limitada ao escopo admitido.':'. A fila descoberta não garante cobertura integral do portal.')));summary.append(element('p','Estratégia: '+c.estrategia+' · DOM aprofundado: '+c.pares_dom_aprofundado+' · DOM estrutural: '+c.pares_dom_estrutural+' · Não inspecionados: '+c.pares_nao_inspecionados+' · Importantes pendentes: '+c.importantes_pendentes));if(d.motivo_encerramento&&['orcamento','estrategia_editorial'].includes(d.motivo_encerramento))summary.append(element('strong','Varredura encerrada por '+(d.motivo_encerramento==='orcamento'?'orçamento de tempo':'amostragem editorial')+' — cobertura parcial, continuação disponível.'));}
-  if(d.erro_execucao||d.motivo_recuperacao)summary.append(element('p',d.erro_execucao||d.motivo_recuperacao));
-  summary.append(element('p','Ocorrências originais: '+(d.ocorrencias_brutas??d.divergencias.length)+' · prioritárias: '+$('stat-divergencias').textContent+' · grupos disponíveis: '+d.divergencias.length));
-  summary.append(element('p','Baixa relevância e editoriais ficam fora da lista principal. Use Mostrar todas as diferenças para consultar. Inconclusivos continuam visíveis.'));
-  if(d.verificacao_cliques_ativa)summary.append(element('p','Testes opcionais de cliques: '+(d.cliques_testados||0)+' link(s) inspecionados. Resultados podem ser inconclusivos.'));
-  if(d.ambiente_desatualizado)summary.append(element('p','Base informada como desatualizada: '+d.ambiente_desatualizado+'. Diferenças editoriais separadas de divergências estruturais.'));
-  if(d.itens_editoriais_agrupados)summary.append(element('p','Variações editoriais: '+d.itens_editoriais_agrupados+' ocorrências, em '+(d.variacoes_dados||[]).length+' grupo(s) informativo(s).'));
-  if(d.divergencias_ocultadas)summary.append(element('p','DIVs excluídas da exibição: '+d.divergencias_ocultadas+' · a coleta original está preservada no disco.'));
-  summary.append(element('p',inconclusivo?
-    'Um ambiente não teve nenhuma página coletada. As páginas do outro ambiente NÃO são contadas como divergências. Consulte os avisos técnicos.':
-    parcial?(d.modo_varredura==='inteligente'?'Cobertura limitada: há conteúdo sem inspeção profunda, documentos sem comparação integral ou pendências. Consulte Equivalência, documentos e cobertura.':'Algumas páginas falharam ou houve interrupção preventiva. As divergências abaixo se referem apenas às páginas pareadas que puderam ser lidas.'):
-    'Divergências documentadas apenas nas páginas pareadas. Não determina qual ambiente está correto.'));
+  const c=f||filaContadores(d.andamento||{});
+  if(c)summary.append(element('p','Comparados: '+(f?.pares_comparados??d.andamento?.pares_comparados??0)+' · Encerrados: '+(f?.pares_concluidos??c.done)+' / '+(f?.pares_admitidos??c.total)+' · Pendentes: '+(f?.pares_pendentes??c.pending)+' · Pares com falha: '+(f?.pares_com_falha??d.andamento?.pares_com_falha??0)));
+  summary.append(element('p','Grupos para revisão: '+d.divergencias.length+' · Confirmados manualmente: '+d.divergencias.filter(x=>x.revisao_manual==='confirmada').length+' · Duração: '+formatDuration(d.duracao_segundos||0)));
+  const principal=d.falha_principal;
+  if(principal||d.erro_execucao)summary.append(element('p',(principal?.erro||d.erro_execucao)+(principal?.ambiente?' · Ambiente: '+principal.ambiente:'')+(principal?.url?' · URL: '+principal.url:'')+(principal?.orientacao?' · '+principal.orientacao:'')));
+  if(d.cobertura?.limite_pares_html)summary.append(element('p','Limite: '+d.cobertura.limite_pares_html+' pares HTML'+(d.cobertura.teto_atingido?' · Cobertura limitada pelo teto.':'. A fila não representa cobertura integral do portal.')));
+  if(parcial||inconclusivo||f?.pares_nao_analisados)summary.append(element('p','A cobertura permanece limitada. Nenhuma divergência nos pares comparados não comprova ausência de problemas nas demais páginas.'));
+  if(d.ambiente_desatualizado)summary.append(element('p','Base desatualizada informada: '+d.ambiente_desatualizado+' · Variações editoriais separadas das divergências estruturais.'));
   smartResults(d);filters();refilter();dataVariations(d);staleSignals(d);technical(d);references(d);externalChecks(d);pending(d);renderFolders();
+  for(const [id,show] of [['data-variations',(d.variacoes_dados||[]).length],['stale-signals',(d.sinais_desatualizacao||[]).length],['external-checks',(d.verificacoes_externas||[]).length],['technical-warnings',(d.avisos_tecnicos||[]).length+(d.falhas||[]).length+(d.bloqueios_seguranca||[]).length+(d.resumo_tecnico?.falhas||0)],['reference-warnings',(d.referencias_pendentes||[]).length],['pending-pages',(d.pendencias||[]).length]])$(id).closest('.secondary-results').hidden=!show;
 }
 async function deleteDiv(divId){
   if(!currentId)return;
@@ -434,7 +459,7 @@ function updateSelectionBar(){
 }
 function clearReport(){
   currentId=null;currentReport=null;filtered=[];selectionSummary();exportFeedback('Abra uma comparação para habilitar a exportação.');
-  $('report-summary').hidden=true;$('result-list').replaceChildren(element('div','Selecione um relatório no histórico ou inicie uma comparação.','empty-state'));
+  $('report-summary').hidden=true;$('difference-controls').hidden=true;$('result-list').replaceChildren(element('div','Selecione um relatório no histórico ou inicie uma comparação.','empty-state'));
   $('nav-count').textContent='0';$('stat-divergencias').textContent='—';
   document.querySelectorAll('[data-export]').forEach(b=>b.disabled=true);
 }
@@ -482,7 +507,7 @@ function folder(group,forHistory=false){
         updateSelectionBar();
       });item.append(check);
     }
-    const meta=element('div');meta.append(element('strong',h.data),element('small',h.total+' divergência(s) · '+(h.situacao||'Execução anterior')+' · '+Object.entries(h.paginas||{}).map(([k,v])=>k+': '+v+' pág.').join(' / ')));
+    const meta=element('div');meta.append(element('strong',h.data),element('small',h.total+' divergência(s) · '+(h.fila_execucao?({concluida:'Fila concluída',concluida_com_falhas:'Concluída com falhas',parcial:'Parcial',interrompida:'Interrompida'})[h.fila_execucao.estado]:(h.situacao||'Execução anterior'))+' · '+Object.entries(h.paginas||{}).map(([k,v])=>k+': '+v+' pág.').join(' / ')));
     const actions=element('div',null,'run-actions');
     const btn=element('button','Abrir relatório →','outline-button');btn.addEventListener('click',()=>openReport(h.id));
     const trash=element('button','🗑','trash-button');trash.type='button';trash.title='Excluir esta execução';
@@ -494,6 +519,7 @@ function folder(group,forHistory=false){
 function renderFolders(){
   const box=$('comparison-folders');box.replaceChildren();
   const groups=groupHistory(allHistory);
+  box.closest('.folders-panel').hidden=!groups.length;
   if(!groups.length)box.append(element('div','Nenhuma comparação salva.','dim-copy'));
   else groups.forEach(g=>box.append(folder(g)));
 }
@@ -549,6 +575,13 @@ $('clear-selected-divs').addEventListener('click',()=>saveSelection('/selecao',{
 $('export-scope').addEventListener('change',()=>{
   $('export-suggestion').textContent=$('export-scope').value==='selecionadas'?'Sugestão: CSV para planilhas. Selecionar não confirma uma DIV.':'Sugestão: HTML para revisar o relatório completo.';
 });
+function updateExportFormat(){
+  const ext=$('export-format').value;$('download-report').dataset.export=ext;
+  $('export-description').textContent=({csv:'Registrar, organizar e filtrar divergências em planilhas.',html:'Analisar DIVs, consultar links e examinar evidências.',pdf:'Apresentar resultados ou arquivar um relatório formatado.',json:'Dados estruturados do relatório e do escopo escolhido; diagnóstico da execução disponível separadamente.'})[ext];
+}
+$('export-format').addEventListener('change',updateExportFormat);
+$('export-scope').addEventListener('change',()=>{$('export-format').value=$('export-scope').value==='selecionadas'?'csv':'html';updateExportFormat();});
+updateExportFormat();
 let lastSaveHandle=null;
 async function downloadExport(button){
   if(!currentId){exportFeedback('Abra uma comparação para habilitar a exportação.');return;}if(exportBusy)return;const run=currentId;const ext=button.dataset.export,scope=$('export-scope').value,advanced=ext.startsWith('diagnostico-');

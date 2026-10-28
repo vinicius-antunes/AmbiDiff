@@ -238,6 +238,7 @@ class BrowserNextTests(unittest.TestCase):
             p.route('http://ambidiff.test/**',responder);p.goto('http://ambidiff.test/',wait_until='networkidle');p.wait_for_function('logCursor>=200')
             for _ in range(4):p.evaluate('poll()')
             self.assertEqual(p.locator('#terminal > div').count(),500)
+            p.locator('.execution-diagnostics > summary').click()
             self.assertIn('Último par processado: 7',p.locator('#execution-details').inner_text())
             p.locator('#stop-button').click();p.wait_for_function("document.querySelector('#running-label').textContent.includes('Interrupção solicitada')")
             self.assertTrue(p.locator('#stop-button').is_disabled());self.assertEqual(estado['stop'],1)

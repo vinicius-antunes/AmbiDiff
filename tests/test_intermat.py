@@ -115,10 +115,10 @@ class ExecutionTests(unittest.TestCase):
         pipeline(checkpoint=lambda d:snaps.append(copy.deepcopy(d)))
         base=snaps[0]['retomada']
         snaps=[]
-        with self.assertRaisesRegex(RuntimeError,'closed'):
-            pipeline(retomada=base,crash=1,checkpoint=lambda d:snaps.append(copy.deepcopy(d)))
+        resultado,_=pipeline(retomada=base,crash=1,checkpoint=lambda d:snaps.append(copy.deepcopy(d)))
+        self.assertEqual(resultado['andamento']['pares_com_falha'],1)
         # Checkpoint inicial preserva fila completa se o processo falhar antes do próximo intervalo.
-        cp=snaps[-1]['retomada'];self.assertTrue(validar(cp)['fila'])
+        cp=next(d['retomada'] for d in snaps if d.get('motivo_checkpoint')=='falha_recurso');self.assertTrue(validar(cp)['fila'])
         r,_=pipeline(retomada=cp);self.assertEqual(r['paginas']['PRD'],4)
     def test_extracao_isolada_inconclusiva_nao_fabrica_ausencia(self):
         r,_=pipeline(extracao_falha=0)
@@ -294,7 +294,7 @@ class BrowserQualityTests(unittest.TestCase):
         from web import server
         client=server.app.test_client();p=self.browser.new_page()
         try:
-            p.set_content(client.get('/').data.decode());p.add_style_tag(path=str(Path('web/static/style.css').resolve()))
+            p.set_content(client.get('/').data.decode());p.add_style_tag(path=str(Path('web/static/style.css').resolve()));p.locator('#difference-controls').evaluate('e=>e.hidden=false')
             for selector in ('#export-scope','#show-all-differences','#nome-a'):
                 loc=p.locator(selector)
                 if not loc.is_visible():p.locator('.screen').evaluate_all('(els)=>els.forEach(e=>{e.style.display="block"})')

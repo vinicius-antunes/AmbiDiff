@@ -159,6 +159,7 @@ def recuperar(snapshot):
         pares_comparados=sum(p['estado']=='comparado' for p in estado['estados_pares']) if 'estados_pares' in estado else len(estado['paginas_a']) if estado else andam.get('pares_comparados',max(snap.get('paginas',{}).values(),default=0)),
         pares_pendentes=len(fila) if estado else andam.get('pares_pendentes',max((x.get('pendentes',0) for x in snap.get('meta_varredura',{}).values()),default=0)),
         pares_com_falha=len(estado['pares_falhos']) if 'pares_falhos' in estado else len({x.get('url') for x in snap.get('falhas',estado.get('falhas',[]))}))
+    andam['pares_concluidos']=len(estado['estados_pares']) if 'estados_pares' in estado else min(andam['pares_descobertos']-andam['pares_pendentes'],andam['pares_comparados']+andam['pares_com_falha'])
     snap.update(andamento=andam,fila_pendente=fila,pares_visitados=visitados,
         divergencias=agrupar_registros(brutos),registros_editoriais=editoriais,
         variacoes_dados=snap.get('variacoes_dados') or agrupar_variacoes(editoriais,snap.get('ambiente_desatualizado','')),
@@ -168,6 +169,8 @@ def recuperar(snapshot):
     for registro in snap['divergencias']:
         registro.update(estado.get('evidencias_preservadas',{}).get(registro['id'],{}))
     snap['estados_pares']=estado.get('estados_pares',snap.get('estados_pares',[]))
+    from .execution import resumir
+    snap['fila_execucao']=resumir(snap)
     tempos=snap.setdefault('metricas',{}).setdefault('tempos_segundos',{})
     tempos['checkpoint_recuperacao_em_falha']=round(time.perf_counter()-inicio_recuperacao,6)
     return snap

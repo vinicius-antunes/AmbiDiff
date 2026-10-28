@@ -178,10 +178,10 @@ class FilaDinamicaTests(unittest.TestCase):
         r,abertas,_=executar(cadeia(4),retomada=cp.empacotar(estado))
         self.assertEqual(r['andamento']['pares_comparados'],4);self.assertNotIn(A,abertas)
 
-    def test_browser_visivel_default_sequencial_e_contextos_independentes(self):
+    def test_browser_oculto_default_sequencial_e_contextos_independentes(self):
         with patch.dict(os.environ,{},clear=True):
             _,abertas,launch=executar(cadeia(2))
-        self.assertFalse(launch[0]['headless']);self.assertEqual(abertas,[A,B,A+'1',B+'1'])
+        self.assertTrue(launch[0]['headless']);self.assertEqual(abertas,[A,B,A+'1',B+'1'])
 
     def test_url_invalida_nao_destroi_restante_e_sem_navegacao_externa(self):
         def grafo(url):

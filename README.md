@@ -1,8 +1,10 @@
 # AmbiDiff v1.5 — Comparador local de ambientes web
 
-**PRD × DES/LAB**, com comparação pareada, evidências e exportação local. Funciona no **Windows**, com Python + Playwright Chromium + painel Flask escuro. O programa lê páginas autorizadas sem editar sites.
+**PRD × DES/LAB/HOMOL**, com comparação pareada, evidências e exportação local. Funciona no **Windows**, com Python + Playwright Chromium + painel Flask escuro. O programa lê páginas autorizadas sem editar sites.
 
 > **Estado do desenvolvimento:** as melhorias **13 a 17** integram esta entrega da branch `perf/otimizacao-varredura`, sobre `b71d90f`, com commit e envio autorizados pelo mantenedor. Não há merge na `main`, deploy ou GitHub Pages. Leia [diagnóstico, testes e benchmarks desta rodada](docs/atualizacao-13-17.md). A [entrega das 12 melhorias](docs/atualizacao-12-melhorias.md) permanece como referência histórica.
+
+**Atualização atual:** [estabilização da varredura, progresso e HOMOL](docs/estabilizacao-varredura.md). Chromium oculto, recuperação limitada e exportação compacta.
 
 ## Visão geral
 
@@ -10,7 +12,7 @@ O AmbiDiff é uma ferramenta **local de apoio a QA**: recebe as URLs de dois amb
 
 | Recurso | Para que serve |
 |---|---|
-| Comparação PRD × DES/LAB | Detectar diferenças nos dois sentidos entre ambientes autorizados |
+| Comparação PRD × DES/LAB/HOMOL | Detectar diferenças nos dois sentidos entre ambientes autorizados |
 | Varredura inteligente (padrão) | Até 1.000 pares HTML, fila dinâmica e continuação automática, sem prazo global; arquivos fora do teto |
 | Base desatualizada | Separar possíveis diferenças editoriais sem ocultar problemas de navegação ou estrutura |
 | Documentos e links | Conferir referências e, conforme as opções, respostas HTTP HEAD; **não lê o corpo de PDFs ou arquivos** |
@@ -61,17 +63,17 @@ Se nenhum funcionar, instale/configure o Python pelo canal aprovado pela TI e ab
 ## Primeira comparação: passo a passo
 
 1. No painel, abra **Comparar ambientes**. O nome do portal é identificado automaticamente por metadados, título inicial ou domínio; não há campo de nome no formulário.
-2. Em **Ambiente A** e **Ambiente B**, selecione PRD/DES/LAB conforme o caso e cole as URLs completas (`https://...`). Não use o mesmo ambiente nos dois campos.
+2. No **Ambiente A**, escolha PRD, DES ou LAB. No **Ambiente B**, escolha DES (padrão), LAB ou **HOMOL — Homologação**. Cole as URLs completas (`https://...`); nenhuma URL de homologação é presumida. Não use o mesmo ambiente nos dois campos. Relatórios antigos com PRD no Ambiente B continuam consultáveis.
 3. Se houver informação **confirmada** de que uma base está desatualizada, marque o ambiente correspondente. Isso modifica a classificação de possíveis conteúdos editoriais; não prova que uma diferença está correta.
 4. A **varredura inteligente** está sempre ativa: admite até **1.000 pares HTML únicos**, organiza as prioridades e continua até dar um resultado a todos os pares admitidos, sem prazo global. O teto não é configurável na tela. **Opções avançadas** conserva apenas destinos externos e cliques internos, desmarcados; habilite-os somente quando autorizados.
-5. Clique **Iniciar varredura**. Observe o terminal, o tempo decorrido e os contadores **descobertos / visitados / comparados / pendentes**. O percentual representa apenas a **fila conhecida**, que pode crescer.
+5. Clique **Iniciar varredura**. O Chromium trabalha **oculto**, sem janelas de automação. Acompanhe admitidos, comparados, pendentes, falhos, ocorrências preliminares e tempo. O percentual mede **pares admitidos que receberam estado final**, incluindo falhas; não é percentual de comparações bem-sucedidas nem de cobertura integral. Logs e métricas adicionais ficam em **Diagnóstico e log da execução**.
 6. Ao terminar, abra **Divergências**. Verifique as diferenças principais e as seções informativas de dados, documentos e avisos técnicos; uma execução parcial não comprova equivalência.
 7. Use **Confirmar DIV** somente após sua revisão. O seletor de classificação permite **Automática, Relevante, Baixa relevância, Editorial ou Inconclusivo**. Marcação manual não significa que o site foi testado integralmente.
-8. Marque **Exportar** nas DIVs desejadas e escolha **Somente DIVs selecionadas**; a seleção é salva localmente por comparação e não confirma um defeito. Também estão disponíveis **Relatório completo**, **Relatório principal** e **Somente relevantes**. Clique no formato: **CSV** para planilhas, **HTML** para revisão visual, **PDF** para apresentação/arquivo ou **JSON** para dados estruturados. **Mudar o seletor não exporta sozinho.**
+8. Marque **Exportar** nas DIVs desejadas e escolha **Somente DIVs selecionadas**; a seleção é salva localmente por comparação e não confirma um defeito. Também estão disponíveis **Relatório completo**, **Relatório principal** e **Somente relevantes**. Escolha o formato e clique **Baixar relatório**: **CSV** para planilhas, **HTML** para revisão visual, **PDF** para apresentação/arquivo ou **JSON** para dados estruturados. **Mudar o seletor não exporta sozinho.**
 
 **Interrupção e retomada:** use **Interromper** uma vez para solicitar a parada cooperativa; a operação atual precisa devolver o controle. Resultados e fila são preservados. Use **Consultar checkpoints → Retomar** para continuar com outro identificador, mantendo o histórico, as revisões, a seleção e a contagem acumulada de admissões. A execução não pausa por 20 minutos nem por cota editorial. Referências além do teto não são admitidas; a fila já aceita é concluída. Checkpoints anteriores já acima de 1.000 conservam suas admissões, sem criar novas vagas. Timeouts individuais e proteção de memória continuam ativos.
 
-Os estados distinguem execução concluída, parcial, interrompida e falha. Salvar um relatório parcial após uma falha não conclui a varredura nem leva o progresso a 100%. Após duas tentativas fatais no mesmo par, ele permanece identificado como falho e os demais ramos podem ser retomados. Logs de bloqueios são agrupados, sem query/credenciais nos exemplos; restrições que afetam componentes continuam no diagnóstico. Analytics bloqueado isoladamente não comprova defeito.
+O estado da fila distingue **concluída**, **concluída com falhas**, **parcial** e **interrompida**. A cobertura/análise é informada separadamente: concluir os admitidos não comprova examinar todo o portal. Um par comparado entre nove admitidos representa 11% de pares encerrados quando os outros oito estão pendentes. Salvar um relatório parcial não conclui a fila. Recursos fechados recebem recuperação limitada; após duas tentativas no mesmo par, ele fica falho e os demais continuam. Há no máximo três recuperações de recursos por segmento; se falharem, preserva-se checkpoint para retomada. Logs de bloqueios são agrupados, sem query/credenciais nos exemplos; restrições que afetam componentes continuam no diagnóstico. Analytics bloqueado isoladamente não comprova defeito.
 
 ## Solução de problemas no Windows
 
@@ -318,7 +320,7 @@ Esta ferramenta serve como apoio a QA e não substitui testes manuais dos achado
 
 ### Indicadores de acompanhamento durante a execução
 
-O painel agora apresenta o **percentual aproximado** do progresso, o **tempo decorrido** e, quando há amostras recentes suficientes, uma **estimativa de tempo restante**. Se a fila crescer, o ritmo ficar instável ou a varredura estiver nas etapas finais, a previsão pode ficar indisponível. O percentual reflete o avanço estimado do percurso e **não** confirma que a cobertura estrutural foi completa. A implementação ainda requer validação funcional no Windows e com portais autorizados.
+O painel apresenta a **proporção de pares admitidos encerrados**, o **tempo decorrido** e, quando existem amostras recentes suficientes, uma **estimativa de tempo restante**. A previsão pode ficar indisponível. Os contadores separam comparações bem-sucedidas de falhas e pendências; 100% dos admitidos encerrados não comprova cobertura integral nem sucesso em todos os pares. A validação no Windows e nos portais reais permanece pendente.
 
 ## Desempenho: meta de reduzir em 50% o tempo da varredura
 
@@ -352,7 +354,7 @@ preservados. Nomenclatura e valores informativos diferentes continuam visíveis.
 
 Logs usam IDs/cursor, janela de 200 eventos e terminal limitado a 500 linhas,
 com aviso de lacuna e arquivo local completo `execucao_<id>.log`. O polling
-reconecta sem interromper o backend. O percentual representa a fila conhecida,
+reconecta sem interromper o backend. O percentual representa estados finais na fila admitida,
 e o tempo decorrido independe da ETA. Um clique solicita interrupção cooperativa
 e preserva os resultados parciais. Os campos de URL começam vazios.
 
@@ -400,6 +402,21 @@ real, e a amostragem nunca comprova páginas não abertas.
 Consulte [decisões, testes e medições](docs/otimizacao-fila-dinamica.md).
 A referência de até 1.000 comparações em cerca de **1h30** orienta o trabalho;
 não é prazo de parada nem garantia para qualquer portal. Não houve validação
-em produção ou em recursos corporativos. No uso normal, Chromium fica visível,
-com contextos isolados e um par por vez. Para testes em Linux sem interface,
-use `AMBIDIFF_HEADLESS=1`; essa variável é uma opção interna de teste.
+em produção ou em recursos corporativos. O Chromium opera **oculto**,
+com contextos isolados e um par por vez. Não há opção de interface ou variável
+necessária para ativar esse comportamento.
+
+## Estabilização, progresso e HOMOL
+
+Consulte [o diagnóstico comparativo e os testes desta atualização](docs/estabilizacao-varredura.md).
+Erros de certificado identificam ambiente e endereço e sugerem conferir o domínio;
+a proteção TLS continua ativa. `ERR_ABORTED` admite no máximo uma recuperação
+controlada. Página/contexto fechados são substituídos antes de outra tentativa;
+o navegador só é recriado quando desconectado. Resultados e checkpoints são
+preservados se a recuperação se esgotar.
+
+Os resultados usam um seletor de formato e **Baixar relatório**. JSON de relatório
+respeita o escopo escolhido; **Diagnósticos técnicos** oferece separadamente JSON
+da execução e log TXT. CSV, HTML e PDF local continuam disponíveis, assim como
+seleção persistente, confirmação manual, agrupamento, exclusões e filtros. Telas
+sem DIVs ocultam os filtros vazios e informam as limitações da análise.

@@ -7,8 +7,9 @@ from pathlib import Path
 from collections import Counter
 
 CATALOGO={
+ 'RECURSO_ENCERRADO':('O navegador, contexto ou página deixou de estar disponível.','Consultar o ciclo de vida observado; recursos são recriados com tentativas limitadas.'),
  'DNS':('O nome do servidor não foi resolvido.','Verificar DNS, acesso à rede corporativa e a URL.'),
- 'CERTIFICADO_TLS':('O certificado TLS não foi aceito pelo navegador automatizado.','Revisar cadeia de certificação na máquina, sem desativar a proteção global.'),
+ 'CERTIFICADO_TLS':('O certificado TLS não foi aceito pelo navegador automatizado.','Verificar o endereço e o nome de domínio correto e a cadeia de certificação; não ignorar a proteção TLS.'),
  'TIMEOUT':('O carregamento excedeu o limite de tempo.','Repetir a coleta da página e conferir lentidão/carregamento dinâmico.'),
  'HTTP':('O servidor respondeu com um status HTTP de erro.','Verificar a rota e o status HTTP; não presumir que o ambiente inteiro esteja fora do ar.'),
  'NAVEGACAO_INTERROMPIDA':('Outra navegação ou página de erro interrompeu a tentativa.','Abrir a rota manualmente e verificar redirecionamentos.'),
@@ -20,15 +21,52 @@ CATALOGO={
 def classificar_erro(erro:str)->dict:
     texto=str(erro or '').lower()
     if 'download is starting' in texto or 'arquivo para download' in texto:tipo='DOWNLOAD_DE_DOCUMENTO'
+    elif any(t in texto for t in ('target closed','browser has been closed','target page, context or browser has been closed')):tipo='RECURSO_ENCERRADO'
     elif 'err_name_not_resolved' in texto or 'dns' in texto:tipo='DNS'
     elif 'err_cert_' in texto or 'certificate' in texto:tipo='CERTIFICADO_TLS'
     elif 'timeout' in texto or 'tempo esgotado' in texto:tipo='TIMEOUT'
     elif re.search(r'\bhttp\s*[45]\d\d\b',texto):tipo='HTTP'
-    elif 'interrupted by another navigation' in texto or 'chrome-error://' in texto:tipo='NAVEGACAO_INTERROMPIDA'
+    elif 'err_aborted' in texto or 'interrupted by another navigation' in texto or 'chrome-error://' in texto:tipo='NAVEGACAO_INTERROMPIDA'
     elif 'extração' in texto or 'extracao' in texto or 'extract' in texto:tipo='EXTRACAO'
     else:tipo='DESCONHECIDO'
     descr,acao=CATALOGO[tipo]
     return {'tipo_erro':tipo,'possivel_causa':descr,'orientacao':acao,'causa_confirmada':False}
+
+
+def mensagem_segura(erro):
+    from .security import url_diagnostica
+    return re.sub(r'https?://[^\s<>"\']+',lambda m:url_diagnostica(m[0]),str(erro))[:550]
+
+
+def registrar_excecao(resultado,erro,*,ambiente='AUTOMAÇÃO',url='',fatal=False):
+    """O mesmo incidente propagado ao worker conserva o ID; tentativas distintas não."""
+    from .security import url_diagnostica
+    falhas=resultado.setdefault('falhas',[]);fid=getattr(erro,'ambidiff_falha_id',None)
+    registro=next((f for f in falhas if fid and f.get('id_falha')==fid),None)
+    if registro is None:
+        import uuid
+        fid=fid or 'falha-'+uuid.uuid4().hex[:12]
+        registro={'id_falha':fid,'ambiente':ambiente,'url':url_diagnostica(url),'erro':mensagem_segura(erro),**classificar_erro(str(erro))}
+        falhas.append(registro)
+        try:setattr(erro,'ambidiff_falha_id',fid)
+        except Exception:pass
+    if fatal:registro['fatal']=True
+    return registro
+
+
+def falhas_diagnosticas(resultado):
+    """Une falha fatal legada sem depender de ela já estar na lista de falhas."""
+    from copy import deepcopy
+    falhas=deepcopy(resultado.get('falhas',[]))
+    erro=resultado.get('erro_execucao') or resultado.get('erro_critico')
+    if erro and not any(f.get('fatal') or f.get('erro')==erro or f.get('erro')==mensagem_segura(erro) for f in falhas):
+        registrar_excecao({'falhas':falhas},RuntimeError(erro),url=resultado.get('andamento',{}).get('url_a',''),fatal=True)
+    out=[];ids=set()
+    for f in falhas:
+        if f.get('id_falha') and f['id_falha'] in ids:continue
+        f.setdefault('tipo_erro',classificar_erro(f.get('erro',''))['tipo_erro'])
+        out.append(f);ids.add(f.get('id_falha'))
+    return out
 
 
 def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
@@ -36,7 +74,7 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
     resultado=preparar(resultado)
     eventos=resultado.get('eventos_diagnostico',[])
     from .compact import falhas_categorizadas
-    categorias=falhas_categorizadas(resultado.get('falhas',[]))
+    categorias=falhas_categorizadas(falhas_diagnosticas(resultado))
     falhas=categorias['falhas_acesso_observadas']+categorias['falhas_automacao']
     erros_por_tipo=Counter()
     for f in falhas:erros_por_tipo[f.get('tipo_erro') or classificar_erro(f.get('erro',''))['tipo_erro']]+=1
@@ -46,7 +84,7 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
     motivos={env:d.get('motivo_parada','') for env,d in metas.items() if d.get('motivo_parada')}
     return {**{k:resultado.get(k) for k in ('iniciado_em','finalizado_em','duracao_segundos','andamento','media_segundos_por_par','requisicoes_por_par')},'grupos_relacionados':resultado.get('grupos_relacionados',[]),'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_classificados',resultado.get('editoriais_preservados',[])),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
       'site_nome':resultado.get('site_nome',''),'ambientes':resultado.get('ambientes',{}),
-      'situacao_analise':resultado.get('situacao_analise','inconclusivo'),
+      'situacao_analise':resultado.get('situacao_analise','inconclusivo'),'fila_execucao':resultado.get('fila_execucao',{}),
       'cobertura':resultado.get('cobertura',{}),'motivo_encerramento':resultado.get('motivo_encerramento',''),
       'estados_pares':resultado.get('estados_pares',[]),
       'equivalencias_compartilhamento':resultado.get('equivalencias_compartilhamento',[]),

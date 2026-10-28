@@ -48,10 +48,10 @@ class StabilityTests(unittest.TestCase):
         snaps=[];pipeline(checkpoint=lambda d:snaps.append(copy.deepcopy(d)));base=snaps[0]['retomada']
         def ajustar(p):
             if p.url in (A,B):p.itens.append(Item('Opção','Outro ramo','Outro ramo',local='Serviços',destino=p.url+'2'))
-        for tentativa in range(2):
-            snaps=[]
-            with self.assertRaisesRegex(RuntimeError,'closed'):pipeline(retomada=base,crash=1,checkpoint=lambda d:snaps.append(copy.deepcopy(d)),ajustar=ajustar)
-            base=snaps[-1]['retomada']
+        snaps=[]
+        falhou,_=pipeline(retomada=base,crash=1,checkpoint=lambda d:snaps.append(copy.deepcopy(d)),ajustar=ajustar)
+        self.assertEqual(falhou['andamento']['pares_com_falha'],1)
+        base=snaps[-1]['retomada']
         r,opened=pipeline(retomada=base,ajustar=ajustar)
         self.assertNotIn(A+'1',opened);self.assertTrue(r['falhas']);self.assertGreaterEqual(r['paginas']['PRD'],3)
     def test_recuperacao_conserva_editoriais_fila_e_erro_sem_100_porcento(self):

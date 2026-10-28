@@ -10,7 +10,6 @@ from functools import lru_cache
 from dataclasses import replace, asdict
 from pathlib import Path
 import re
-import os
 import shutil
 import time
 import unicodedata
@@ -141,7 +140,10 @@ def _extrair_page(page,url:str,trilha:list[str],log,metricas=None,profunda=True)
         raise RuntimeError('A página não retornou conteúdo HTML analisável.')
     its=list(dados['itens']);links=list(dados['links'])
     if profunda:
-        with metricas.medir('abas'):coletar_aba(page,its,links,lambda _s:None,parar=metricas.parar)
+        avisos_abas=[]
+        with metricas.medir('abas'):coletar_aba(page,its,links,avisos_abas.append,parar=metricas.parar)
+        if avisos_abas:
+            resumo['avisos_componentes']=avisos_abas;log('[Coleta] '+str(len(avisos_abas))+' componentes com inspeção inconclusiva.')
     itens=[]
     for raw in its:
         try:itens.append(Item(**raw))
@@ -155,7 +157,7 @@ def _extrair_page(page,url:str,trilha:list[str],log,metricas=None,profunda=True)
     metricas.contagens['operacoes_extracao']+=1
     return Pagina(url, '',dados.get('title') or 'Página',refiltro(itens),trilha[:12],links, dados.get('menus',[]),resumo)
 
-def _alinhamento_de_componentes(pa:Pagina,pb:Pagina,base_a:str,base_b:str):
+def _alinhamento_de_componentes(pa:Pagina,pb:Pagina,base_a:str,base_b:str,nome_a="PRD",nome_b="DES"):
     """Combina controles sem texto visível e imagens por região/posição DOM.
 
     Se duas imagens ocuparem a mesma posição mas os arquivos diferirem,
@@ -179,7 +181,7 @@ def _alinhamento_de_componentes(pa:Pagina,pb:Pagina,base_a:str,base_b:str):
             if tipo=='Opção' and ia.destino and ib.destino and not link_equivalente(ia.destino,ib.destino,base_a,base_b):continue
             skip_a.add(id(ia));skip_b.add(id(ib))
             if tipo=='Imagem' and ia.destino and ib.destino and not imagem_equivalente(ia.destino,ib.destino,base_a,base_b):
-                pendencias.append({'tipo':'Imagem','natureza':('editorial' if item_editorial(ia,pa) or item_editorial(ib,pb) else 'estrutura'),'ambiente_a':'PRD','ambiente_b':'DES',
+                pendencias.append({'tipo':'Imagem','natureza':('editorial' if item_editorial(ia,pa) or item_editorial(ib,pb) else 'estrutura'),'ambiente_a':nome_a,'ambiente_b':nome_b,
                     'url_presente':pa.url,'url_comparada':pb.url,
                     'caminho':' → '.join(pa.trilha),
                     'motivo':'Arquivos diferentes na mesma posição; a aparência não foi comparada visualmente.',
@@ -384,7 +386,7 @@ def _auditar_externos(browser,urls,parar,log,metricas=None):
             for url,origem in urls[:_MAX_EXTERNOS] if not parar.is_set()]
 
 
-def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',nome_b='DES',metricas=None):
+def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',nome_b='DES',metricas=None,diagnosticos=None):
     """Captura duas telas por DIV, claramente identificadas por ambiente.
 
     A captura correspondente pode mostrar somente a área aproximada; ausência de
@@ -457,7 +459,11 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
                     sondas[env]=sondar(page)
                     cache[key]=(result[env],mark[env],referencia_y)
                 except Exception as exc:
-                    log('[Evidência] '+r['id']+' '+env+': '+str(exc)[:90])
+                    from .diagnostics import registrar_excecao
+                    if diagnosticos is not None:
+                        registro=registrar_excecao({'falhas':diagnosticos},exc,ambiente=env,url=url)
+                        registro['etapa']='evidencias'
+                    log('[Evidência] '+r['id']+' '+env+': '+type(exc).__name__)
             if result:
                 if metricas:metricas.contagens['referencias_evidencias']+=len(result)
                 r['evidencias']=result
@@ -465,7 +471,9 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
                 r['evidencia']=next(iter(result.values()))
                 qtd+=1
     finally:
-        for context in contexts.values():context.close()
+        for context in contexts.values():
+            try:context.close()
+            except Exception:log('[Evidência] Limpeza do contexto já encerrado; demais recursos continuam sendo liberados.')
 
 def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False,observador=None,retomada=None,estrategia=None,orcamento_minutos=None):
     from playwright.sync_api import sync_playwright
@@ -612,6 +620,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             from .relevance import classificar
             if any(classificar(d,{nome_a:base_a,nome_b:base_b})[0]=='relevante' for d in brutos):metricas.tempos['ate_primeira_div_relevante']=time.perf_counter()-escopo.inicio
         andamento.update(etapa=etapa,pares_descobertos=len(pares_enfileirados),pares_visitados=len(visitados),pares_comparados=comparados(),pares_pendentes=len(fila),pares_com_falha=len(pares_falhos),ocorrencias_preliminares=len(brutos),ultima_atividade=datetime.now().astimezone().isoformat(),pares_admitidos_html=admitidos(),referencias_candidatas=len(candidatos),pares_inconclusivos=inconclusivos(),limite_pares_html=limite_html)
+        andamento['pares_concluidos']=len(estados_pares)
+        from .execution import contadores
+        andamento.update(contadores(andamento))
         if observador:observador(dict(andamento))
     def resumo_cobertura():
         return {'estrategia':estrategia,'orcamento_minutos':orcamento_minutos,'motivo_encerramento':motivo_encerramento,
@@ -685,17 +696,30 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             custo_checkpoint=time.perf_counter()-inicio_cp
             metricas.tempos['checkpoint']+=custo_checkpoint
             ultimo_checkpoint=time.monotonic()
-    def registrar_fatal(ua,ub,trilha,ex):
+    def registrar_fatal(ua,ub,trilha,ex,lado=None):
         key=ua+' | '+ub;tentativas_fatais[key]=tentativas_fatais.get(key,0)+1
+        from .diagnostics import registrar_excecao
+        registro=registrar_excecao({'falhas':falhas,'andamento':andamento},ex,
+            ambiente=(nome_a,nome_b)[lado] if lado is not None else 'AUTOMAÇÃO',url=ua if lado!=1 else ub)
+        registro['ciclo_navegador']=recursos.estado(lado);registro['tentativa_par']=tentativas_fatais[key]
+        eventos.append({'tipo':'RECURSO_ENCERRADO','id_falha':registro['id_falha'],**registro['ciclo_navegador']})
         if tentativas_fatais[key]<2:
             visitados.discard((ua,ub));fila.append((ua,ub,trilha))
         else:
             pares_falhos.add((ua,ub))
-            falhas.append({'ambiente':'AUTOMAÇÃO','url':ua,'url_b':ub,'tipo_erro':'EXTRACAO','erro':'Limite de duas tentativas fatais: '+str(ex)[:180]})
             pendencias.append({'ambiente':nome_a+' / '+nome_b,'url':ua,'url_b':ub,'motivo':'Par falho após duas tentativas; outras páginas permanecem na fila'})
             terminar(ua,ub,'falha')
-        emitir('falha')
-        salvar_checkpoint('falha_fatal',True)
+        emitir('recuperacao_navegador');salvar_checkpoint('falha_recurso',True)
+        if not fila and (ua,ub) in estados_pares and not evidencias_dir:return
+        try:
+            with metricas.medir('recuperacao_falhas'):recursos.recuperar(lado)
+            metricas.contagens['recuperacoes_navegador']+=1
+        except Exception as falha_recuperacao:
+            setattr(falha_recuperacao,'ambidiff_falha_id',registro['id_falha'])
+            registro['recuperacao_falhou']=True;salvar_checkpoint('falha_fatal',True);raise
+    def navegar(page,url,base,env):
+        from .navigation import abrir
+        return abrir(page,url,base,parar,metricas,eventos,env,_abrir)
     def validar_itens(pag):
         for i in pag.itens:
             if not i.destino:continue
@@ -712,19 +736,6 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 pag.coleta.setdefault('referencias_invalidas',[]).append(i.nome);i.destino=''
     salvar_checkpoint('inicial',True)
     with sync_playwright() as pw:
-        try:
-            browser=pw.chromium.launch(headless=os.environ.get('AMBIDIFF_HEADLESS')=='1')
-        except Exception:
-            # Fallback para Linux de desenvolvimento, quando os binários do Playwright
-            # ainda não foram instalados. O instalador Windows baixa Chromium normalmente.
-            executable=shutil.which('chromium') or shutil.which('chromium-browser')
-            if not executable:raise
-            browser=pw.chromium.launch(headless=os.environ.get('AMBIDIFF_HEADLESS')=='1',executable_path=executable,args=['--no-sandbox'])
-        ctx_a=browser.new_context(locale='pt-BR',viewport={'width':1366,'height':850},service_workers='block',accept_downloads=False)
-        ctx_b=browser.new_context(locale='pt-BR',viewport={'width':1366,'height':850},service_workers='block',accept_downloads=False)
-        def contar_requisicao(_req):metricas.contagens['requisicoes_navegador']+=1
-        for contexto in (ctx_a,ctx_b):contexto.on('request',contar_requisicao)
-        origens_autorizadas={(urlsplit(u).scheme,urlsplit(u).netloc) for u in (base_a,base_b)}
         def somente_leitura(route):
             req=route.request;p=urlsplit(req.url)
             from .documents import ACOES_ESCRITA
@@ -738,17 +749,18 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 resumos_seguranca.emitir(bloqueios,log)
                 route.abort()
             else:route.continue_()
-        for contexto in (ctx_a,ctx_b):contexto.route('**/*',somente_leitura)
-        if _preparar_contextos:
-            _preparar_contextos(ctx_a,ctx_b)
-        for contexto in (ctx_a,ctx_b):
-            # Limite de locadores/interações; evaluate() síncrono não recebe
-            # timeout pelo Playwright. Não há prazo global da varredura.
-            contexto.set_default_timeout(12000) if hasattr(contexto,'set_default_timeout') else None
-        page_a=ctx_a.new_page();page_b=ctx_b.new_page()
+        from .browser import Navegador,fechado
+        def configurar(contexto):
+            contexto.on('request',lambda _req:metricas.contagens.update(['requisicoes_navegador']))
+            contexto.route('**/*',somente_leitura)
+        recursos=Navegador(pw,configurar,_preparar_contextos,lambda e:eventos.append(e))
+        atual_par=None;transacao=[];paginas_anteriores=(None,None)
         try:
             repor_fila()
+            if fila and not parar.is_set():recursos.iniciar()
+            browser=recursos.browser
             while fila and not parar.is_set():
+                browser=recursos.browser;page_a,page_b=recursos.paginas
                 if escopo.expirou():
                     motivo_encerramento='orcamento';parada='Orçamento de tempo alcançado — cobertura parcial, continuação disponível';break
                 if not fila.ativos:
@@ -762,12 +774,15 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 if (ua,ub) in visitados:continue
                 if escopo.adiar((ua,ub,trilha)):
                     fila.adiar((ua,ub,trilha));emitir('adiamento_editorial');continue
+                atual_par=(ua,ub,trilha)
+                transacao=[(lista,len(lista)) for lista in (brutos,editoriais,pendencias,refs,documentos_relatorio,verificacoes_destinos,resultados_funcionais,diferencas_esteticas,inteligencia.equivalencias,inteligencia.inconclusivos,inteligencia.omissoes,inteligencia.estruturas)]
+                paginas_anteriores=(paginas_a.get(ua),paginas_b.get(ub))
                 visitados.add((ua,ub))
                 andamento.update(par_atual=len(visitados),url_a=ua,url_b=ub)
                 if dinamica and (not ua or not ub):
                     env,page,url,base=(nome_a,page_a,ua,base_a) if ua else (nome_b,page_b,ub,base_b)
                     try:
-                        with metricas.medir('navegacao'):resp=_abrir(page,url)
+                        with metricas.medir('navegacao'):resp=navegar(page,url,base,env)
                         if resp and resp.status>=400:raise RuntimeError('HTTP '+str(resp.status))
                         mime=getattr(resp,'headers',{}).get('content-type','').lower().split(';')[0].strip()
                         if mime and mime not in ('text/html','application/xhtml+xml'):
@@ -783,8 +798,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         pendencias.append({'ambiente':env,'url':url,'motivo':'Página exclusiva inspecionada; sem contraparte comprovada, conteúdo não comparado'})
                         terminar(ua,ub,'sem_contraparte')
                     except Exception as exc:
-                        if any(t in str(exc).lower() for t in ('target closed','browser has been closed','target page, context or browser has been closed')):
-                            registrar_fatal(ua,ub,trilha,exc);raise
+                        if fechado(exc):
+                            registrar_fatal(ua,ub,trilha,exc,0 if ua else 1);continue
                         pares_falhos.add((ua,ub));falhas.append({'ambiente':env,'url':url,'erro':str(exc)[:200],**classificar_erro(str(exc))});terminar(ua,ub,'falha')
                     continue
                 if e_arquivo(ua) or e_arquivo(ub):
@@ -798,7 +813,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 for env,page,url in ((nome_a,page_a,ua),(nome_b,page_b,ub)):
                     try:
                         antes_nav=time.perf_counter()
-                        with metricas.medir('navegacao'):response=_abrir(page,url)
+                        with metricas.medir('navegacao'):response=navegar(page,url,base_a if env==nome_a else base_b,env)
                         from .frontier import prioridade
                         if prioridade((ua,ub,trilha))>=4:metricas.tempos['navegacao_editorial_paginacao_heuristica']+=time.perf_counter()-antes_nav
                         if response and response.status>=400:raise RuntimeError('HTTP '+str(response.status))
@@ -808,8 +823,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                             houve_documento=True;nao_html_ambientes.add(env);statuses.append((url,'Resposta não HTML: '+mime));continue
                         statuses.append((getattr(response,'url',None) or page.url,None))
                     except Exception as ex:
-                        if any(t in str(ex).lower() for t in ('target closed','browser has been closed','target page, context or browser has been closed')):
-                            registrar_fatal(ua,ub,trilha,ex);raise
+                        if fechado(ex):
+                            registrar_fatal(ua,ub,trilha,ex,0 if env==nome_a else 1);break
                         msg=str(ex)[:300]
                         # Downloads não devem provocar 15 falhas consecutivas.
                         if 'Download is starting' in msg or 'download is starting' in msg.lower():
@@ -820,6 +835,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                             falhas.append({'ambiente':env,'url':url,'erro':msg,**classificar_erro(msg)})
                             if len(eventos)<600:eventos.append({'par':len(visitados),'ambiente':env,'url':url,'trilha':trilha,'erro':msg,**classificar_erro(msg)})
                             statuses.append((url,msg))
+                if len(statuses)!=2:continue  # Par reencaminhado ou falho após recuperação limitada.
                 final_a,err_a=statuses[0];final_b,err_b=statuses[1]
                 if err_a or err_b:
                     acesso_falhou=any(erro and env not in nao_html_ambientes for env,(_,erro) in zip((nome_a,nome_b),statuses))
@@ -867,8 +883,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         pa=_extrair_page(page_a,ua,trilha,log,metricas=metricas)
                         pb=_extrair_page(page_b,ub,trilha,log,metricas=metricas)
                 except Exception as ex:
-                    if any(t in str(ex).lower() for t in ('target closed','browser has been closed','target page, context or browser has been closed')):
-                        registrar_fatal(ua,ub,trilha,ex);raise
+                    if fechado(ex):
+                        registrar_fatal(ua,ub,trilha,ex);continue
                     pares_falhos.add((ua,ub))
                     msg='Falha de extração: '+str(ex)[:160]
                     falhas.append({'ambiente':'AMBOS','url':ua,'erro':msg,**classificar_erro(msg)})
@@ -881,13 +897,13 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 validar_itens(pa);validar_itens(pb)
                 consecutivos=0
                 for env,pag in ((nome_a,pa),(nome_b,pb)):
-                    if not pag.coleta.get('estavel') or pag.coleta.get('rolagem_limitada'):
+                    if not pag.coleta.get('estavel') or pag.coleta.get('rolagem_limitada') or pag.coleta.get('avisos_componentes'):
                         avisos_coleta.append({'ambiente':env,'url':pag.url})
                 chave=(ua,ub)
                 paginas_a[ua]=pa;paginas_b[ub]=pb
                 emitir('comparacao')
                 # 1. Compara texto/imagens/opções SEM navegar nas diferenças.
-                itens_a,itens_b,pendencias_imgs=_alinhamento_de_componentes(pa,pb,base_a,base_b)
+                itens_a,itens_b,pendencias_imgs=_alinhamento_de_componentes(pa,pb,base_a,base_b,nome_a,nome_b)
                 if modo_defasado:
                     for v in pendencias_imgs:
                         if v.get('natureza')=='editorial':
@@ -912,7 +928,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         pa2=_extrair_page(page_a,ua,trilha,log,metricas=metricas)
                         pb2=_extrair_page(page_b,ub,trilha,log,metricas=metricas)
                         validar_itens(pa2);validar_itens(pb2)
-                        ai,bi,pend2=_alinhamento_de_componentes(pa2,pb2,base_a,base_b)
+                        ai,bi,pend2=_alinhamento_de_componentes(pa2,pb2,base_a,base_b,nome_a,nome_b)
                         comps2=(inteligencia.comparar(ai,bi,pa2,pb2,nome_a,nome_b,base_a,base_b) if varredura_inteligente else comparacao(ai,bi,pa2,pb2,nome_a,nome_b))
                         registro['diferencas_depois']=len(comps2)
                         registro['segunda_coleta']={'a':asdict(pa2),'b':asdict(pb2),'divergencias':comps2}
@@ -940,7 +956,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     for pag in (pa,pb):
                         for item in pag.itens:
                             if item.posicao in ('Menu de navegação','Menu lateral','Cabeçalho','Rodapé'):item.natureza='estrutura'
-                itens_a,itens_b,_=_alinhamento_de_componentes(pa,pb,base_a,base_b)
+                itens_a,itens_b,_=_alinhamento_de_componentes(pa,pb,base_a,base_b,nome_a,nome_b)
                 from .sections import comparar_secoes
                 comps=comparar_secoes(comps,pa,pb,nome_a,nome_b)
                 if any(g.get('categoria') in ('reCAPTCHA','Consentimento') for g in bloqueios.values()):
@@ -1107,7 +1123,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             for registro in divergencias:registro.update(evidencias_preservadas.get(registro['id'],{}))
             if paginas_a and paginas_b and not parar.is_set() and not escopo.expirou():
                 emitir('capturas')
-                with metricas.medir('capturas'):_salvar_evidencias(browser,divergencias,evidencias_dir,parar,log,nome_a,nome_b,metricas=metricas)
+                if evidencias_dir and recursos.browser is None:recursos.iniciar();browser=recursos.browser
+                with metricas.medir('capturas'):_salvar_evidencias(browser,divergencias,evidencias_dir,parar,log,nome_a,nome_b,metricas=metricas,diagnosticos=falhas)
                 for registro in divergencias:
                     if registro.get('evidencias'):evidencias_preservadas[registro['id']]={k:registro[k] for k in ('evidencias','marcacoes','evidencia') if k in registro}
                 if evidencias_preservadas:salvar_checkpoint('evidencias_preservadas',True)
@@ -1128,6 +1145,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                            'referencias_excluidas':dict(excluded)},
                    nome_b:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':parada,
                            'referencias_excluidas':{}}}
+            completos=completos and not bool(falhas)
             situacao='inconclusivo' if not paginas_a or not paginas_b else ('concluido' if completos else 'parcial')
             if parada and len(eventos)<600:eventos.append({'tipo':'INTERRUPCAO','par':len(visitados),'motivo':parada,
                 'falhas_consecutivas':consecutivos,'pares_pendentes':len(fila)})
@@ -1152,7 +1170,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             metricas.finalizar()
             metricas.contagens['pares_por_minuto']=round(comparados()*60/metricas.duracao,4) if metricas.duracao else 0
             cobertura=resumo_cobertura()
-            return {**metricas.temporal(),'cobertura':cobertura,'motivo_encerramento':motivo_encerramento,'estados_pares':[{'par':list(k),'estado':v} for k,v in estados_pares.items()],'fila_pendente':[list(p) for p in fila],'segmentos_coleta':segmentos,'estado_execucao':'interrompido' if parar.is_set() else 'finalizado','andamento':dict(andamento),
+            resultado={**metricas.temporal(),'cobertura':cobertura,'motivo_encerramento':motivo_encerramento,'estados_pares':[{'par':list(k),'estado':v} for k,v in estados_pares.items()],'fila_pendente':[list(p) for p in fila],'segmentos_coleta':segmentos,'estado_execucao':'interrompido' if parar.is_set() else 'finalizado','andamento':dict(andamento),
                 'media_segundos_por_par':round(metricas.duracao/len(paginas_a),6) if paginas_a else None,
                 'requisicoes_por_par':round(metricas.resultado()['contagens']['requisicoes_total']/len(paginas_a),3) if paginas_a else None,
                 'versao':'1.5','ambientes':{nome_a:base_a,nome_b:base_b},
@@ -1167,7 +1185,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 'sinais_desatualizacao':sinais_extraidos(paginas_a,nome_a)+sinais_extraidos(paginas_b,nome_b),
                 'variacoes_dados':agrupar_variacoes(editoriais,modo_defasado),
                 'itens_editoriais_agrupados':len(editoriais),'avisos_tecnicos':_avisos(falhas,metas)+([
-                    {'ambiente':'PRD/DES','tipo':'Coleta dinâmica possivelmente incompleta',
+                    {'ambiente':nome_a+' / '+nome_b,'tipo':'Coleta dinâmica possivelmente incompleta',
                      'quantidade':len(avisos_coleta),'exemplos':[x['url'] for x in avisos_coleta[:8]]}]
                     if avisos_coleta else []),
                 'pendencias':pendencias,'referencias_pendentes':agrupar_referencias(refs),
@@ -1179,5 +1197,25 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 'site_nome':(site_nome or inferir_site({'@inicio':next(iter(paginas_a.values()),None)},
                             {'@inicio':next(iter(paginas_b.values()),None)},base_a)).strip()[:120],
                 'limite_paginas':limite_html if dinamica else MAX_URLS_SEGURANCA,'profundidade':None}
+            from .execution import resumir
+            resultado['fila_execucao']=resumir(resultado)
+            return resultado
+        except Exception as erro:
+            if atual_par and tuple(atual_par[:2]) not in estados_pares:
+                ua,ub,trilha=atual_par
+                from copy import deepcopy
+                nomes={id(brutos):'divergencias_preliminares',id(editoriais):'variacoes_editoriais',id(pendencias):'pendencias',id(refs):'referencias',id(documentos_relatorio):'documentos'}
+                provisorios={nomes[id(lista)]:deepcopy(lista[tamanho:]) for lista,tamanho in transacao if id(lista) in nomes and len(lista)>tamanho}
+                if provisorios:eventos.append({'tipo':'TENTATIVA_DE_PAR_INCOMPLETA','url_a':ua,'url_b':ub,'resultados_provisorios':provisorios,'nota':'Preservados para diagnóstico; não representam comparação concluída nem são duplicados como DIVs finais na retomada.'})
+                for lista,tamanho in transacao:del lista[tamanho:]
+                for pags,url,anterior in zip((paginas_a,paginas_b),(ua,ub),paginas_anteriores):
+                    if anterior is None:pags.pop(url,None)
+                    else:pags[url]=anterior
+                visitados.discard((ua,ub))
+                if not any(tuple(p[:2])==(ua,ub) for p in fila):fila.append(atual_par)
+            from .diagnostics import registrar_excecao
+            registro=registrar_excecao({'falhas':falhas,'andamento':andamento},erro,url=andamento.get('url_a',''),fatal=True)
+            emitir('falha');salvar_checkpoint('falha_fatal',True)
+            raise
         finally:
-            ctx_a.close();ctx_b.close();browser.close()
+            recursos.fechar()

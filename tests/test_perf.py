@@ -193,6 +193,7 @@ class BrowserPerfTests(unittest.TestCase):
                 page.evaluate(f'openReport("{rid}")');page.wait_for_selector('#div-div-0001')
                 self.assertIn('Duração:',page.locator('#report-summary').inner_text())
                 self.assertIn('OPCAO_AUSENTE',page.locator('#div-div-0002').inner_text())
+                page.locator('#smart-results').locator('..').locator('summary').first.click()
                 relation=page.locator('#smart-results details').filter(has_text='Ocorrências relacionadas')
                 relation.locator('summary').click();relation.get_by_role('button',name='DIV-0002',exact=True).click()
                 self.assertEqual(page.locator('.result-card').count(),1);self.assertTrue(page.locator('#div-div-0002').count())

@@ -302,14 +302,19 @@ JS_EXTRAIR = r'''() => {
 def coletar_aba(page, itens: list[dict], links: list[dict], log,parar=None) -> None:
     """Interage apenas com abas detectadas, sem clicar formulários ou executar ações."""
     try:
-        disclosures=page.locator('details:not([open]) > summary,button[aria-expanded="false"][aria-controls]')
-        for control in disclosures.element_handles()[:20]:
+        disclosures=page.locator('details:not([open]) > summary,button[aria-expanded="false"][aria-controls],nav button[aria-expanded="false"][aria-haspopup],header button[aria-expanded="false"][aria-haspopup],[role="navigation"] button[aria-expanded="false"][aria-haspopup],[role="button"][aria-expanded="false"][aria-controls]')
+        controls=disclosures.element_handles()
+        controls.sort(key=lambda c:0 if c.evaluate('e=>!!e.closest("nav,header,aside,[role=navigation]")') else 1)
+        for control in controls[:20]:
             if parar and parar.is_set():break
-            if control.is_visible() and not control.evaluate('e=>!!e.closest("form")'):
+            try:
+                if not control.is_visible() or control.evaluate('e=>!!e.closest("form")'):continue
                 from .functional import PROIBIDOS
-                if PROIBIDOS.search(control.inner_text()):continue
+                label=control.evaluate('e=>(e.innerText||"")+" "+(e.getAttribute("aria-label")||"")+" "+(e.getAttribute("title")||"")')
+                if PROIBIDOS.search(label):continue
                 control.click(timeout=1200);page.wait_for_timeout(150)
                 expanded=page.evaluate(JS_EXTRAIR);itens.extend(expanded['itens']);links.extend(expanded['links'])
+            except Exception as ex:log('Componente não inspecionado: '+type(ex).__name__)
         tabs=page.locator('[role="tab"],button[data-bs-toggle="tab"],a[data-bs-toggle="tab"]')
         for i in range(min(tabs.count(),35)):
             if parar and parar.is_set():break
@@ -317,6 +322,10 @@ def coletar_aba(page, itens: list[dict], links: list[dict], log,parar=None) -> N
             if not tab.is_visible() or tab.evaluate('e=>!!e.closest("form")'):continue
             rotulo=(tab.inner_text(timeout=1500) or '').strip()[:80]
             if not rotulo:continue
+            from .functional import PROIBIDOS
+            if PROIBIDOS.search(rotulo):continue
+            href=tab.get_attribute('href') or ''
+            if href and not href.startswith('#'):continue
             try:
                 tab.click(timeout=3000)
                 page.wait_for_timeout(350)
@@ -324,7 +333,7 @@ def coletar_aba(page, itens: list[dict], links: list[dict], log,parar=None) -> N
                 for item in dados['itens']:
                     item['local']=f'Aba "{rotulo}" → {item["local"]}'
                 itens.extend(dados['itens']);links.extend(dados['links'])
-            except Exception: continue
+            except Exception as ex:log('Aba não inspecionada: '+type(ex).__name__)
     except Exception as e:
         log(f'Aviso: algumas abas não puderam ser abertas: {str(e)[:110]}')
 

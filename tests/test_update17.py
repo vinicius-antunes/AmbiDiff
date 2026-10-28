@@ -281,15 +281,15 @@ class BrowserUI17Tests(unittest.TestCase):
     def test_formatos_teclado_cancelamento_e_falha_visivel(self):
         self.abrir(2);self.p.evaluate('window.showSaveFilePicker=undefined');self.p.locator('#export-scope').select_option('completo')
         for ext in ('csv','html','pdf','json'):
-            button=self.p.locator('[data-export="'+ext+'"]');button.focus()
+            self.p.locator('#export-format').select_option(ext);button=self.p.locator('#download-report');button.focus()
             with self.p.expect_download() as info:button.press('Enter')
             self.assertTrue(info.value.suggested_filename.endswith('.'+ext))
             self.assertIn('enviado ao navegador',self.p.locator('#export-feedback').inner_text())
         self.p.evaluate('()=>{window.showSaveFilePicker=async()=>{throw new DOMException("Cancelado","AbortError")};}')
-        before=len(self.requests);self.p.locator('[data-export="csv"]').click();self.p.wait_for_function("document.querySelector('#export-feedback').textContent.includes('cancelada')")
+        before=len(self.requests);self.p.locator('#export-format').select_option('csv');self.p.locator('#download-report').click();self.p.wait_for_function("document.querySelector('#export-feedback').textContent.includes('cancelada')")
         self.assertFalse(any(path.startswith('/download/') for _,path,_ in self.requests[before:]))
         self.p.evaluate('window.showSaveFilePicker=undefined');self.fail_download=True
-        self.p.locator('[data-export="pdf"]').click();self.p.wait_for_function("document.querySelector('#export-feedback').textContent.includes('Falha de geração simulada')")
+        self.p.locator('#export-format').select_option('pdf');self.p.locator('#download-report').click();self.p.wait_for_function("document.querySelector('#export-feedback').textContent.includes('Falha de geração simulada')")
         self.assertTrue(self.p.locator('#export-feedback').is_visible());self.assertFalse(self.p.locator('[data-export="pdf"]').is_disabled())
 
     def test_grupo_parcial_e_falha_no_lote_nao_desincroniza_interface(self):

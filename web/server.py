@@ -65,7 +65,7 @@ def atualizar_progresso(valor):
 
 def atualizar(**kw):
     with LOCK:
-        if kw.get('status') in ('concluido','parcial','erro','interrompido'):
+        if kw.get('status') in ('concluido','concluido_com_falhas','parcial','erro','interrompido'):
             STATE['fim_monotonic']=time.monotonic()
         STATE.update(kw)
 
@@ -82,9 +82,13 @@ def estado_publico(agora=None):
             instante=time.monotonic() if agora is None else agora
             restante=max(0,restante-max(0,instante-STATE.get('andamento_monotonic',instante)))
         dados['orcamento_restante_segundos']=restante
-        total=d.get('pares_visitados',0)+d.get('pares_pendentes',0)
-        dados['cobertura_conhecida_percentual']=min(99 if dados['status']!='concluido' else 100,round(100*d.get('pares_visitados',0)/total)) if total else None
-        dados['progresso_semantica']='Fila descoberta até o momento, não conclusão global nem inspeção profunda'
+        if d:
+            from ambidiff.execution import contadores
+            fila=contadores(d);dados['andamento']={**d,**fila}
+            dados['progresso']=fila['percentual_fila']
+            dados['cobertura_conhecida_percentual']=fila['percentual_fila']
+        else:dados['cobertura_conhecida_percentual']=None
+        dados['progresso_semantica']='Percentual de pares admitidos com estado final; comparação bem-sucedida é contada separadamente. Não mede cobertura integral do portal.'
         dados['servidor_agora']=datetime.now().astimezone().isoformat()
         inicio=STATE['inicio_monotonic']
         if inicio is None:
@@ -139,10 +143,10 @@ def _hist():
 
 
 def percentual_final(resultado,status):
-    if status=='concluido':return 100
-    d=resultado.get('andamento',{})
-    total=d.get('pares_descobertos',0)
-    return min(99,round(100*d.get('pares_comparados',0)/total)) if total else 0
+    from ambidiff.execution import contadores
+    d=contadores(resultado.get('andamento',{}))
+    if not d['pares_admitidos']:return 0
+    return min(99 if status in ('erro','interrompido','parcial') else 100,d['percentual_fila'])
 
 
 def worker(params,run_id):
@@ -161,6 +165,9 @@ def worker(params,run_id):
         if resultado is None:
             raise RuntimeError('A varredura não produziu relatório; consulte o diagnóstico.')
         if params.get('retomada_de'):resultado['retomada_de']=params['retomada_de']
+        from ambidiff.execution import resumir
+        resultado['fila_execucao']=resumir(resultado)
+        resultado['falha_principal']=next((f for f in resultado.get('falhas',[]) if f.get('fatal')),next(iter(resultado.get('falhas',[])),None))
         resultado['formato_compacto']=True
         resultado['gerado_em']=datetime.now().strftime('%d/%m/%Y %H:%M:%S');resultado['id']=run_id
         chave=params['url_a'].split('//',1)[-1].split('/',1)[0].lower()+'/'+urlsplit(params['url_a']).path.strip('/')
@@ -176,7 +183,7 @@ def worker(params,run_id):
         total_agrupado=len(agrupar_documentos(resultado['divergencias']))
         entrada={'id':run_id,'data':resultado['gerado_em'],'site_nome':resultado['site_nome'],
                  'site_id':resultado['site_id'],'ambientes':resultado['ambientes'],
-                 'situacao':resultado['situacao_analise'],'modo_varredura':resultado.get('modo_varredura','atual'),
+                 'situacao':resultado['situacao_analise'],'fila_execucao':resultado['fila_execucao'],'modo_varredura':resultado.get('modo_varredura','atual'),
                  'total':total_agrupado, 'ocorrencias_brutas':resultado.get('ocorrencias_brutas',len(resultado['divergencias'])),
                  'avisos':sum(r['quantidade'] for r in resultado['avisos_tecnicos']),
                  'paginas':resultado['paginas'],
@@ -185,15 +192,16 @@ def worker(params,run_id):
         with LOCK:
             h=_hist();h.insert(0,entrada)
             atomic_json(HISTORY_PATH,h[:350])
-        final='interrompido' if resultado.get('estado_execucao')=='interrompido' else 'concluido' if resultado.get('situacao_analise')=='concluido' else 'parcial'
-        atualizar(status=final,progresso=percentual_final(resultado,final),andamento=resultado.get('andamento',{}),ultimo_id=run_id,erro=None,relatorio_disponivel=True,
+        final={'interrompida':'interrompido','concluida':'concluido','concluida_com_falhas':'concluido_com_falhas','parcial':'parcial'}[resultado['fila_execucao']['estado']]
+        atualizar(status=final,progresso=percentual_final(resultado,final),andamento=resultado.get('andamento',{}),falha_principal=resultado.get('falha_principal'),ultimo_id=run_id,erro=None,relatorio_disponivel=True,
                   resumo={'total':entrada['total'],'paginas':entrada['paginas'],
                           'situacao':entrada['situacao'],'nome':entrada['site_nome']})
         log(f'Finalizado ({entrada["situacao"]}): {entrada["total"]} diferenças de conteúdo; '
             f'{entrada["avisos"]} avisos técnicos.')
     except Exception as ex:
         import traceback
-        log('ERRO: '+str(ex)[:500])
+        from ambidiff.diagnostics import registrar_excecao,mensagem_segura
+        log('ERRO: '+mensagem_segura(ex))
         cp=PASTA/f'checkpoint_{run_id}.json'
         try:
             if cp.exists():
@@ -201,9 +209,13 @@ def worker(params,run_id):
                 snap=recuperar(json.loads(cp.read_text(encoding='utf-8')))
                 parcial={**snap,'formato_compacto':True,'versao':'1.5','situacao_analise':'parcial',
                    'completo':{k:False for k in snap.get('ambientes',{})},
-                   'estado_execucao':'falha','erro_execucao':str(ex)[:550],
+                   'estado_execucao':'falha','erro_execucao':mensagem_segura(ex),
                    'motivo_recuperacao':'Recuperação do último checkpoint: '+str(ex)[:250]}
+                registro=registrar_excecao(parcial,ex,url=parcial.get('andamento',{}).get('url_a',''),fatal=True)
+                parcial['falha_principal']=registro
                 parcial['andamento']['etapa']='falha'
+                from ambidiff.execution import resumir
+                parcial['fila_execucao']=resumir(parcial)
                 for meta in parcial.get('meta_varredura',{}).values():meta['motivo_parada']='Falha da automação: '+str(ex)[:200]
                 parcial['duracao_no_checkpoint_segundos']=snap.get('duracao_segundos')
                 parcial['iniciado_em']=snap.get('iniciado_em',inicio_iso)
@@ -227,18 +239,21 @@ def worker(params,run_id):
                        'paginas':parcial.get('paginas',{})})
                     atomic_json(HISTORY_PATH,h[:350])
                 log('Último checkpoint recuperado. Relatório parcial e diagnóstico salvos.')
-                atualizar(status='erro',progresso=percentual_final(parcial,'erro'),ultimo_id=run_id,erro=str(ex)[:550],andamento=parcial['andamento'],relatorio_parcial=True,relatorio_disponivel=True)
+                atualizar(status='erro',progresso=percentual_final(parcial,'erro'),ultimo_id=run_id,erro=str(ex)[:550],andamento=parcial['andamento'],falha_principal=registro,relatorio_parcial=True,relatorio_disponivel=True)
                 # Checkpoint conservado para diagnosticar a falha original.
                 return
             diag={'iniciado_em':inicio_iso,'finalizado_em':datetime.now().astimezone().isoformat(),
                  'duracao_segundos':round(time.monotonic()-inicio_worker,6),'grau_confianca':'falha_automacao','versao':'1.5','site_nome':params.get('site_nome',''),'situacao_analise':'erro',
                  'interrupcao':{'ocorreu':True,'motivos':{'programa':'Falha inesperada'},'pares_visitados':0,'pares_na_fila':0},
-                 'falhas_por_tipo':{'FALHA_CRITICA':1},'falhas':[{'ambiente':'programa','url':'', 'erro':str(ex)[:600]}],
+                 'falhas_por_tipo':{'FALHA_CRITICA':1},'falhas':[],
                  'eventos':[],'mensagens_de_execucao':list(STATE.get('logs',[])),
                  'erro_critico':traceback.format_exc()[-2000:]}
+            registro=registrar_excecao(diag,ex,fatal=True)
+            diag=montar_diagnostico(diag,list(STATE.get('logs',[])))
+            diag['grau_confianca']='falha_automacao'
             exportar_diagnostico(diag,PASTA,run_id)
         except Exception as falha_diag:log('Falha ao gravar diagnóstico: '+str(falha_diag)[:120])
-        atualizar(status='erro',erro=str(ex)[:550],ultimo_id=run_id,relatorio_disponivel=(PASTA/f'comparacao_{run_id}.json').exists())
+        atualizar(status='erro',progresso=percentual_final({'andamento':STATE.get('andamento',{})},'erro'),erro=mensagem_segura(ex),falha_principal=locals().get('registro'),ultimo_id=run_id,relatorio_disponivel=(PASTA/f'comparacao_{run_id}.json').exists())
 
 
 @app.get('/')
@@ -264,7 +279,8 @@ def comparar():
         try:
             url_a,url_b=validacao_inicial(str(args.get('url_a','')).strip(),str(args.get('url_b','')).strip())
             nome_a=re.sub(r'[^A-Za-z0-9_-]','',str(args.get('nome_a','PRD')).upper())[:12] or 'PRD'
-            nome_b=re.sub(r'[^A-Za-z0-9_-]','',str(args.get('nome_b','LAB')).upper())[:12] or 'LAB'
+            nome_b=re.sub(r'[^A-Za-z0-9_-]','',str(args.get('nome_b','DES')).upper())[:12] or 'LAB'
+            if nome_b not in ('DES','LAB','HOMOL'):raise ValueError('Ambiente B deve ser DES, LAB ou HOMOL para novas execuções.')
             if nome_a==nome_b:raise ValueError('Use nomes de ambientes diferentes.')
             site_nome=str(args.get('site_nome','')).strip()[:120]
             if any(ord(c)<32 for c in site_nome):raise ValueError('Nome da comparação inválido.')
@@ -281,7 +297,7 @@ def comparar():
                      amostras_progresso=[(inicio,0)])
         run_id=datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:6]
         FEED.eventos.clear()
-        STATE.update(execucao_id=run_id,execucao_log_inicio=FEED.seq,andamento={},amostras_pares=[],falha_log_completo=None)
+        STATE.update(execucao_id=run_id,execucao_log_inicio=FEED.seq,andamento={},falha_principal=None,amostras_pares=[],falha_log_completo=None)
         log('Iniciando Chromium...')
         params=dict(url_a=url_a,url_b=url_b,nome_a=nome_a,nome_b=nome_b,site_nome=site_nome,
                     auditar_externos=(args.get('auditar_externos') is True),
@@ -337,7 +353,7 @@ def retomar(run_id):
         PARAR.clear();inicio=time.monotonic();FEED.eventos.clear()
         STATE.update(status='executando',progresso=0,logs=[],erro=None,resumo=None,ultimo_id=None,relatorio_disponivel=False,relatorio_parcial=False,
             inicio_monotonic=inicio-estado['duracao_acumulada'],fim_monotonic=None,amostras_progresso=[],
-            execucao_id=novo,execucao_log_inicio=FEED.seq,andamento={},amostras_pares=[],falha_log_completo=None)
+            execucao_id=novo,execucao_log_inicio=FEED.seq,andamento={},falha_principal=None,amostras_pares=[],falha_log_completo=None)
         log('Retomando checkpoint '+run_id+' em nova execução '+novo)
         threading.Thread(target=worker,args=(params,novo),daemon=True).start()
         return jsonify(ok=True,id=novo,retomada_de=run_id)
