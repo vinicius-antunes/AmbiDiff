@@ -84,6 +84,18 @@ As opções de verificações adicionais, como destinos externos e cliques inter
 
 Você pode **selecionar DIVs**, reclassificar relevância e confirmar manualmente achados sem alterar o relatório bruto. O histórico, as seleções e as evidências ficam **no computador local**. Confira o [guia de relatórios, recuperação e atualização](docs/guia-de-uso.md).
 
+## Análise inteligente de divergências (opcional)
+
+O **AmbiDiff IA** é um assistente complementar e **independente** da varredura. Ele ajuda a interpretar divergências a partir de **relatórios JSON exportados** e, quando disponíveis, diagnósticos e capturas de tela.
+
+- Identifica achados com maior impacto em menus, navegação e serviços.
+- Diferencia possíveis problemas estruturais, funcionais, editoriais e falsos positivos.
+- Organiza prioridades e gera um resumo executivo com diagnóstico técnico.
+
+A análise é **manual e opcional**: não há envio automático de dados pelo AmbiDiff. Antes de utilizar a IA, verifique se os arquivos contêm **somente informações públicas e sanitizadas**. As conclusões são recomendações que exigem **validação humana**.
+
+O acesso ao assistente é destinado a colegas autorizados e depende da disponibilidade e das permissões da ferramenta; não é necessário para utilizar o AmbiDiff.
+
 ## Limitações importantes
 
 - Não determina qual ambiente está correto, nem garante igualdade visual pixel a pixel.
