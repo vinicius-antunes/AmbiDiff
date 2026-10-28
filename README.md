@@ -96,6 +96,19 @@ A análise é **manual e opcional**: não há envio automático de dados pelo Am
 
 O acesso ao assistente é destinado a colegas autorizados e depende da disponibilidade e das permissões da ferramenta; não é necessário para utilizar o AmbiDiff.
 
+### Como instalar o AmbiDiff IA no ChatGPT
+
+O assistente é um **plugin opcional do ChatGPT**, não um componente instalado no Windows junto com o AmbiDiff.
+
+1. Tenha uma conta ChatGPT com acesso ao recurso **Plugins**. Solicite ao responsável pelo AmbiDiff IA o compartilhamento com seu usuário ou equipe.
+2. No ChatGPT, abra **Plugins** (ou **Personalizar → Plugins**, conforme a interface), procure **AmbiDiff IA** na seção de plugins compartilhados e selecione **Instalar (+)**. A disponibilidade depende das permissões da conta e do ambiente.
+3. Inicie uma **nova conversa**, digite **@AmbiDiff IA** e selecione o plugin.
+4. Anexe os **JSONs exportados** pelo AmbiDiff e, se disponíveis, o **diagnóstico completo e as imagens**. Peça, por exemplo: *“Priorize as divergências, preserve os IDs e separe fatos, hipóteses e verificações necessárias.”*
+
+Se o plugin não aparecer no catálogo ou na busca por `@`, confirme com o responsável se o compartilhamento foi habilitado e se sua conta tem permissão de instalar plugins. **Não é necessário instalar ou executar o arquivo `plugin.zip` no computador**: o ZIP é um pacote usado pelo mantenedor para configurar ou atualizar o plugin.
+
+Antes de anexar relatórios, confirme que eles contêm **somente dados públicos verificados e sanitizados**. O uso do assistente não substitui a revisão humana.
+
 ## Limitações importantes
 
 - Não determina qual ambiente está correto, nem garante igualdade visual pixel a pixel.
