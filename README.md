@@ -1,14 +1,10 @@
 <div align="center">
 
-# AmbiDiff
-
-**Compare ambientes web com mais contexto e menos falsos positivos.**
-
-Uma ferramenta **local para Windows** que analisa páginas, navegação, menus, serviços e referências entre ambientes, preservando evidências para revisão humana.
-
-**PRD · DES · LAB · HOMOL** &nbsp;|&nbsp; **Somente leitura** &nbsp;|&nbsp; **Relatórios locais**
-
-[Instalação](#comece-em-5-minutos) · [Primeira comparação](#sua-primeira-comparação) · [Como ler o resultado](#como-interpretar-o-resultado) · [Guia completo](docs/guia-de-uso.md)
+  <h1>AmbiDiff</h1>
+  <p><strong>Compare ambientes web com mais contexto e menos falsos positivos.</strong></p>
+  <p>Uma ferramenta <strong>local para Windows</strong> que analisa páginas, navegação, menus, serviços e referências entre ambientes, preservando evidências para revisão humana.</p>
+  <p><strong>PRD · DES · LAB · HOMOL</strong> &nbsp;|&nbsp; <strong>Somente leitura</strong> &nbsp;|&nbsp; <strong>Relatórios locais</strong></p>
+  <p><a href="#comece-em-5-minutos">Instalação</a> · <a href="#sua-primeira-comparação">Primeira comparação</a> · <a href="#como-interpretar-o-resultado">Como ler o resultado</a> · <a href="docs/guia-de-uso.md">Guia completo</a></p>
 
 </div>
 
@@ -133,8 +129,7 @@ O código é organizado em `ambidiff/` (comparação), `web/` (painel e API), `t
 
 <div align="center">
 
-**AmbiDiff é uma ferramenta de apoio à revisão humana.**
-
-Use apenas em ambientes autorizados. Não compartilhe logs, capturas ou relatórios internos sem verificar e sanitizar o conteúdo.
+  <p><strong>AmbiDiff é uma ferramenta de apoio à revisão humana.</strong></p>
+  <p>Use apenas em ambientes autorizados. Não compartilhe logs, capturas ou relatórios internos sem verificar e sanitizar o conteúdo.</p>
 
 </div>
