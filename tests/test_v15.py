@@ -74,7 +74,7 @@ class IntelligenceTests(unittest.TestCase):
     def test_dom_mais_de_uma_estrutura_mas_mesmo_conteudo(self):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
-            try:browser=pw.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+            try:browser=pw.chromium.launch(headless=True,args=['--no-sandbox'])
             except Exception as ex:self.skipTest('Chromium indisponível: '+str(ex)[:100])
             try:
                 page=browser.new_page()
@@ -104,7 +104,7 @@ class IntelligenceTests(unittest.TestCase):
     def test_contempla_icones_svg_distintos(self):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
-            try:browser=pw.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+            try:browser=pw.chromium.launch(headless=True,args=['--no-sandbox'])
             except Exception as ex:self.skipTest('Chromium indisponível: '+str(ex)[:100])
             try:
                 pages=[browser.new_page(),browser.new_page()]

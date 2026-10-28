@@ -102,7 +102,7 @@ class StorageTests(unittest.TestCase):
 
 class BrowserTests(unittest.TestCase):
     def browser(self,pw):
-        try:return pw.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+        try:return pw.chromium.launch(headless=True,args=['--no-sandbox'])
         except Exception as e:self.skipTest('Chromium indisponível: '+str(e)[:100])
 
     def test_rolagem_ativa_elemento_lazy(self):

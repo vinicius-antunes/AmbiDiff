@@ -23,6 +23,8 @@ jobs:
   tests:
     name: Windows / Python 3.12
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
     timeout-minutes: 20
     steps:
       - name: Obter código
