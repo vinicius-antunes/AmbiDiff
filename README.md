@@ -2,9 +2,11 @@
 
 **PRD × DES/LAB/HOMOL**, com comparação pareada, evidências e exportação local. Funciona no **Windows**, com Python + Playwright Chromium + painel Flask escuro. O programa lê páginas autorizadas sem editar sites.
 
-> **Estado do desenvolvimento:** as melhorias **13 a 17** integram esta entrega da branch `perf/otimizacao-varredura`, sobre `b71d90f`, com commit e envio autorizados pelo mantenedor. Não há merge na `main`, deploy ou GitHub Pages. Leia [diagnóstico, testes e benchmarks desta rodada](docs/atualizacao-13-17.md). A [entrega das 12 melhorias](docs/atualizacao-12-melhorias.md) permanece como referência histórica.
+> **Branch de desenvolvimento:** `chore/infra-codex-agents-skills-ci`. Reúne as melhorias de comparação, classificação editorial, exportação de arquivos grandes, agentes e testes. **Não foi integrada à `main`**, que permanece como referência estável. Não há deploy ou GitHub Pages.
 
-**Atualização atual:** [estabilização da varredura, progresso e HOMOL](docs/estabilizacao-varredura.md). Chromium oculto, recuperação limitada e exportação compacta.
+**Nesta branch:** varredura inteligente com até 1.000 pares HTML, Chromium oculto, retomada/checkpoints, separação conservadora de variações editoriais mesmo sem base declarada antiga, exportação CSV/HTML/PDF/JSON por formato e infraestrutura de manutenção com `AGENTS.md`, Skills e GitHub Actions. Consulte também a [estabilização da varredura](docs/estabilizacao-varredura.md) e o [guia dos agentes](docs/manutencao-ia.md).
+
+**Validação em 29/10/2026:** o CSV e o JSON foram baixados com sucesso em teste manual informado pelo mantenedor no Windows; HTML e PDF ainda precisam de confirmação nessa instalação. A última suíte Windows consultada **falhou em 2 de 254 testes** (agrupamento CSV e feedback de download). As alterações seguintes da exportação ainda precisam de suíte aprovada e validação real; **não considerar esta branch estável automaticamente**. [Consultar GitHub Actions](https://github.com/vinicius-antunes/AmbiDiff/actions).
 
 ## Visão geral
 
@@ -49,7 +51,7 @@ Se nenhum funcionar, instale/configure o Python pelo canal aprovado pela TI e ab
 
 ### Passo a passo
 
-1. **Obtenha a versão correta.** No repositório privado, escolha a branch `perf/otimizacao-varredura` e utilize **Code → Download ZIP**, ou receba o pacote por canal interno autorizado. Confira a branch/versão: um ZIP da `main` ou uma cópia antiga pode ter outro comportamento.
+1. **Obtenha a versão de desenvolvimento.** No repositório privado, escolha a branch [`chore/infra-codex-agents-skills-ci`](https://github.com/vinicius-antunes/AmbiDiff/tree/chore/infra-codex-agents-skills-ci) e utilize **Code → Download ZIP**, ou receba o pacote por canal interno autorizado. **A `main` é diferente e não contém necessariamente estas correções em teste.**
 2. **Extraia todo o ZIP** para uma pasta própria, por exemplo `Documentos\AmbiDiff-Teste`. Não execute o projeto diretamente do arquivo compactado. Mantenha instalações antigas em pastas separadas.
 3. **Execute `instalar.bat`** na pasta extraída. Ele cria a `.venv`, instala as bibliotecas de `requirements.txt` e baixa o Chromium usado pelo Playwright. Aguarde a mensagem **"Instalacao concluida!"**. Se aparecer erro, mantenha a janela aberta e anote as últimas mensagens.
 4. **Execute `INICIAR_AMBIDIFF.bat`** na mesma pasta. Ele utiliza o Python da `.venv` e inicia o servidor local. **Não feche a janela preta** enquanto estiver usando o AmbiDiff.
@@ -87,6 +89,7 @@ O estado da fila distingue **concluída**, **concluída com falhas**, **parcial*
 | DES/LAB não carrega, mas o painel funciona | Confira URL, DNS, rede/VPN autorizada e certificado com a TI; não presuma falha do AmbiDiff |
 | Navegação interrompida ou comparação parcial | Consulte o motivo de parada, as páginas pendentes, o diagnóstico e os logs. Parcial não significa equivalência |
 | Histórico ou capturas não aparecem após copiar a pasta | Confirme a cópia de `relatorios/` e `historico.json`; nos relatórios atuais preserve também `detalhes_<id>.json` junto do principal |
+| CSV baixa, mas JSON/HTML/PDF falha | Confira se a pasta foi atualizada com os arquivos desta branch, reinicie o servidor e use Ctrl+F5. O Chrome gerencia a pasta; acompanhe em Ctrl+J. Consulte o terminal e os diagnósticos; JSON e HTML/PDF podem exigir mais memória/tempo. Não repita a varredura nem apague os JSONs originais. |
 
 ### Quando aparece "Failed to fetch" ao iniciar uma comparação
 
@@ -126,7 +129,7 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 
 ### Como distribuir o pacote de testes
 
-1. Um responsável com acesso ao repositório privado abre a branch `perf/otimizacao-varredura`, seleciona **Code → Download ZIP** e confirma que não baixou a `main`.
+1. Um responsável com acesso ao repositório privado abre a branch `chore/infra-codex-agents-skills-ci`, seleciona **Code → Download ZIP** e confirma que não baixou a `main`.
 2. Compartilha o ZIP **somente por canal interno aprovado pelo setor/TI**. Não é necessário tornar o repositório público nem habilitar GitHub Pages.
 3. Cada colega extrai o conteúdo em **uma pasta própria**, sem substituir instalações anteriores. Pode renomear a pasta extraída para `AmbiDiff-Teste-Interno`.
 4. Antes de distribuir qualquer pasta montada manualmente, **exclua e confira** relatórios, capturas, arquivos auxiliares, `historico.json`, `.env`, credenciais, sessões, perfis de navegador e `.venv`. O ZIP de código gerado pelo GitHub não deve conter arquivos de execução locais ignorados pelo Git; ainda assim, revise os arquivos distribuídos.
@@ -145,7 +148,7 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 
 | Campo do registro | Exemplo do que informar |
 |---|---|
-| Versão usada | Branch `perf/otimizacao-varredura` e commit, se conhecido |
+| Versão usada | Branch `chore/infra-codex-agents-skills-ci` e commit, se conhecido |
 | Ambientes | Identificação do portal, PRD e DES/LAB (sem credenciais) |
 | Configuração | Varredura inteligente; admissões HTML, opções autorizadas e base desatualizada, se aplicável |
 | Localização | Caminho da página, seção e elemento afetado |
@@ -161,8 +164,8 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 - Widgets recebem tratamento genérico de relevância e estabilidade. A **DIV-0028 (Messenger) da SEFAZ real** ainda exige validação manual; decoração isolada não comprova equivalência funcional.
 - Documentos e destinos externos recebem somente conferência de referências/HEAD, sem corpo, PDF ou hash. HEAD bloqueado ou não suportado é inconclusivo.
 - A otimização pode reduzir inspeções profundas de certas páginas editoriais estáticas, com a cobertura omitida declarada no relatório.
-- As branches específicas USEIA/CGE não foram incorporadas. Esta atualização implementa independentemente cursor de logs, progresso e interrupção; a futura integração desses PRs requer revisão de conflitos.
-- Os testes automatizados disponíveis foram executados em ambiente de desenvolvimento; **não há validação concluída nos portais reais do setor ou no Windows de todos os colegas**.
+- Correções antigas e específicas de portais, como USEIA/CGE, não devem ser presumidas incorporadas: antes de reutilizá-las, revise seus commits e testes. A detecção da opção **ÁUDIOS** na CGE permanece protegida por regressões.
+- A suíte automatizada Windows está configurada no GitHub Actions, mas **a última execução consultada falhou em 2 de 254 testes**; consulte os logs antes de integrar mudanças. Houve teste manual positivo de CSV e JSON no Windows, mas **não há validação integral em todos os formatos, portais reais ou computadores do setor**.
 
 **Critério de sucesso:** identificar diferenças relevantes sem ocultar problemas estruturais ou funcionais, registrar corretamente limites e falhas e preservar resultados parciais. PRD não é considerado automaticamente correto.
 
@@ -214,7 +217,7 @@ Cada DIV tem botão **Confirmar DIV**. A escolha é preservada em arquivo auxili
 | Área | Significado |
 |---|---|
 | **Divergências** | Diferenças entre elementos coletados nos dois ambientes (exigem validação). |
-| **Variações de dados** | Possíveis diferenças editoriais por atualização, agrupadas quando a defasagem foi confirmada pelo usuário. |
+| **Variações editoriais (informativas)** | Diferenças de notícias, datas ou banners identificadas por contexto, mesmo sem base declarada desatualizada; se uma área não tem contraparte, permanece para revisão. |
 | **Sinais de desatualização** | Avisos localizados no DOM, sem conclusão automática. |
 | **Referências diferentes** | Diferenças de URLs, imagens ou layout sem prova de defeito visual. |
 | **Avisos técnicos** | Falhas de carregamento, arquivos ignorados e coleta parcial. |
@@ -229,13 +232,13 @@ A pasta `relatorios` contém `comparacao_<id>.json`, `.html` e `.csv`, `diagnost
 
 `selecoes_<id>.json` guarda a seleção de exportação separada das revisões, exclusões e do relatório bruto. Excluídos não entram na seleção exportada. Checkpoints e relatórios antigos continuam legíveis; nomes e caminhos internos não mudaram. Uma recuperação adicional preserva o bruto existente e usa `recuperacao_<id>.json` quando necessário.
 
-Os downloads usam nomes como `SEFAZ_DIVs_Selecionadas_2026-10-23_abcdef.csv`, sanitizados para Windows. Chrome/Edge compatível pode abrir **Salvar como**, sugerindo a última pasta quando permitido; há confirmação antes de substituir um arquivo com dados. Sem essa API, vale o download normal do navegador. Ative **Perguntar onde salvar cada arquivo** para escolher o local no fallback. Não há garantia de pasta persistente entre navegadores ou sessões.
+Os downloads usam nomes como `SEFAZ_DIVs_Selecionadas_2026-10-23_abcdef.csv`, sanitizados para Windows. **O Chrome/Edge gerencia o salvamento diretamente**; o AmbiDiff não usa mais o seletor `showSaveFilePicker` nem tenta ler arquivos do usuário antes de gravar. Para escolher a pasta a cada download, ative **“Perguntar onde salvar cada arquivo antes de fazer download”** nas configurações do navegador (no Chrome: `chrome://settings/downloads`). A escolha de nomes repetidos e eventuais substituições também é controlada pelo navegador.
 
-HTML incorpora PNGs locais com limite de **3 MB por captura e 20 MB por exportação**, indicando evidências ausentes ou excedentes. PDF é gerado localmente com Chromium, sem serviço externo, com orçamento de 60 s. Downloads usam arquivos temporários isolados; não substituem os originais. CSV conserva UTF-8 com BOM, `;` e proteção contra fórmulas. Diagnósticos JSON/TXT continuam disponíveis separadamente.
+HTML incorpora PNGs locais com limite de **3 MB por captura e 20 MB por exportação**, indicando evidências ausentes ou excedentes. O HTML/PDF resume métricas técnicas extensas, sem remover as divergências do relatório; o JSON completo mantém os dados técnicos da execução. PDF é gerado localmente com Chromium, sem serviço externo, com limite de conversão de 60 s. **Cada solicitação gera somente o formato necessário** (PDF usa um HTML intermediário), e o servidor transmite o arquivo em blocos, sem carregá-lo por inteiro no navegador. Exportações usam arquivos temporários isolados; **não substituem** os originais em `relatorios/`. CSV conserva UTF-8 com BOM, `;` e proteção contra fórmulas. Diagnósticos JSON/TXT continuam disponíveis separadamente.
 
 **Seleção em massa:** use **Marcar todas do relatório**, **Marcar apenas as filtradas** ou **Desmarcar todas**. A operação inclui itens ainda não renderizados, trata membros dos grupos e preserva confirmações e classificações. Marcar filtradas mantém seleções fora dos filtros. A busca por ID conserva a regra da tela: ignora categoria/lado/tipo, mas respeita revisão e visibilidade de baixa relevância. Uma única requisição em lote aplica os filtros no servidor e salva a seleção atomicamente.
 
-Com relatório aberto, os quatro formatos têm foco/hover e feedback próximo dos controles. Sem relatório, a tela explica a indisponibilidade; sem DIV marcada no escopo selecionado, orienta a seleção. Falhas e cancelamentos ficam na própria tela de resultados.
+Com relatório aberto, os quatro formatos possuem seleção e feedback no painel. Sem DIV marcada no escopo **Somente DIVs selecionadas**, o programa orienta marcar os itens. O download é gerenciado pelo navegador; acompanhe o resultado em **Ctrl+J**. Se falhar, confira a mensagem no painel, a janela do `INICIAR_AMBIDIFF.bat` e os arquivos de diagnóstico da execução.
 
 O histórico é agrupado por site. É possível excluir uma execução ou várias, excluir DIVs individuais e confirmar resultados manualmente. Todas essas alterações ficam **somente no seu computador**.
 
@@ -248,6 +251,18 @@ O histórico é agrupado por site. É possível excluir uma execução ou vária
 3. Inicie a v1.5. Os relatórios antigos são preservados **como foram gerados**; não recebem retroativamente o novo diagnóstico ou classificação editorial. Novas regras valem para novas execuções.
 
 Você também pode manter a v1.4 intacta e começar um histórico separado na v1.5.
+
+## Análise complementar: AmbiDiff IA (opcional)
+
+O **AmbiDiff IA** é um plugin **independente** do programa, utilizado manualmente no ChatGPT para interpretar **JSONs exportados**, diagnósticos e evidências. Ajuda a priorizar divergências de menus, serviços, navegação e documentos, separar fatos de hipóteses, identificar possíveis diferenças editoriais e produzir resumos executivos. **Não realiza varreduras, não modifica os sites e não substitui a revisão humana.**
+
+### Instalação e uso no ChatGPT
+
+1. Tenha uma conta ChatGPT com acesso a **Plugins** e solicite ao responsável pelo AmbiDiff IA o compartilhamento com seu usuário ou equipe autorizada.
+2. No ChatGPT, abra **Plugins**, procure **AmbiDiff IA** entre os plugins disponíveis ou compartilhados e escolha **Instalar** (a interface e a disponibilidade dependem da conta).
+3. Em uma conversa, selecione **@AmbiDiff IA**, anexe o JSON do relatório e, quando disponíveis, diagnóstico e capturas. Exemplo: *“Priorize as DIVs, preserve os IDs e separe fatos, possíveis causas e verificações necessárias.”*
+
+**Não instale `plugin.zip` no Windows**: ele é um pacote de configuração do plugin para o mantenedor. O acesso depende de compartilhamento e permissões; não é necessário para usar o AmbiDiff. **Não anexe informações internas ou sensíveis**: utilize apenas conteúdo público verificado e sanitizado, conforme as regras do setor.
 
 ## Testes locais
 
@@ -337,7 +352,7 @@ completa. Veja [critérios, formatos e limitações](docs/filtro-relevancia.md).
 
 ## Histórico: otimização de preparação e releitura
 
-A branch `perf/otimizacao-varredura` acrescenta preparação por sinais do DOM,
+A antiga etapa de otimização, hoje preservada no histórico técnico do projeto, acrescentou preparação por sinais do DOM,
 releitura seletiva, tags de evidência, relações entre ocorrências e horários/duração
 nos relatórios. O benchmark equivalente entre checkouts mediu redução sintética de
 76,78% (estável) e 59,22% (dinâmico), sem omissões profundas ou perda dos achados
@@ -418,11 +433,27 @@ preservados se a recuperação se esgotar.
 Os resultados usam um seletor de formato e **Baixar relatório**. JSON de relatório
 respeita o escopo escolhido; **Diagnósticos técnicos** oferece separadamente JSON
 da execução e log TXT. CSV, HTML e PDF local continuam disponíveis, assim como
-seleção persistente, confirmação manual, agrupamento, exclusões e filtros. Telas
+seleção persistente, confirmação manual, agrupamento, exclusões e filtros.
+**Na branch atual**, as exportações grandes passam por geração independente,
+gravação incremental de JSON e transmissão em blocos; isso não altera a varredura
+ou o teto de páginas. A integridade e a compatibilidade dos formatos seguem
+sujeitas aos testes de regressão e à verificação no Windows. Telas
 sem DIVs ocultam os filtros vazios e informam as limitações da análise.
 
-## Infraestrutura de manutenção
+## Infraestrutura de manutenção com Codex
 
-[Guia de manutenção assistida por IA](docs/manutencao-ia.md): `AGENTS.md`, Skills
-locais de diagnóstico, otimização e validação e CI de testes no GitHub Actions.
-Esses recursos orientam o desenvolvimento; não alteram o funcionamento do AmbiDiff.
+O `AGENTS.md` reúne regras de desenvolvimento e segurança. As Skills em
+`.agents/skills/` oferecem procedimentos de **diagnóstico de falhas**,
+**otimização medida** e **validação de correções**. Elas orientam o Codex
+quando utilizadas e **não são agentes executados durante a varredura**.
+Não existe integração automática entre essas Skills e o AmbiDiff IA.
+
+O workflow [**Testes AmbiDiff**](.github/workflows/tests.yml) executa
+verificação de JavaScript e a suíte Python no Windows com Chromium.
+Nesta configuração, o workflow é acionado por pushes na branch `chore`,
+por PRs e manualmente; ainda referencia a branch antiga
+`perf/otimizacao-varredura` nos filtros, que precisa de revisão futura.
+**Não faça merge na `main` enquanto houver testes falhando**.
+
+Consulte o [guia de manutenção assistida por IA](docs/manutencao-ia.md)
+para uso das Skills, comandos, segurança e limitações.
