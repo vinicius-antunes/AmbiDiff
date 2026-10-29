@@ -53,7 +53,9 @@ def separar_editoriais(comps, pa, pb, itens_a, itens_b, nomes, defasado):
         # estrutural: nesse caso não deslocar seus itens para o grupo informativo.
         locais_opostos=locais_b if d.get('presente_em')==nomes[0] else locais_a
         area_correspondente=bool(candidatos) and normalizar(candidatos[0].local) in locais_opostos
-        if editorial and area_correspondente and (d.get('tipo') in ('Texto','Imagem') or publicacao):
+        # Em uma base explicitamente defasada, preservar o agrupamento editorial
+        # legado (inclusive avisos editoriais exclusivos), coberto por regressões.
+        if editorial and (defasado or area_correspondente) and (d.get('tipo') in ('Texto','Imagem') or publicacao):
             motivo=('Contexto editorial observado; base desatualizada declarada pelo usuário. '
                     'A causa da diferença não foi comprovada.' if defasado else
                     'Contexto editorial observado nos dois ambientes. Diferença de publicação '
