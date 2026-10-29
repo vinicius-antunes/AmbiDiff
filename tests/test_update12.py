@@ -199,15 +199,17 @@ class BrowserExportTests(unittest.TestCase):
                 p.evaluate('(id)=>openReport(id)',RID);p.locator('input[aria-label="Selecionar DIV-0001 para exportação"]').check()
                 p.wait_for_function('currentReport.ids_selecionados.length===2');p.reload(wait_until='networkidle');p.evaluate('(id)=>openReport(id)',RID)
                 self.assertTrue(p.locator('input[aria-label="Selecionar DIV-0001 para exportação"]').is_checked())
-                p.evaluate("""() => {window.showSaveFilePicker=async options=>{window.saveOptions=options;return {getFile:async()=>({size:0}),createWritable:async()=>({write:async blob=>{window.savedText=await blob.text()},close:async()=>{},abort:async()=>{}})}}}""")
-                p.locator('[data-export="csv"]').click();p.wait_for_function('window.savedText')
-                self.assertNotIn('Outra diferença',p.evaluate('window.savedText'));self.assertEqual(p.evaluate('window.saveOptions.id'),'ambidiff-exportacoes')
+                # O seletor do sistema não é mais necessário, mesmo quando
+                # existir mas negar permissões. O conteúdo do download é verificado.
+                p.evaluate("""() => {window.pickerInvocado=false;window.showSaveFilePicker=async()=>{window.pickerInvocado=true;throw new DOMException('Sem permissão','NotAllowedError')}}""")
+                with p.expect_download() as download:p.locator('[data-export="csv"]').click()
+                arquivo=root/'selecionadas.csv';download.value.save_as(str(arquivo))
+                csv=arquivo.read_text(encoding='utf-8-sig')
+                self.assertIn('DIV-0001',csv);self.assertNotIn('Outra diferença',csv)
+                self.assertFalse(p.evaluate('window.pickerInvocado'))
                 self.assertFalse(preparar_relatorio(root,RID)['revisoes_manuais'])
-                denied=p.evaluate("""async()=>{window.confirm=()=>false;window.wroteExisting=false;window.showSaveFilePicker=async()=>({getFile:async()=>({size:20}),createWritable:async()=>{window.wroteExisting=true}});await downloadExport(document.querySelector('[data-export=csv]'));return !window.wroteExisting;}""")
-                self.assertTrue(denied)
-                p.evaluate('window.showSaveFilePicker=undefined')
-                with p.expect_download() as download:p.locator('[data-export=csv]').click()
-                self.assertIn('DIVs_Selecionadas',download.value.suggested_filename)
+                with p.expect_download() as again:p.locator('[data-export="csv"]').click()
+                self.assertIn('DIVs_Selecionadas',again.value.suggested_filename)
 
             finally:browser.close()
 
