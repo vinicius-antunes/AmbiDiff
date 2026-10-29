@@ -233,6 +233,15 @@ class SmartIntegrationTests(unittest.TestCase):
         self.assertLess(otimizado['metricas']['contagens']['operacoes_preparacao'],atual['metricas']['contagens']['operacoes_preparacao'])
         self.assertFalse(any(m=='GET' and p=='/manual.pdf' for _,m,p in requisicoes))
 
+    def test_noticias_sem_base_declarada_tambem_sao_informativas(self):
+        with portais(2) as (bases,_):
+            r=self.executar(bases,varredura_inteligente=True)
+        self.assertEqual(r['ambiente_desatualizado'],'')
+        self.assertTrue(r['variacoes_dados'])
+        self.assertTrue(r['registros_editoriais'])
+        self.assertFalse(any(d.get('tipo')=='Texto' and 'Notícia' in d.get('elemento','')
+                             for d in r['divergencias']))
+
     def test_noticias_com_diferenca_estrutural_nao_reutilizam_template(self):
         with portais(3,estrutura_diferente=True) as (bases,_):
             r=self.executar(bases,ambiente_desatualizado='DES',varredura_inteligente=True)
