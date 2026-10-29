@@ -324,6 +324,22 @@ class Interface19Tests(unittest.TestCase):
         self.assertFalse(self.p.locator('#download-report').is_disabled())
 
 
+    def test_servidor_nao_entrega_json_sem_divs_esperadas(self):
+        from web import server
+        self.abrir(2)
+        original=(self.root/f'comparacao_{RID}.json').read_bytes()
+        def exportar_truncado(dados, pasta, run_id, **_kw):
+            p=pasta/f'comparacao_{run_id}.json'
+            p.write_text('{"divergencias":[]}',encoding='utf-8')
+            return {'json':str(p)}
+        with patch.object(server,'exportar',side_effect=exportar_truncado):
+            response=self.client.get(f'/download/{RID}/json?completo=1')
+            self.assertEqual(response.status_code,500)
+            self.assertIn('sem divergências esperadas',response.get_json()['erro'])
+            response.close()
+        self.assertEqual((self.root/f'comparacao_{RID}.json').read_bytes(),original)
+
+
 class Homol19Tests(unittest.TestCase):
     def test_homol_api_nova_e_prd_b_legado_continua_consultavel(self):
         from web import server
