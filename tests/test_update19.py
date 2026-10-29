@@ -106,6 +106,25 @@ class Recovery19Tests(unittest.TestCase):
         self.assertTrue(all(ctx.close.called for ctx in contextos))
         self.assertFalse(any(r.get('evidencias') for r in registros))
 
+    def test_capturas_recriam_contexto_para_divs_seguinte_quando_browser_ativo(self):
+        from unittest.mock import MagicMock
+        from ambidiff.paired import _salvar_evidencias
+        browser=MagicMock();browser.is_connected.return_value=True
+        contextos=[MagicMock() for _ in range(3)]
+        paginas=[MagicMock() for _ in range(3)]
+        for ctx,pag in zip(contextos,paginas):
+            ctx.new_page.return_value=pag;pag.goto.return_value=None
+        browser.new_context.side_effect=contextos
+        paginas[0].goto.side_effect=RuntimeError(CLOSED)
+        registros=[{'id':f'DIV-{n:04d}','presente_em':'PRD','nao_identificado_em':'HOMOL',
+            'url_presente':A,'url_comparada':B} for n in (1,2)]
+        logs=[]
+        with tempfile.TemporaryDirectory() as td,patch('ambidiff.adaptive.sondar',return_value={}):
+            _salvar_evidencias(browser,registros,td,threading.Event(),logs.append,'PRD','HOMOL')
+        self.assertTrue(any('Recriado contexto de PRD' in s for s in logs))
+        self.assertEqual(set(registros[1]['evidencias']),{'PRD','HOMOL'})
+        self.assertTrue(all(ctx.close.called for ctx in contextos))
+
     def test_capturas_contexto_fechado_na_inicializacao_nao_derrubam_relatorio(self):
         from unittest.mock import MagicMock
         from ambidiff.paired import _salvar_evidencias
