@@ -78,6 +78,18 @@ class IntelligenceTests(unittest.TestCase):
         self.assertEqual(principal,comps)
         self.assertFalse(dados)
 
+    def test_artigos_pareados_com_titulos_locais_diferentes_sao_editoriais(self):
+        pa=Pagina('https://prd.test/w/1','@artigo','Publicação A',[],['Página inicial'])
+        pb=Pagina('https://des.test/w/1','@artigo','Publicação B',[],['Página inicial'])
+        a=Item('Texto','Publicado em 28/10','Publicado em 28/10','Notícia A',
+            natureza='editorial')
+        b=Item('Texto','Publicado em 27/10','Publicado em 27/10','Notícia B',
+            natureza='editorial')
+        comps=[{'tipo':'Texto','presente_em':'PRD','elemento':a.nome,'local':a.local}]
+        principal,dados=separar_editoriais(comps,pa,pb,[a],[b],('PRD','DES'),'')
+        self.assertEqual(principal,[])
+        self.assertEqual([v['elemento'] for v in dados],[a.nome])
+
     def test_documentos_sem_extensao_e_logo_liferay(self):
         self.assertTrue(e_arquivo('https://prd.test/documents/d/cge/portaria-76'))
         self.assertFalse(e_arquivo('https://prd.test/legislacao-e-jurisprudencia'))
