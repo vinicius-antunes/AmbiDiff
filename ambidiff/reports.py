@@ -165,7 +165,7 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None)-
     <label for="search-div"><b>Pesquisar divergência por ID (DIV-0033, 0033, 33) ou texto:</b></label>
     <input type="search" id="search-div" class="search-div" placeholder="Ex.: DIV-0033 ou Radar">
     <h2>Equivalência, documentos e cobertura</h2><p>Equivalência estática não comprova funcionamento. Metadados não comprovam arquivos idênticos. Inspeções profundas omitidas limitam a cobertura.</p><details><summary>Resultados e métricas do modo {esc(dados.get("modo_varredura","atual"))}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{smart_html}</pre></details>
-    <h2>Variações de dados (base defasada: {esc(dados.get('ambiente_desatualizado') or 'não informada')})</h2>{variance_html or '<p>Sem variações editoriais classificadas.</p>'}
+    <h2>Variações editoriais informativas (base desatualizada declarada: {esc(dados.get('ambiente_desatualizado') or 'nenhuma')})</h2>{variance_html or '<p>Sem variações editoriais classificadas.</p>'}
     <p>Relatório principal omite baixa relevância e editoriais da lista prioritária. JSON contém todos os registros.</p>
     <details><summary>Diagnóstico completo — diferenças de baixa relevância</summary><pre>{esc(json.dumps({'baixa_relevancia':[r for r in completos if r['classificacao']=='baixa'],'editoriais':dados.get('editoriais_preservados',[])},ensure_ascii=False,indent=2))}</pre></details>
     <h2>Divergências agrupadas por categoria</h2>{''.join(cards) or '<p>Nenhuma divergência encontrada nas páginas verificadas.</p>'}
