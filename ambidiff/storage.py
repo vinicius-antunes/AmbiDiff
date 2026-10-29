@@ -34,7 +34,10 @@ def atomic_json(path:Path,data)->None:
     path.parent.mkdir(parents=True,exist_ok=True)
     temp=path.with_name(path.name+'.tmp')
     try:
-        temp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
+        # Escrever incrementalmente evita manter uma segunda cópia gigantesca
+        # do JSON na memória, especialmente durante exportações completas.
+        with temp.open('w',encoding='utf-8') as arquivo:
+            json.dump(data,arquivo,ensure_ascii=False,indent=2)
         os.replace(temp,path)
     finally:
         temp.unlink(missing_ok=True)
