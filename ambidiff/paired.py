@@ -904,13 +904,11 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 emitir('comparacao')
                 # 1. Compara texto/imagens/opções SEM navegar nas diferenças.
                 itens_a,itens_b,pendencias_imgs=_alinhamento_de_componentes(pa,pb,base_a,base_b,nome_a,nome_b)
-                if modo_defasado:
-                    for v in pendencias_imgs:
-                        if v.get('natureza')=='editorial':
-                            editoriais.append({'tipo':'Imagem','presente_em':nome_a,'elemento':v.get('elemento',''),
-                                'url_presente':pa.url,'url_comparada':pb.url})
-                        else:refs.append(v)
-                else:refs.extend(pendencias_imgs)
+                for v in pendencias_imgs:
+                    if v.get('natureza')=='editorial' and any(item_editorial(i,pb) for i in pb.itens):
+                        editoriais.append({'tipo':'Imagem','presente_em':nome_a,'elemento':v.get('elemento',''),
+                            'url_presente':pa.url,'url_comparada':pb.url})
+                    else:refs.append(v)
                 with metricas.medir('comparacao'):
                     comps=(inteligencia.comparar(itens_a,itens_b,pa,pb,nome_a,nome_b,base_a,base_b) if varredura_inteligente else
                            comparacao(itens_a,itens_b,pa,pb,nome_a,nome_b))
@@ -1056,7 +1054,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         # Evitar leitura/crawl de mídia não dispensa comparar o
                         # destino da opção, especialmente nos menus estruturais.
                         if not link_equivalente(da,db,base_a,base_b):
-                            if modo_defasado and (item_editorial(ia,pa) or item_editorial(ib,pb)):
+                            if modo_defasado and item_editorial(ia,pa) and item_editorial(ib,pb):
                                 editoriais.append({'tipo':'Link editorial','elemento':ia.nome,'presente_em':nome_a,'url_presente':pa.url,'url_comparada':pb.url})
                             else:brutos.append(_diff_destino(pa,pb,ia,ib,nome_a,nome_b))
                         continue
@@ -1086,7 +1084,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                             brutos.append(registro)
                         if link_equivalente(da,db,base_a,base_b):continue
                     if not link_equivalente(da,db,base_a,base_b):
-                        if modo_defasado and (item_editorial(ia,pa) or item_editorial(ib,pb)):
+                        if modo_defasado and item_editorial(ia,pa) and item_editorial(ib,pb):
                             editoriais.append({'tipo':'Link editorial','elemento':ia.nome,
                                'presente_em':nome_a,'url_presente':pa.url,'url_comparada':pb.url})
                             continue
