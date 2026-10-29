@@ -582,31 +582,23 @@ function updateExportFormat(){
 $('export-format').addEventListener('change',updateExportFormat);
 $('export-scope').addEventListener('change',()=>{$('export-format').value=$('export-scope').value==='selecionadas'?'csv':'html';updateExportFormat();});
 updateExportFormat();
-let lastSaveHandle=null;
 async function downloadExport(button){
   if(!currentId){exportFeedback('Abra uma comparação para habilitar a exportação.');return;}if(exportBusy)return;const run=currentId;const ext=button.dataset.export,scope=$('export-scope').value,advanced=ext.startsWith('diagnostico-');
   if(!advanced&&scope==='selecionadas'&&!(currentReport.ids_selecionados||[]).length){exportFeedback('Selecione ao menos uma DIV para exportar, ou escolha outro escopo.',true);return;}
   const actualExt=ext.split('-').pop(),site=(currentReport.site_nome||'Portal').replace(/https?:\/\/\S+|\S+@\S+|\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g,'').replace(/\b\d{11,}\b/g,'identificador').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9_-]+/g,'_').slice(0,64)||'Portal';
   const tipo=advanced?'Diagnostico':scope==='selecionadas'?'DIVs_Selecionadas':'Comparacao';
   const date=currentId.slice(0,4)+'-'+currentId.slice(4,6)+'-'+currentId.slice(6,8),name=site+'_'+tipo+'_'+date+'_'+currentId.slice(-6)+'.'+actualExt;
-  const mime={csv:'text/csv',html:'text/html',pdf:'application/pdf',json:'application/json',txt:'text/plain'}[actualExt];
-  let handle=null;exportBusy=true;document.querySelectorAll('[data-export]').forEach(b=>b.disabled=true);button.setAttribute('aria-busy','true');exportFeedback('Preparando '+actualExt.toUpperCase()+'…');
+  // O navegador controla a pasta e nomes repetidos, sem acesso direto ao disco.
+  // Evita erros de permissão ao tentar ler arquivos escolhidos pelo usuário.
+  exportBusy=true;document.querySelectorAll('[data-export]').forEach(b=>b.disabled=true);button.setAttribute('aria-busy','true');exportFeedback('Preparando '+actualExt.toUpperCase()+'…');
   try{
-    if(window.showSaveFilePicker){
-      try{handle=await window.showSaveFilePicker({id:'ambidiff-exportacoes',suggestedName:name,startIn:lastSaveHandle||'downloads',types:[{description:actualExt.toUpperCase(),accept:{[mime]:['.'+actualExt]}}]});}
-      catch(e){if(e.name==='AbortError'){exportFeedback('Exportação cancelada no seletor de arquivos.');return;}if(e.name!=='SecurityError'&&e.name!=='TypeError')throw e;}
-    }
     const args=advanced?'':scope==='selecionadas'?'?selecionadas=1':scope==='completo'?'?completo=1':scope==='relevantes'?'?relevantes=1':'';
-    const response=await fetch('/download/'+encodeURIComponent(run)+'/'+ext+args);
-    if(!response.ok){const data=await response.json();throw Error(data.erro||'Falha na exportação');}
+    const response=await fetch('/download/'+encodeURIComponent(run)+'/'+ext+args,{cache:'no-store'});
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw Error(data.erro||'Falha na exportação (HTTP '+response.status+').');}
     const blob=await response.blob();
-    if(handle){
-      const file=await handle.getFile();if(file.size>0&&!window.confirm('O arquivo já contém dados. Deseja substituí-lo?')){exportFeedback('Salvamento cancelado; arquivo existente preservado.');return;}
-      const writable=await handle.createWritable();try{await writable.write(blob);await writable.close();}catch(e){await writable.abort();throw e;}lastSaveHandle=handle;exportFeedback('Arquivo '+actualExt.toUpperCase()+' salvo no local escolhido.');
-    }else{
-      const header=response.headers.get('Content-Disposition')||'',suggested=/filename="([^"]+)"/.exec(header)?.[1]||name;
-      const url=URL.createObjectURL(blob),a=element('a');a.href=url;a.download=suggested;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
-      exportFeedback('Download '+actualExt.toUpperCase()+' enviado ao navegador. Para escolher a pasta sempre, habilite “Perguntar onde salvar” nas configurações do navegador.');
-    }
+    if(!blob.size)throw Error('O servidor retornou um arquivo vazio; nenhum download foi iniciado.');
+    const header=response.headers.get('Content-Disposition')||'',suggested=/filename="([^"]+)"/.exec(header)?.[1]||name;
+    const url=URL.createObjectURL(blob),a=element('a');a.href=url;a.download=suggested;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    exportFeedback('Download '+actualExt.toUpperCase()+' enviado ao navegador. Para escolher a pasta sempre, habilite “Perguntar onde salvar” nas configurações do navegador.');
   }catch(e){exportFeedback('Não foi possível exportar: '+e.message,true);}finally{exportBusy=false;button.removeAttribute('aria-busy');document.querySelectorAll('[data-export]').forEach(b=>b.disabled=!currentReport||!!(b.dataset.export.startsWith('diagnostico-')&&currentReport.versao!=='1.5'));}
 }
