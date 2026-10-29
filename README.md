@@ -47,7 +47,7 @@ Em redes corporativas, a instalação ou o acesso ao DES/LAB/HOMOL pode depender
 
 1. Abra **Comparar ambientes**.
 2. Em **Ambiente A**, escolha PRD, DES ou LAB; em **Ambiente B**, escolha DES, LAB ou **HOMOL (Homologação)**. Informe as duas URLs autorizadas.
-3. Se houver confirmação de que uma base está desatualizada, selecione essa condição. Ela ajuda a interpretar dados editoriais, **sem esconder problemas de menu ou navegação**.
+3. Em **Condição das bases (opcional)**, informe uma base desatualizada somente se houver confirmação. O AmbiDiff já separa diferenças editoriais por contexto mesmo sem essa declaração, **sem esconder problemas de menu ou navegação**.
 4. Clique em **Iniciar varredura**. O Chromium trabalha **oculto**; acompanhe o progresso e o diagnóstico no painel.
 5. Ao finalizar, revise as **Divergências**, classifique os achados e exporte os registros que interessam.
 
@@ -68,7 +68,7 @@ As opções de verificações adicionais, como destinos externos e cliques inter
 | O que aparece | Como tratar |
 |---|---|
 | **Divergência** | Diferença encontrada; verifique o impacto e as evidências antes de confirmar. |
-| **Variação editorial** | Pode refletir atualização de notícias ou dados entre bases. |
+| **Variação editorial** | Notícias, datas e banners identificados por contexto podem ser agrupados mesmo quando nenhuma base foi declarada desatualizada. |
 | **Inconclusivo / sem correspondência** | A ferramenta não reuniu evidência suficiente para concluir. |
 | **Aviso ou falha técnica** | Pode indicar bloqueio, indisponibilidade, timeout ou falha da automação. |
 
