@@ -591,13 +591,25 @@ function downloadExport(button){
   }
   const actualExt=ext.split('-').pop();
   const args=advanced?'':scope==='selecionadas'?'?selecionadas=1':scope==='completo'?'?completo=1':scope==='relevantes'?'?relevantes=1':'';
-  const link=element('a');
-  link.href='/download/'+encodeURIComponent(run)+'/'+ext+args;
-  // O Flask define Content-Disposition com o nome correto do arquivo.
-  // Download de URL normal evita Blob em memória e URL.createObjectURL.
-  link.style.display='none';
-  document.body.append(link);
-  link.click();
-  link.remove();
+  const url='/download/'+encodeURIComponent(run)+'/'+ext+args;
+  // Arquivos grandes vão direto do servidor ao Chrome, sem Blob em memória.
+  // O iframe preserva o painel em caso de erro HTTP (JSON sem attachment).
+  let frame=$('ambidiff-download-frame');
+  if(!frame){
+    frame=element('iframe');frame.id='ambidiff-download-frame';
+    frame.name='ambidiff-download-frame';frame.hidden=true;document.body.append(frame);
+  }
+  frame.onload=()=>{
+    try{
+      if(frame.contentWindow?.location.href==='about:blank')return;
+      const raw=frame.contentDocument?.body?.textContent||'';
+      const erro=JSON.parse(raw).erro;
+      if(erro)exportFeedback('Não foi possível exportar: '+erro,true);
+    }catch(e){
+      // Uma resposta de download bem-sucedida não expõe um documento no iframe.
+    }
+  };
+  const link=element('a');link.href=url;link.target=frame.name;
+  link.style.display='none';document.body.append(link);link.click();link.remove();
   exportFeedback('Download solicitado ao navegador. O relatório pode ser grande: acompanhe em Ctrl+J. Se falhar, verifique o log do AmbiDiff. Para escolher a pasta, ative “Perguntar onde salvar” nas configurações do Chrome.');
 }
