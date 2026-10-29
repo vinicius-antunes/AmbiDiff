@@ -313,16 +313,39 @@ class Interface19Tests(unittest.TestCase):
         self.assertIn('selecionadas=1',[p for _,p,_ in self.requests if p.startswith('/download/')][-1])
         self.assertEqual((self.root/f'comparacao_{RID}.json').read_bytes(),original)
 
-    def test_resposta_vazia_rejeitada_sem_gerar_download(self):
+    def test_erro_exportacao_aparece_no_painel_sem_download(self):
         self.abrir(1)
         self.p.route('**/download/**',
-                     lambda route:route.fulfill(status=200,content_type='application/json',body=''))
+                     lambda route:route.fulfill(status=500,content_type='application/json',
+                       body='{"erro":"Exportação vazia: arquivo original preservado."}'))
         self.p.locator('#export-scope').select_option('completo')
         self.p.locator('#export-format').select_option('json')
         self.p.locator('#download-report').click()
-        self.p.wait_for_function("document.querySelector('#export-feedback').textContent.includes('arquivo vazio')")
+        self.p.wait_for_function("document.querySelector('#export-feedback').textContent.includes('Exportação vazia')")
         self.assertFalse(self.p.locator('#download-report').is_disabled())
 
+
+    def test_resposta_grande_streaming_liberada_apos_download(self):
+        from web import server
+        self.abrir(2)
+        saida={}
+        bloco=b'Exemplo;DIV-0001\n'+b'x'*1024*1024
+        def exportar_grande(dados,pasta,run_id,**_kw):
+            arquivo=pasta/f'comparacao_{run_id}.csv'
+            with arquivo.open('wb') as out:
+                for _ in range(6):out.write(bloco)
+            saida['path']=arquivo
+            return {'csv':str(arquivo)}
+        with patch.object(server,'exportar',side_effect=exportar_grande):
+            response=self.client.get(f'/download/{RID}/csv?completo=1',buffered=False)
+            self.assertEqual(response.status_code,200)
+            self.assertTrue(response.is_streamed)
+            self.assertEqual(int(response.headers['Content-Length']),len(bloco)*6)
+            pedacos=iter(response.response)
+            self.assertLessEqual(len(next(pedacos)),1024*1024)
+            response.close()
+        self.assertFalse(saida['path'].exists())
+        self.assertTrue((self.root/f'comparacao_{RID}.json').is_file())
 
     def test_servidor_nao_entrega_json_sem_divs_esperadas(self):
         from web import server
