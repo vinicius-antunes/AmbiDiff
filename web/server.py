@@ -310,6 +310,11 @@ def comparar():
 
 @app.get('/api/checkpoints')
 def checkpoints_disponiveis():
+    # Validar checkpoints restaura estruturas e verifica SHA de arquivos grandes.
+    # Não disputar CPU/memória com a varredura e as capturas em andamento.
+    with LOCK:
+        if STATE.get('status')=='executando':
+            return jsonify(erro='A comparação ainda está em andamento. Consulte checkpoints após o encerramento; o status atual permanece disponível.'),409
     from ambidiff.checkpoints import validar
     rows=[]
     for path in sorted(PASTA.glob('checkpoint_*.json'),reverse=True):
