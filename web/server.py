@@ -499,7 +499,11 @@ def baixar(run_id,ext):
         temporario=tempfile.TemporaryDirectory(prefix='ambidiff_export_')
         try:
             pasta_export=Path(temporario.name)
-            paths=exportar(dados,pasta_export,'filtrado_'+run_id,evidencias_root=PASTA)
+            # Exportar apenas o formato solicitado. PDF usa somente o HTML
+            # intermediário; arquivos de centenas de MB não são duplicados.
+            formatos=('html',) if ext=='pdf' else (ext,)
+            paths=exportar(dados,pasta_export,'filtrado_'+run_id,
+                evidencias_root=PASTA,formatos=formatos,preparado=True)
             if ext=='pdf':
                 target=pasta_export/'relatorio.pdf';gerar_pdf(paths['html'],target)
             else:target=Path(paths[ext])
