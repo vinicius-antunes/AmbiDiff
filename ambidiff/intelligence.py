@@ -36,6 +36,13 @@ def separar_editoriais(comps, pa, pb, itens_a, itens_b, nomes, defasado):
     ids_b={(i.tipo,normalizar(i.chave)) for i in editoriais_b}
     locais_a={normalizar(i.local) for i in editoriais_a}
     locais_b={normalizar(i.local) for i in editoriais_b}
+    # Artigos correspondentes podem ter títulos diferentes como 'local'.
+    # A rota editorial e conteúdo editorial nos dois lados constituem contexto
+    # adicional; isto nunca dispensa comparar menus/controles estruturais.
+    artigos_pareados=bool(
+        editoriais_a and editoriais_b and
+        ROTA_EDITORIAL.search(urlsplit(pa.url).path) and
+        ROTA_EDITORIAL.search(urlsplit(pb.url).path))
     regs=[];data=[]
     for d in comps:
         k=(d.get('tipo',''),normalizar(d.get('elemento','')))
@@ -52,7 +59,7 @@ def separar_editoriais(comps, pa, pb, itens_a, itens_b, nomes, defasado):
         # Uma lista ou seção editorial totalmente ausente pode ser um problema
         # estrutural: nesse caso não deslocar seus itens para o grupo informativo.
         locais_opostos=locais_b if d.get('presente_em')==nomes[0] else locais_a
-        area_correspondente=bool(candidatos) and normalizar(candidatos[0].local) in locais_opostos
+        area_correspondente=bool(candidatos) and (normalizar(candidatos[0].local) in locais_opostos or artigos_pareados)
         # Em uma base explicitamente defasada, preservar o agrupamento editorial
         # legado (inclusive avisos editoriais exclusivos), coberto por regressões.
         if editorial and (defasado or area_correspondente) and (d.get('tipo') in ('Texto','Imagem') or publicacao):
