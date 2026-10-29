@@ -1,459 +1,180 @@
-# AmbiDiff v1.5 — Comparador local de ambientes web
+<div align="center">
 
-**PRD × DES/LAB/HOMOL**, com comparação pareada, evidências e exportação local. Funciona no **Windows**, com Python + Playwright Chromium + painel Flask escuro. O programa lê páginas autorizadas sem editar sites.
+  <h1>AmbiDiff</h1>
+  <p><strong>Compare ambientes web com mais contexto e menos falsos positivos.</strong></p>
+  <p>Uma ferramenta <strong>local para Windows</strong> que analisa páginas, navegação, menus, serviços e referências entre ambientes, preservando evidências para revisão humana.</p>
+  <p><strong>PRD · DES · LAB · HOMOL</strong> &nbsp;|&nbsp; <strong>Somente leitura</strong> &nbsp;|&nbsp; <strong>Relatórios locais</strong></p>
+  <p><small>Versão de desenvolvimento · branch <code>chore/infra-codex-agents-skills-ci</code></small></p>
+  <p><a href="#comece-em-5-minutos">Instalação</a> · <a href="#sua-primeira-comparação">Primeira comparação</a> · <a href="#como-interpretar-o-resultado">Como ler o resultado</a> · <a href="docs/guia-de-uso.md">Guia completo</a></p>
 
-> **Branch de desenvolvimento:** `chore/infra-codex-agents-skills-ci`. Reúne as melhorias de comparação, classificação editorial, exportação de arquivos grandes, agentes e testes. **Não foi integrada à `main`**, que permanece como referência estável. Não há deploy ou GitHub Pages.
+</div>
 
-**Nesta branch:** varredura inteligente com até 1.000 pares HTML, Chromium oculto, retomada/checkpoints, separação conservadora de variações editoriais mesmo sem base declarada antiga, exportação CSV/HTML/PDF/JSON por formato e infraestrutura de manutenção com `AGENTS.md`, Skills e GitHub Actions. Consulte também a [estabilização da varredura](docs/estabilizacao-varredura.md) e o [guia dos agentes](docs/manutencao-ia.md).
+---
 
-**Validação em 29/10/2026:** o CSV e o JSON foram baixados com sucesso em teste manual informado pelo mantenedor no Windows; HTML e PDF ainda precisam de confirmação nessa instalação. A última suíte Windows consultada **falhou em 2 de 254 testes** (agrupamento CSV e feedback de download). As alterações seguintes da exportação ainda precisam de suíte aprovada e validação real; **não considerar esta branch estável automaticamente**. [Consultar GitHub Actions](https://github.com/vinicius-antunes/AmbiDiff/actions).
+## O que o AmbiDiff faz?
 
-## Visão geral
+O AmbiDiff percorre páginas públicas ou autorizadas de **dois ambientes** e procura diferenças que merecem investigação. Ele ajuda a identificar problemas de interface, navegação e conteúdo sem presumir que o ambiente de produção (PRD) esteja sempre correto.
 
-O AmbiDiff é uma ferramenta **local de apoio a QA**: recebe as URLs de dois ambientes autorizados, percorre páginas e compara elementos de interface, estrutura, textos, menus, opções e destinos de links. O resultado é um relatório com divergências, evidências e limitações de cobertura — **não um veredito automático de qual ambiente está correto**.
-
-| Recurso | Para que serve |
+| Analisa | Considera ao interpretar |
 |---|---|
-| Comparação PRD × DES/LAB/HOMOL | Detectar diferenças nos dois sentidos entre ambientes autorizados |
-| Varredura inteligente (padrão) | Até 1.000 pares HTML, fila dinâmica e continuação automática, sem prazo global; arquivos fora do teto |
-| Variações editoriais | Agrupar diferenças de notícias, datas e banners por contexto, mesmo sem base declarada desatualizada; preservar estrutura e navegação |
-| Documentos e links | Conferir referências e, conforme as opções, respostas HTTP HEAD; **não lê o corpo de PDFs ou arquivos** |
-| Progresso e checkpoints | Acompanhar pares visitados/comparados, interromper e retomar a fila quando houver checkpoint válido |
-| Relatórios e revisão | Pesquisar DIVs, confirmar/reclassificar, selecionar independentemente para CSV/HTML/PDF/JSON e baixar diagnósticos |
+| Menus, opções e caminhos de navegação | Um elemento pode ser equivalente mesmo com HTML ou posição diferentes. |
+| Serviços, textos, links e referências | Destinos diferentes nem sempre significam um link quebrado; é preciso revisar. |
+| Notícias e conteúdo editorial | Diferencia variações editoriais por contexto, mesmo sem base declarada desatualizada; não oculta omissões estruturais. |
+| Documentos vinculados e recursos | Verifica referências e respostas permitidas, **não compara o conteúdo interno de PDFs**. |
+| Falhas, interrupções e cobertura | Uma página inconclusiva ou não examinada **não é considerada equivalente**. |
 
-**Leitura recomendada:** [Instalação no Windows](#instalação-no-windows-primeira-utilização) · [Primeira comparação](#primeira-comparação-passo-a-passo) · [Solução de problemas](#solução-de-problemas-no-windows) · [Arquivos e relatórios](#exportações-e-histórico) · [Atualização para portais extensos](docs/atualizacao-portais-extensos.md).
+> **O resultado é uma triagem de QA, não um veredito automático.** Cada divergência relevante precisa de revisão. O AmbiDiff não modifica os sites analisados.
 
-## Instalação no Windows (primeira utilização)
+## Comece em 5 minutos
 
-Este projeto é executado com **Python + Flask + Playwright (Chromium)**. **Não há instalador `.exe`:** os dois arquivos `.bat` na raiz do projeto cuidam da instalação e da inicialização.
+**Você precisa de:** Windows, Python 3 e permissão para instalar dependências e acessar os ambientes de teste. O projeto usa **Flask + Playwright (Chromium)** e não possui instalador `.exe`.
 
-### Antes de começar
+1. Na página do repositório, selecione a branch **`chore/infra-codex-agents-skills-ci`** e use **Code → Download ZIP** (ou receba o pacote por canal interno autorizado). A `main` contém outra versão.
+2. Extraia o ZIP para uma pasta própria, fora do arquivo compactado.
+3. Execute **`instalar.bat`** uma vez. Ele cria `.venv`, instala as dependências e o Chromium.
+4. Execute **`INICIAR_AMBIDIFF.bat`**. Mantenha a janela do terminal aberta durante o uso.
+5. Acesse **http://127.0.0.1:8765** se o painel não abrir automaticamente.
 
-- Utilize **Windows**, em um computador onde a instalação e a execução de ferramentas de desenvolvimento sejam autorizadas.
-- Instale o **Python 3** (caso ainda não esteja disponível). O script procura `py -3` e, se não encontrar, tenta `python`.
-- Tenha acesso permitido à instalação das dependências e ao download do Chromium do Playwright. Em rede corporativa, consulte a TI se essas operações forem bloqueadas.
-- Confirme o acesso às URLs dos portais pelo navegador ou pela rede/VPN autorizada. Ter internet não garante acesso ao DES/LAB.
-- Use **uma instalação separada por computador**. Não copie a pasta `.venv` de outro PC.
-
-Para conferir o Python, abra o **Prompt de Comando (CMD)** e execute:
-
-```cmd
-py -3 --version
+```text
+AmbiDiff/
+├── instalar.bat             ← primeira instalação
+├── INICIAR_AMBIDIFF.bat    ← iniciar o programa
+└── ...
 ```
 
-Caso o comando não exista, tente:
+Em redes corporativas, a instalação ou o acesso ao DES/LAB/HOMOL pode depender de permissões, DNS ou VPN. **Não contorne bloqueios de segurança.** Veja o [guia de instalação e solução de problemas](docs/guia-de-uso.md).
 
-```cmd
-python --version
-```
+## Sua primeira comparação
 
-Se nenhum funcionar, instale/configure o Python pelo canal aprovado pela TI e abra um novo terminal.
+1. Abra **Comparar ambientes**.
+2. Em **Ambiente A**, escolha PRD, DES ou LAB; em **Ambiente B**, escolha DES, LAB ou **HOMOL (Homologação)**. Informe as duas URLs autorizadas.
+3. Se houver confirmação de que uma base está desatualizada, selecione essa condição. Ela ajuda a interpretar dados editoriais, **sem esconder problemas de menu ou navegação**.
+4. Clique em **Iniciar varredura**. O Chromium trabalha **oculto**; acompanhe o progresso e o diagnóstico no painel.
+5. Ao finalizar, revise as **Divergências**, classifique os achados e exporte os registros que interessam.
 
-### Passo a passo
+### Como a varredura funciona
 
-1. **Obtenha a versão de desenvolvimento.** No repositório privado, escolha a branch [`chore/infra-codex-agents-skills-ci`](https://github.com/vinicius-antunes/AmbiDiff/tree/chore/infra-codex-agents-skills-ci) e utilize **Code → Download ZIP**, ou receba o pacote por canal interno autorizado. **A `main` é diferente e não contém necessariamente estas correções em teste.**
-2. **Extraia todo o ZIP** para uma pasta própria, por exemplo `Documentos\AmbiDiff-Teste`. Não execute o projeto diretamente do arquivo compactado. Mantenha instalações antigas em pastas separadas.
-3. **Execute `instalar.bat`** na pasta extraída. Ele cria a `.venv`, instala as bibliotecas de `requirements.txt` e baixa o Chromium usado pelo Playwright. Aguarde a mensagem **"Instalacao concluida!"**. Se aparecer erro, mantenha a janela aberta e anote as últimas mensagens.
-4. **Execute `INICIAR_AMBIDIFF.bat`** na mesma pasta. Ele utiliza o Python da `.venv` e inicia o servidor local. **Não feche a janela preta** enquanto estiver usando o AmbiDiff.
-5. **Abra o painel** em `http://127.0.0.1:8765` se o navegador não abrir automaticamente. O endereço `127.0.0.1` aponta para **o computador em que o programa está rodando**, não para o PC de outro colega.
-6. **Faça primeiro uma comparação pequena** entre duas URLs autorizadas, usando [o roteiro abaixo](#primeira-comparação-passo-a-passo). Depois, amplie o escopo conforme a autorização do setor.
-
-**Se preferir iniciar pelo CMD**, abra o terminal na pasta extraída e execute `instalar.bat` (somente na instalação) e depois `INICIAR_AMBIDIFF.bat`. Em outro computador, repita a instalação localmente.
-
-> **Rede e privacidade:** o servidor Flask usa `127.0.0.1` por padrão e não deve ser publicado na rede. O AmbiDiff não fornece acesso a portais restritos, não contorna certificados, VPN ou login e não deve ser executado em sites não autorizados.
-
-## Primeira comparação: passo a passo
-
-1. No painel, abra **Comparar ambientes**. O nome do portal é identificado automaticamente por metadados, título inicial ou domínio; não há campo de nome no formulário.
-2. No **Ambiente A**, escolha PRD, DES ou LAB. No **Ambiente B**, escolha DES (padrão), LAB ou **HOMOL — Homologação**. Cole as URLs completas (`https://...`); nenhuma URL de homologação é presumida. Não use o mesmo ambiente nos dois campos. Relatórios antigos com PRD no Ambiente B continuam consultáveis.
-3. Em **Condição das bases (opcional)**, informe a base desatualizada somente se houver confirmação. Diferenças editoriais são classificadas por contexto mesmo sem a declaração; a escolha acrescenta contexto, não comprova a causa.
-4. A **varredura inteligente** está sempre ativa: admite até **1.000 pares HTML únicos**, organiza as prioridades e continua até dar um resultado a todos os pares admitidos, sem prazo global. O teto não é configurável na tela. **Opções avançadas** conserva apenas destinos externos e cliques internos, desmarcados; habilite-os somente quando autorizados.
-5. Clique **Iniciar varredura**. O Chromium trabalha **oculto**, sem janelas de automação. Acompanhe admitidos, comparados, pendentes, falhos, ocorrências preliminares e tempo. O percentual mede **pares admitidos que receberam estado final**, incluindo falhas; não é percentual de comparações bem-sucedidas nem de cobertura integral. Logs e métricas adicionais ficam em **Diagnóstico e log da execução**.
-6. Ao terminar, abra **Divergências**. Verifique as diferenças principais e as seções informativas de dados, documentos e avisos técnicos; uma execução parcial não comprova equivalência.
-7. Use **Confirmar DIV** somente após sua revisão. O seletor de classificação permite **Automática, Relevante, Baixa relevância, Editorial ou Inconclusivo**. Marcação manual não significa que o site foi testado integralmente.
-8. Marque **Exportar** nas DIVs desejadas e escolha **Somente DIVs selecionadas**; a seleção é salva localmente por comparação e não confirma um defeito. Também estão disponíveis **Relatório completo**, **Relatório principal** e **Somente relevantes**. Escolha o formato e clique **Baixar relatório**: **CSV** para planilhas, **HTML** para revisão visual, **PDF** para apresentação/arquivo ou **JSON** para dados estruturados. **Mudar o seletor não exporta sozinho.**
-
-**Interrupção e retomada:** use **Interromper** uma vez para solicitar a parada cooperativa; a operação atual precisa devolver o controle. Resultados e fila são preservados. Use **Consultar checkpoints → Retomar** para continuar com outro identificador, mantendo o histórico, as revisões, a seleção e a contagem acumulada de admissões. A execução não pausa por 20 minutos nem por cota editorial. Referências além do teto não são admitidas; a fila já aceita é concluída. Checkpoints anteriores já acima de 1.000 conservam suas admissões, sem criar novas vagas. Timeouts individuais e proteção de memória continuam ativos.
-
-O estado da fila distingue **concluída**, **concluída com falhas**, **parcial** e **interrompida**. A cobertura/análise é informada separadamente: concluir os admitidos não comprova examinar todo o portal. Um par comparado entre nove admitidos representa 11% de pares encerrados quando os outros oito estão pendentes. Salvar um relatório parcial não conclui a fila. Recursos fechados recebem recuperação limitada; após duas tentativas no mesmo par, ele fica falho e os demais continuam. Há no máximo três recuperações de recursos por segmento; se falharem, preserva-se checkpoint para retomada. Logs de bloqueios são agrupados, sem query/credenciais nos exemplos; restrições que afetam componentes continuam no diagnóstico. Analytics bloqueado isoladamente não comprova defeito.
-
-## Solução de problemas no Windows
-
-| Sintoma | O que conferir primeiro |
+| Regra | Comportamento |
 |---|---|
-| `instalar.bat` informa Python não encontrado | Teste `py -3 --version` e `python --version` no CMD; confirme a instalação/PATH com a TI |
-| Falha ao instalar bibliotecas ou Chromium | Leia o erro na janela do instalador; confira acesso permitido à internet, proxy corporativo e permissões. Não desative proteções para forçar a instalação |
-| `INICIAR_AMBIDIFF.bat` pede instalação | A pasta `.venv` não existe nessa cópia; execute `instalar.bat` no próprio computador |
-| O endereço `127.0.0.1:8765` não abre | Confirme que a janela preta está aberta e sem erro. Feche outra instância do AmbiDiff caso a porta esteja ocupada |
-| Painel abre, mas **Iniciar comparação** mostra **Failed to fetch** | Veja os passos de diagnóstico abaixo: normalmente é uma falha de comunicação navegador ↔ servidor, não uma DIV do portal |
-| DES/LAB não carrega, mas o painel funciona | Confira URL, DNS, rede/VPN autorizada e certificado com a TI; não presuma falha do AmbiDiff |
-| Navegação interrompida ou comparação parcial | Consulte o motivo de parada, as páginas pendentes, o diagnóstico e os logs. Parcial não significa equivalência |
-| Histórico ou capturas não aparecem após copiar a pasta | Confirme a cópia de `relatorios/` e `historico.json`; nos relatórios atuais preserve também `detalhes_<id>.json` junto do principal |
-| CSV baixa, mas JSON/HTML/PDF falha | Confira se a pasta foi atualizada com os arquivos desta branch, reinicie o servidor e use Ctrl+F5. O Chrome gerencia a pasta; acompanhe em Ctrl+J. Consulte o terminal e os diagnósticos; JSON e HTML/PDF podem exigir mais memória/tempo. Não repita a varredura nem apague os JSONs originais. |
+| **Até 1.000 pares HTML** | Atingido o teto, não admite novos pares; conclui ou registra falha nos já admitidos. |
+| **Prioridade inteligente** | Menus → serviços → notícias → legislação → institucionais → históricos. |
+| **Arquivos e documentos** | Seguem verificações específicas e não consomem as vagas de páginas HTML. |
+| **Sem tempo máximo global** | **1h30 é meta de desempenho**, não interrupção obrigatória. |
+| **Parada e retomada** | Preserva resultados parciais e tenta manter checkpoints recuperáveis. |
 
-### Quando aparece "Failed to fetch" ao iniciar uma comparação
+As opções de verificações adicionais, como destinos externos e cliques internos, ficam desativadas por padrão e só devem ser usadas quando autorizadas.
 
-Esse aviso significa que o navegador **não conseguiu obter uma resposta válida da API local**. Não prova, por si só, que o portal PRD ou DES está indisponível.
+## Como interpretar o resultado
 
-1. **Não clique várias vezes em Iniciar.** Verifique a janela do `INICIAR_AMBIDIFF.bat` para identificar se o servidor ainda está rodando ou se apareceu um erro.
-2. No **mesmo PC**, abra `http://127.0.0.1:8765/api/status` no navegador:
-   - Se surgir JSON com `"status": "executando"`, a execução pode ter começado; a interface pode ter perdido a comunicação.
-   - Se surgir `"status": "erro"`, consulte o diagnóstico ou as mensagens do terminal.
-   - Se o endereço não responder, investigue o servidor, a porta e a instalação.
-3. Pressione **F12 → Rede (Network)**, clique uma única vez em **Iniciar comparação** e localize a chamada `POST /api/comparar`. Selecione-a e confira o resultado:
-   - **200:** a API aceitou o início da execução; eventuais falhas posteriores aparecem no status/log.
-   - **400:** URL ou configuração inválida; leia a resposta.
-   - **409:** já existe comparação em andamento.
-   - **500:** erro interno do servidor; consulte o terminal.
-   - **(failed)/(canceled):** conexão interrompida, bloqueio ou requisição cancelada; verifique se o servidor continua respondendo.
-4. Se a API continuar ativa, tente **Ctrl+F5** para atualizar os arquivos do painel. Isso é especialmente útil após substituir uma cópia antiga por outra na mesma porta.
-5. Se o problema só acontece em outro computador, compare a **branch/versão**, repita `instalar.bat` naquela instalação e confira as restrições locais. Não use a `.venv` de outro computador.
-6. Para relatar o problema, registre **versão/commit, etapa, mensagem do terminal, código HTTP e horário**. Envie somente informações permitidas, **sem credenciais ou dados pessoais**.
-
-**Logs e diagnóstico:** ao iniciar uma execução, o painel pode oferecer **Baixar log completo**. Os arquivos locais em `relatorios/` incluem, quando gerados, `execucao_<id>.log`, `diagnostico_<id>.json` e `log_<id>.txt`. Se a falha ocorrer antes de criar a execução, esses arquivos podem ainda não existir.
-
-### Como atualizar em outro PC sem perder o histórico
-
-1. **Feche o programa** e mantenha a instalação antiga como cópia de segurança.
-2. Extraia a versão atualizada em **outra pasta**. Não misture códigos-fonte nem transfira `.venv`.
-3. Execute `instalar.bat` na nova pasta e abra o programa uma vez para conferir a instalação.
-4. Com o programa fechado, copie da instalação antiga **`historico.json` e a pasta `relatorios/` completa** para a nova, se precisar preservar o histórico. Inclua `comparacao_<id>.json`, `detalhes_<id>.json`, evidências, diagnósticos, checkpoints e demais arquivos existentes; não selecione só o HTML/CSV.
-5. Reabra o AmbiDiff e confira o histórico. Relatórios antigos mantêm o formato original e não ganham retroativamente novas verificações.
-
-**Atenção:** histórico, logs, capturas e checkpoints podem conter dados dos portais. Transfira-os somente quando autorizado e por meios aprovados pelo setor/TI.
-
-
-## Testes internos com colegas do setor
-
-O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**, cada um com sua instalação local. O objetivo é verificar a qualidade das divergências detectadas, encontrar falsos positivos e identificar limitações de execução, antes de qualquer integração definitiva.
-
-### Como distribuir o pacote de testes
-
-1. Um responsável com acesso ao repositório privado abre a branch `chore/infra-codex-agents-skills-ci`, seleciona **Code → Download ZIP** e confirma que não baixou a `main`.
-2. Compartilha o ZIP **somente por canal interno aprovado pelo setor/TI**. Não é necessário tornar o repositório público nem habilitar GitHub Pages.
-3. Cada colega extrai o conteúdo em **uma pasta própria**, sem substituir instalações anteriores. Pode renomear a pasta extraída para `AmbiDiff-Teste-Interno`.
-4. Antes de distribuir qualquer pasta montada manualmente, **exclua e confira** relatórios, capturas, arquivos auxiliares, `historico.json`, `.env`, credenciais, sessões, perfis de navegador e `.venv`. O ZIP de código gerado pelo GitHub não deve conter arquivos de execução locais ignorados pelo Git; ainda assim, revise os arquivos distribuídos.
-
-**Pré-requisitos:** Python 3 disponível por `py` ou `python`, acesso permitido para instalar dependências do `requirements.txt` e o Chromium do Playwright, e conectividade aos endereços de teste pela rede/VPN autorizada. Se o computador tiver restrições de instalação ou execução de `.bat`, consulte a TI; não tente contornar essas restrições. **Esta branch não fornece um executável `.exe` pronto.**
-
-### Roteiro sugerido para cada colega
-
-1. Execute `instalar.bat` **uma vez** na pasta extraída. Aguarde concluir; a instalação cria a pasta local `.venv`.
-2. Execute `INICIAR_AMBIDIFF.bat` para abrir o painel em `http://127.0.0.1:8765`. Caso a porta esteja ocupada, feche outra instância do programa antes de iniciar.
-3. Informe **dois endereços autorizados** (PRD e DES/LAB), com seus respectivos nomes. Se a base de algum ambiente estiver desatualizada, marque essa condição no formulário.
-4. Faça primeiro uma comparação pequena, observando páginas iniciais, menus, avisos institucionais, links e documentos. Depois, se autorizado, amplie o escopo.
-5. Registre cobertura, admissões HTML, duração, divergências relevantes e resultados inconclusivos. Compare somente medições com escopo e condições equivalentes; não use apenas a quantidade de DIVs.
-6. Revise os alertas, utilize **Mostrar todas as diferenças** e, quando pertinente, **Confirme DIV** ou reclassifique a relevância. Uma classificação automática nunca substitui a conferência manual.
-7. Registre os achados no formulário/planilha definido pelo setor, com os dados mínimos abaixo.
-
-| Campo do registro | Exemplo do que informar |
+| O que aparece | Como tratar |
 |---|---|
-| Versão usada | Branch `chore/infra-codex-agents-skills-ci` e commit, se conhecido |
-| Ambientes | Identificação do portal, PRD e DES/LAB (sem credenciais) |
-| Configuração | Varredura inteligente; admissões HTML, opções autorizadas e base desatualizada, se aplicável |
-| Localização | Caminho da página, seção e elemento afetado |
-| Resultado observado | Divergência correta, possível falso positivo, diferença editorial ou falha da automação |
-| Evidência e impacto | Descrição breve, horário, ID da DIV (se houver) e imagem **sem dados sensíveis** |
-| Execução | Se foi completa ou parcial, tempo aproximado e mensagens de erro relevantes |
+| **Divergência** | Diferença encontrada; verifique o impacto e as evidências antes de confirmar. |
+| **Variação editorial** | Pode refletir atualização de notícias ou dados entre bases. |
+| **Inconclusivo / sem correspondência** | A ferramenta não reuniu evidência suficiente para concluir. |
+| **Aviso ou falha técnica** | Pode indicar bloqueio, indisponibilidade, timeout ou falha da automação. |
 
-**Não compartilhe relatórios brutos, capturas internas, credenciais ou dados pessoais sem autorização.** Em caso de dúvida, envie apenas uma descrição anonimizada do problema. Evite realizar várias varreduras extensas simultâneas que possam sobrecarregar os portais.
+**Atenção ao progresso:** 100% dos pares admitidos encerrados **não significa** que todas as páginas do portal foram analisadas nem que todas as comparações deram certo. Consulte sempre a cobertura, os pares falhos e o diagnóstico.
 
-### Limites conhecidos desta versão de testes
+### Relatórios e evidências
 
-- O filtro de relevância prioriza itens institucionais e reduz diferenças estritamente técnicas de SVG, sem comprovar que os ícones são visualmente idênticos.
-- Widgets recebem tratamento genérico de relevância e estabilidade. A **DIV-0028 (Messenger) da SEFAZ real** ainda exige validação manual; decoração isolada não comprova equivalência funcional.
-- Documentos e destinos externos recebem somente conferência de referências/HEAD, sem corpo, PDF ou hash. HEAD bloqueado ou não suportado é inconclusivo.
-- A otimização pode reduzir inspeções profundas de certas páginas editoriais estáticas, com a cobertura omitida declarada no relatório.
-- Correções antigas e específicas de portais, como USEIA/CGE, não devem ser presumidas incorporadas: antes de reutilizá-las, revise seus commits e testes. A detecção da opção **ÁUDIOS** na CGE permanece protegida por regressões.
-- A suíte automatizada Windows está configurada no GitHub Actions, mas **a última execução consultada falhou em 2 de 254 testes**; consulte os logs antes de integrar mudanças. Houve teste manual positivo de CSV e JSON no Windows, mas **não há validação integral em todos os formatos, portais reais ou computadores do setor**.
+- **CSV:** abrir e filtrar em planilhas.
+- **HTML:** revisar divergências e imagens disponíveis.
+- **PDF:** compartilhar uma apresentação legível dos resultados.
+- **JSON:** dados estruturados, inclusive para análises posteriores.
+- **Diagnóstico JSON e log TXT:** entender falhas, limitações e possíveis causas da execução.
 
-**Critério de sucesso:** identificar diferenças relevantes sem ocultar problemas estruturais ou funcionais, registrar corretamente limites e falhas e preservar resultados parciais. PRD não é considerado automaticamente correto.
+Você pode **selecionar DIVs**, reclassificar relevância e confirmar manualmente achados sem alterar o relatório bruto. O histórico, as seleções e as evidências ficam **no computador local**. Confira o [guia de relatórios, recuperação e atualização](docs/guia-de-uso.md).
 
+**Nesta branch, a exportação foi otimizada:** cada solicitação gera apenas o formato necessário; arquivos grandes são transmitidos em blocos, e o JSON completo preserva os dados técnicos. Para escolher onde salvar, ative **“Perguntar onde salvar cada arquivo”** nas configurações do navegador.
 
+## O que esta branch acrescenta
 
-## Novidades v1.5
+Esta é a branch de **desenvolvimento assistido pelo Codex**, com as funcionalidades do AmbiDiff e algumas melhorias ainda em validação:
 
-### 1. Variações editoriais — detecção por contexto
-
-Em **Condição das bases (opcional)**, selecione:
-
-- **Nenhuma base declarada desatualizada** (padrão): diferenças reconhecidas como notícias, datas e banners podem ser agrupadas em **Variações editoriais (informativas)** quando a área editorial correspondente foi observada nos dois ambientes. Uma seção editorial sem correspondência continua como divergência para revisão.
-- **Ambiente A está desatualizado** ou **Ambiente B está desatualizado**: informa defasagem conhecida e mantém o agrupamento editorial anterior, inclusive avisos editoriais exclusivos. A configuração é lembrada por domínio neste navegador.
-
-A classificação é baseada em evidências de contexto e destinos das publicações, não pressupõe equivalência ou atualização. Menus, documentos e alterações estruturais continuam sendo avaliados; as variações agrupadas não são tratadas automaticamente como defeitos. Nenhuma declaração substitui validação humana.
-
-O reconhecimento editorial é **conservador**: usa contexto de cartões/artigos, URLs de notícia e elementos que o HTML renderizado oferece. Se a página não fornecer indícios suficientes, a DIV permanece na lista principal para revisão. Dados alterados por outra causa podem parecer uma defasagem; a ferramenta não presume a causa.
-
-### 2. Menos falso positivo; mesma estrutura em lugar diferente
-
-O comparador já verifica rótulos no conjunto da página e não apenas na posição. O reconhecimento editorial agrupa datas, títulos e imagens de publicações por contexto, mesmo sem base declarada antiga, e preserva seções sem correspondência para revisão. Isso **não** suprime diferenças de menu como a opção **ÁUDIOS** da CGE. As referências da imagem de logo do Liferay que diferem apenas no parâmetro de cache `t` não aparecem como mudanças de imagem. Mudanças reais de `img_id` continuam sendo verificadas.
-
-### 3. Correção da varredura de documentos
-
-Rotas `.../documents/d/...` do Liferay podem retornar PDFs mesmo sem a extensão `.pdf`. Agora são classificadas como documentos e não colocadas na fila de páginas HTML. Se uma rota iniciar download inesperadamente, **isso não incrementa o contador de falhas consecutivas**. Downloads e documentos continuam informados nos avisos, sem fingir que o conteúdo do arquivo foi comparado.
-
-### 4. Diagnósticos com possíveis causas
-
-Após cada execução v1.5, na seção **Divergências**, você pode baixar:
-
-- **Diagnóstico JSON**: lista técnica estruturada, URLs, ambiente, eventos de navegação, número do par, falhas conhecidas, possíveis causas, motivo da parada e quantidade de páginas pendentes.
-- **Log TXT**: resumo legível e últimas mensagens do terminal, incluindo orientações por erro.
-
-Erros reconhecidos: DNS, certificado TLS, timeout, status HTTP, navegação interrompida, downloads, extração e desconhecido. **Possível causa não é causa comprovada.** Se o programa for interrompido pelo usuário, tenta exportar o que já coletou. Tenta manter *checkpoints* num agendamento único, normalmente a cada 30 segundos e adaptado ao custo até 120 segundos, além de salvamentos no início, encerramento, interrupção e erro fatal. A gravação compacta é atômica e o formato v1 continua legível. Uma queda abrupta ainda pode perder trabalho posterior ao último checkpoint válido. Se ocorrer falha antes do primeiro checkpoint, somente o diagnóstico de exceção poderá estar disponível; não há garantia de recuperação total.
-
-### 5. Revisão manual das DIVs
-
-Cada DIV tem botão **Confirmar DIV**. A escolha é preservada em arquivo auxiliar, sem alterar o relatório bruto original; aparece na interface e nas exportações filtradas. Clique novamente para remover a confirmação. O botão de excluir DIV continua funcionando como antes (oculta da exibição e exportação, mantendo o relatório original).
-
-### 6. Ícones/layout e teste opcional de clique
-
-- Compara marcas **SVG** ou classes de ícones em controles equivalentes dos dois ambientes. Diferenças puramente técnicas/decorativas ficam nas observações, sem DIV isolada; ausência de ícone informativo permanece relevante. Não comprova aparência visual.
-- Deslocamentos **muito grandes** de controles equivalentes geram **referências de layout para revisão**. Não é comparação visual por pixels.
-- **Testar cliques de navegação internos** é opcional e fica **desmarcado por padrão**: testa no máximo 12 pares de links de consulta/abertura de destinos equivalentes, usando navegador isolado e bloqueando requisições que não sejam GET/HEAD ou que saiam do domínio. O comportamento observado pode ser inconclusivo. Evite ativar em sites com links sensíveis, mesmo com a proteção.
-- Testar cliques não submete formulários nem interage com sites externos. Controles internos com `aria-controls` reconhecido e disclosures seguros podem ser observados; botões arbitrários, autenticação e ações de escrita não são executados.
-
-## Como interpretar o relatório
-
-| Área | Significado |
+| Melhoria | O que muda |
 |---|---|
-| **Divergências** | Diferenças entre elementos coletados nos dois ambientes (exigem validação). |
-| **Variações editoriais (informativas)** | Diferenças de notícias, datas ou banners identificadas por contexto, mesmo sem base declarada desatualizada; se uma área não tem contraparte, permanece para revisão. |
-| **Sinais de desatualização** | Avisos localizados no DOM, sem conclusão automática. |
-| **Referências diferentes** | Diferenças de URLs, imagens ou layout sem prova de defeito visual. |
-| **Avisos técnicos** | Falhas de carregamento, arquivos ignorados e coleta parcial. |
-| **Páginas sem correspondência** | Não puderam ser comparadas; não provam ausência de conteúdo. |
-| **Diagnóstico JSON/TXT** | Causas prováveis, URL, par, erros e situação da execução. |
+| **Exportações mais eficientes** | CSV, JSON, HTML e PDF são gerados conforme o formato solicitado, reduzindo processamento desnecessário. |
+| **Classificação editorial contextual** | Notícias e publicações podem ser agrupadas como variações informativas sem exigir que uma base seja declarada antiga; menus, opções e documentos continuam sujeitos à comparação. |
+| **Manutenção com IA** | `AGENTS.md` estabelece diretrizes e as Skills de `.agents/skills/` ajudam o Codex a diagnosticar, otimizar e validar mudanças. |
+| **Testes automatizados** | GitHub Actions executa regressões no Windows com Python, JavaScript e Playwright. |
 
-**Importante:** `Varredura parcial` significa cobertura insuficiente. Mesmo se nenhuma DIV aparecer, não se deve declarar os ambientes equivalentes. A ferramenta também **não determina** qual ambiente está correto.
+**Estado da validação (29/10/2026):** os downloads de CSV e JSON funcionaram em testes manuais no Windows relatados pelo mantenedor. HTML e PDF ainda precisam de confirmação nesse ambiente. Na última execução consultada, **252 de 254 testes passaram e 2 falharam**; por isso, esta branch **não está pronta para integração automática à `main`**. Consulte [GitHub Actions](https://github.com/vinicius-antunes/AmbiDiff/actions) para o estado mais recente.
 
-## Exportações e histórico
+Essas Skills apoiam **o desenvolvimento**, não executam agentes durante as varreduras nem enviam relatórios a serviços externos. Veja o [guia de manutenção assistida por IA](docs/manutencao-ia.md).
 
-A pasta `relatorios` contém `comparacao_<id>.json`, `.html` e `.csv`, `diagnostico_<id>.json`, `log_<id>.txt` e a pasta de `evidencias_<id>/` quando disponíveis. As capturas são limitadas por duração e quantidade; alguns elementos não possuem evidência por timeout ou limitação de navegação.
+## Análise inteligente de divergências (opcional)
 
-`selecoes_<id>.json` guarda a seleção de exportação separada das revisões, exclusões e do relatório bruto. Excluídos não entram na seleção exportada. Checkpoints e relatórios antigos continuam legíveis; nomes e caminhos internos não mudaram. Uma recuperação adicional preserva o bruto existente e usa `recuperacao_<id>.json` quando necessário.
+O **AmbiDiff IA** é um assistente complementar e **independente** da varredura. Ele ajuda a interpretar divergências a partir de **relatórios JSON exportados** e, quando disponíveis, diagnósticos e capturas de tela.
 
-Os downloads usam nomes como `SEFAZ_DIVs_Selecionadas_2026-10-23_abcdef.csv`, sanitizados para Windows. **O Chrome/Edge gerencia o salvamento diretamente**; o AmbiDiff não usa mais o seletor `showSaveFilePicker` nem tenta ler arquivos do usuário antes de gravar. Para escolher a pasta a cada download, ative **“Perguntar onde salvar cada arquivo antes de fazer download”** nas configurações do navegador (no Chrome: `chrome://settings/downloads`). A escolha de nomes repetidos e eventuais substituições também é controlada pelo navegador.
+- Identifica achados com maior impacto em menus, navegação e serviços.
+- Diferencia possíveis problemas estruturais, funcionais, editoriais e falsos positivos.
+- Organiza prioridades e gera um resumo executivo com diagnóstico técnico.
 
-HTML incorpora PNGs locais com limite de **3 MB por captura e 20 MB por exportação**, indicando evidências ausentes ou excedentes. O HTML/PDF resume métricas técnicas extensas, sem remover as divergências do relatório; o JSON completo mantém os dados técnicos da execução. PDF é gerado localmente com Chromium, sem serviço externo, com limite de conversão de 60 s. **Cada solicitação gera somente o formato necessário** (PDF usa um HTML intermediário), e o servidor transmite o arquivo em blocos, sem carregá-lo por inteiro no navegador. Exportações usam arquivos temporários isolados; **não substituem** os originais em `relatorios/`. CSV conserva UTF-8 com BOM, `;` e proteção contra fórmulas. Diagnósticos JSON/TXT continuam disponíveis separadamente.
+A análise é **manual e opcional**: não há envio automático de dados pelo AmbiDiff. Antes de utilizar a IA, verifique se os arquivos contêm **somente informações públicas e sanitizadas**. As conclusões são recomendações que exigem **validação humana**.
 
-**Seleção em massa:** use **Marcar todas do relatório**, **Marcar apenas as filtradas** ou **Desmarcar todas**. A operação inclui itens ainda não renderizados, trata membros dos grupos e preserva confirmações e classificações. Marcar filtradas mantém seleções fora dos filtros. A busca por ID conserva a regra da tela: ignora categoria/lado/tipo, mas respeita revisão e visibilidade de baixa relevância. Uma única requisição em lote aplica os filtros no servidor e salva a seleção atomicamente.
+O acesso ao assistente é destinado a colegas autorizados e depende da disponibilidade e das permissões da ferramenta; não é necessário para utilizar o AmbiDiff.
 
-Com relatório aberto, os quatro formatos possuem seleção e feedback no painel. Sem DIV marcada no escopo **Somente DIVs selecionadas**, o programa orienta marcar os itens. O download é gerenciado pelo navegador; acompanhe o resultado em **Ctrl+J**. Se falhar, confira a mensagem no painel, a janela do `INICIAR_AMBIDIFF.bat` e os arquivos de diagnóstico da execução.
+### Como instalar o AmbiDiff IA no ChatGPT
 
-O histórico é agrupado por site. É possível excluir uma execução ou várias, excluir DIVs individuais e confirmar resultados manualmente. Todas essas alterações ficam **somente no seu computador**.
+O assistente é um **plugin opcional do ChatGPT**, não um componente instalado no Windows junto com o AmbiDiff.
 
-### Migrando relatórios da versão 1.4
+1. Tenha uma conta ChatGPT com acesso ao recurso **Plugins**. Solicite ao responsável pelo AmbiDiff IA o compartilhamento com seu usuário ou equipe.
+2. No ChatGPT, abra **Plugins** (ou **Personalizar → Plugins**, conforme a interface), procure **AmbiDiff IA** na seção de plugins compartilhados e selecione **Instalar (+)**. A disponibilidade depende das permissões da conta e do ambiente.
+3. Inicie uma **nova conversa**, digite **@AmbiDiff IA** e selecione o plugin.
+4. Anexe os **JSONs exportados** pelo AmbiDiff e, se disponíveis, o **diagnóstico completo e as imagens**. Peça, por exemplo: *“Priorize as divergências, preserve os IDs e separe fatos, hipóteses e verificações necessárias.”*
 
-**Não misture os códigos-fonte.** Com o programa fechado:
+Se o plugin não aparecer no catálogo ou na busca por `@`, confirme com o responsável se o compartilhamento foi habilitado e se sua conta tem permissão de instalar plugins. **Não é necessário instalar ou executar o arquivo `plugin.zip` no computador**: o ZIP é um pacote usado pelo mantenedor para configurar ou atualizar o plugin.
 
-1. Extraia a v1.5 em uma **pasta nova** e instale normalmente.
-2. Se quiser manter o histórico antigo, copie o conteúdo da pasta `relatorios` da v1.4 para `relatorios` da v1.5; copie também `historico.json` da pasta antiga para a nova.
-3. Inicie a v1.5. Os relatórios antigos são preservados **como foram gerados**; não recebem retroativamente o novo diagnóstico ou classificação editorial. Novas regras valem para novas execuções.
+Antes de anexar relatórios, confirme que eles contêm **somente dados públicos verificados e sanitizados**. O uso do assistente não substitui a revisão humana.
 
-Você também pode manter a v1.4 intacta e começar um histórico separado na v1.5.
+## Limitações importantes
 
-## Análise complementar: AmbiDiff IA (opcional)
+- Não determina qual ambiente está correto, nem garante igualdade visual pixel a pixel.
+- Não executa testes completos de formulários, APIs ou todos os componentes dinâmicos.
+- Não lê o conteúdo dos PDFs/documentos: analisa referências e verificações permitidas.
+- Bloqueios de rede, login ou certificado podem impedir a coleta; **não são corrigidos automaticamente**.
+- Tempos e ganhos observados em benchmarks sintéticos **não garantem desempenho em portais reais**.
 
-O **AmbiDiff IA** é um plugin **independente** do programa, utilizado manualmente no ChatGPT para interpretar **JSONs exportados**, diagnósticos e evidências. Ajuda a priorizar divergências de menus, serviços, navegação e documentos, separar fatos de hipóteses, identificar possíveis diferenças editoriais e produzir resumos executivos. **Não realiza varreduras, não modifica os sites e não substitui a revisão humana.**
+## Quando algo não funciona
 
-### Instalação e uso no ChatGPT
+| Sintoma | Primeiro passo |
+|---|---|
+| Não inicia | Rode `instalar.bat` e confira o Python (`py -3 --version`). |
+| `127.0.0.1:8765` não abre | Verifique se `INICIAR_AMBIDIFF.bat` continua aberto e se a porta está livre. |
+| **Failed to fetch** no painel | Verifique `/api/status` no endereço local e o terminal; não presuma falha do portal. |
+| Um ambiente não carrega | Confirme URL, rede/VPN, DNS e certificados com a TI. |
+| Varredura parcial | Consulte diagnósticos, logs, páginas pendentes e checkpoints. |
+| Download não conclui | Confira se está usando a versão atual da branch, reinicie o programa e atualize o painel com **Ctrl + F5**. Veja **Ctrl + J** no Chrome e os erros no terminal. Preserve a pasta `relatorios/`. |
 
-1. Tenha uma conta ChatGPT com acesso a **Plugins** e solicite ao responsável pelo AmbiDiff IA o compartilhamento com seu usuário ou equipe autorizada.
-2. No ChatGPT, abra **Plugins**, procure **AmbiDiff IA** entre os plugins disponíveis ou compartilhados e escolha **Instalar** (a interface e a disponibilidade dependem da conta).
-3. Em uma conversa, selecione **@AmbiDiff IA**, anexe o JSON do relatório e, quando disponíveis, diagnóstico e capturas. Exemplo: *“Priorize as DIVs, preserve os IDs e separe fatos, possíveis causas e verificações necessárias.”*
+O [guia completo](docs/guia-de-uso.md#4-solução-de-problemas) traz um roteiro de diagnóstico para esses casos.
 
-**Não instale `plugin.zip` no Windows**: ele é um pacote de configuração do plugin para o mantenedor. O acesso depende de compartilhamento e permissões; não é necessário para usar o AmbiDiff. **Não anexe informações internas ou sensíveis**: utilize apenas conteúdo público verificado e sanitizado, conforme as regras do setor.
+## Documentação
 
-## Testes locais
+| Quero saber sobre... | Onde ler |
+|---|---|
+| Instalação, uso, atualização e testes com colegas | [Guia de uso](docs/guia-de-uso.md) |
+| Estabilização, Chromium oculto, progresso e HOMOL | [Estabilização da varredura](docs/estabilizacao-varredura.md) |
+| Limite de 1.000 pares e gestão dinâmica da fila | [Otimização da fila](docs/otimizacao-fila-dinamica.md) |
+| Checkpoints, portais extensos e cobertura | [Portais extensos](docs/atualizacao-portais-extensos.md) |
+| Critérios de relevância e falsos positivos | [Filtro de relevância](docs/filtro-relevancia.md) |
+| Histórico de decisões, testes e benchmarks | [Documentação técnica](docs/varredura-inteligente.md) · [Otimização](docs/otimizacao-varredura.md) · [Melhorias 13–17](docs/atualizacao-13-17.md) |
+| Desenvolvimento com Codex | [`AGENTS.md`](AGENTS.md) · [Guia das Skills e CI](docs/manutencao-ia.md) |
 
-### Fila dinâmica e reconhecimento estático
+### Para quem desenvolve
 
-A estratégia dinâmica e o reconhecimento de equivalências estáticas são o padrão.
-Não há seletor de estratégia ou orçamento na interface. A ordem é menus/navegação,
-serviços, notícias, legislação, institucional e histórico, com rodízio entre
-categorias para evitar inanição. Representantes editoriais são inspecionados
-primeiro; as demais páginas admitidas continuam automaticamente. Uma amostra
-não conclui outra página. Páginas exclusivas são inspecionadas apenas onde o
-link foi encontrado e ficam sem comparação quando não há contraparte comprovada.
-
-Notícias escolhidas para inspeção recebem navegação e coleta. Somente
-templates estáticos comprovados por duas amostras profundas, sem scripts ou
-marcadores conhecidos de interação/lazy loading, podem dispensar preparação
-profunda quando a defasagem tiver sido declarada. Páginas institucionais e
-diferenças estruturais não são dispensadas por essa regra. ÁUDIOS exclusivo na
-CGE continua sendo divergência.
-
-Metadados semelhantes de documentos não comprovam arquivos idênticos. Inspeções
-profundas omitidas e verificações inconclusivas limitam a cobertura. A ausência
-de comparação do corpo dos documentos é uma decisão de escopo, não prova de
-identidade dos arquivos. O CSV
-continua dedicado às divergências; JSON, HTML e diagnósticos incluem as novas
-categorias.
-
-Consulte [arquitetura, limites, benchmark e conflitos de integração](docs/varredura-inteligente.md).
-Para reproduzir o benchmark com portais sintéticos locais:
-
-```cmd
-.venv\Scripts\python.exe scripts\benchmark_smart.py --articles 8 --repetitions 3
-```
-
-No CMD dentro da pasta:
+Os testes automatizados locais utilizam o framework `unittest`:
 
 ```cmd
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Os testes incluem regressão de links equivalentes, varredura pareada, menu não ocultado por defasagem, classificação de notícia e download do Liferay, ícones de SVG, geração de diagnóstico e marcação manual. Os testes simulados não garantem que os portais PRD/DES reais vão responder da mesma maneira, pois a rede corporativa é variável. Acessibilidade, reprodução pixel a pixel, comportamento integral de scripts, APIs e conteúdo do banco de dados não são verificados completamente.
+O código é organizado em `ambidiff/` (comparação), `web/` (painel e API), `tests/` (regressão) e `scripts/` (benchmarks). Para trabalhar nesta branch com o Codex, consulte também `AGENTS.md` e as Skills em `.agents/skills/`. Testes simulados **não substituem validação nos ambientes reais**.
 
-As regressões desta entrega estão em `tests/test_update12.py`: bloqueios e URLs inválidas, recuperação/retomada, classificação de recursos, seleção persistente, CSV, HTML/PDF com capturas e deduplicação. Resultados e benchmarks contra `f7ba62e` estão na [documentação das 12 melhorias](docs/atualizacao-12-melhorias.md). Ganho de CPU sintética não equivale a redução comprovada do tempo nos portais; não houve validação em produção ou do diálogo nativo no Windows.
+---
 
-## Estrutura
+<div align="center">
 
-```text
-AmbiDiff-v1.5/
-├── instalar.bat
-├── INICIAR_AMBIDIFF.bat
-├── requirements.txt
-├── ambidiff/
-│   ├── core.py
-│   ├── paired.py
-│   ├── intelligence.py
-│   ├── diagnostics.py
-│   ├── visual.py
-│   ├── functional.py
-│   ├── storage.py
-│   └── reports.py
-├── web/
-│   ├── server.py
-│   ├── templates/index.html
-│   └── static/app.js, style.css
-├── tests/
-└── relatorios/
-```
+  <p><strong>AmbiDiff é uma ferramenta de apoio à revisão humana.</strong></p>
+  <p>Use apenas em ambientes autorizados. Não compartilhe logs, capturas ou relatórios internos sem verificar e sanitizar o conteúdo.</p>
 
-Esta ferramenta serve como apoio a QA e não substitui testes manuais dos achados relevantes.
-
-### Indicadores de acompanhamento durante a execução
-
-O painel apresenta a **proporção de pares admitidos encerrados**, o **tempo decorrido** e, quando existem amostras recentes suficientes, uma **estimativa de tempo restante**. A previsão pode ficar indisponível. Os contadores separam comparações bem-sucedidas de falhas e pendências; 100% dos admitidos encerrados não comprova cobertura integral nem sucesso em todos os pares. A validação no Windows e nos portais reais permanece pendente.
-
-## Desempenho: meta de reduzir em 50% o tempo da varredura
-
-Registramos um plano técnico de otimização com a medição real da SEFAZ, gargalos possíveis, segurança das verificações, benchmark comparável e inclusão futura dos campos `iniciado_em`, `finalizado_em` e `duracao_segundos` nos JSONs. **A meta ainda não foi validada em portal real**.
-
-Leia [Plano de desempenho — SEFAZ](docs/plano-desempenho-sefaz.md) antes de alterar timeouts, segunda leitura, rolagem ou paralelismo. A redução de tempo não deve ocorrer à custa de omitir divergências institucionais, documentos, falhas ou resultados parciais.
-
-## Filtro de relevância e diferenças SVG
-
-A lista principal prioriza diferenças estruturais, funcionais e institucionais.
-Diferenças puramente técnicas/decorativas de SVG ficam nas observações técnicas,
-sem DIV isolada e sem presumir equivalência visual. Há reclassificação manual e exportação principal ou
-completa. Veja [critérios, formatos e limitações](docs/filtro-relevancia.md).
-
-## Histórico: otimização de preparação e releitura
-
-A antiga etapa de otimização, hoje preservada no histórico técnico do projeto, acrescentou preparação por sinais do DOM,
-releitura seletiva, tags de evidência, relações entre ocorrências e horários/duração
-nos relatórios. O benchmark equivalente entre checkouts mediu redução sintética de
-76,78% (estável) e 59,22% (dinâmico), sem omissões profundas ou perda dos achados
-inspecionados. Isso não comprova o ganho em portais reais. Consulte
-[metodologia, testes e limites](docs/otimizacao-varredura.md) e
-[séries completas de medição](docs/benchmark-perf.json).
-
-## Atualização: seções, referências e acompanhamento confiável
-
-Opções ausentes são verificadas na seção correspondente, nos dois sentidos;
-referências em outra seção não apagam uma possível diferença de organização.
-Vários documentos ausentes formam uma DIV por seção, com todos os membros
-preservados. Nomenclatura e valores informativos diferentes continuam visíveis.
-
-Logs usam IDs/cursor, janela de 200 eventos e terminal limitado a 500 linhas,
-com aviso de lacuna e arquivo local completo `execucao_<id>.log`. O polling
-reconecta sem interromper o backend. O percentual representa estados finais na fila admitida,
-e o tempo decorrido independe da ETA. Um clique solicita interrupção cooperativa
-e preserva os resultados parciais. Os campos de URL começam vazios.
-
-Consulte [o relatório técnico A–I](docs/proxima-atualizacao.md) para os requisitos
-atendidos, limites de HEAD/cliques, comandos, resultados e validação manual.
-
-## Portais extensos, retomada e revisão
-
-A execução admite até **1.000 pares HTML**, incluindo unidades com apenas um
-ambiente. PDFs, imagens e recursos auxiliares não usam vagas. Referências ainda
-sem tipo conhecido reservam uma vaga conservadora; respostas identificadas como
-não HTML liberam-na. A descoberta/admissão para no teto, mas a fila admitida
-continua até concluir ou registrar uma falha. Não existe prazo global de execução.
-O teto preventivo de memória de 100.000 referências candidatas permanece separado.
-A cobertura nunca é apresentada como integral por ter esgotado a fila conhecida.
-
-Use **Consultar checkpoints → Retomar** para continuar uma fila persistida em
-nova execução, preservando o relatório anterior e as revisões. Confira os
-ambientes e opções mostrados antes de retomar. Checkpoints antigos sem estado
-restaurável continuam úteis para diagnóstico, mas não são retomados.
-
-Documentos recebem somente HEAD, com até 10.000 pares e 20.000 pedidos seriais,
-cache de observações por URL e horário preservado. Não são lidos PDFs ou corpos.
-Bloqueios de segurança aparecem separados das falhas de acesso/automação.
-Fragmentos sem função comprovada ficam inconclusivos; âncoras de rolagem
-observadas não geram defeitos funcionais.
-
-O formato 2 separa o principal de `detalhes_<id>.json`; preserve ambos ao copiar
-a instalação. O diagnóstico completo e a exportação completa mantêm os detalhes.
-O painel carrega os dados técnicos sob demanda, pesquisa IDs dentro de grupos,
-filtra revisão pendente/confirmada e oferece exportação somente de relevantes.
-
-Confira [arquivos, testes, benchmark, limites e roteiro Windows](docs/atualizacao-portais-extensos.md).
-
-## Melhorias 13 a 17 — histórico da evolução
-
-Consulte [o relatório técnico](docs/atualizacao-13-17.md) para causas confirmadas,
-compatibilidade de checkpoints/API, cenários de regressão, resultados controlados
-e limitações daquela entrega. A etapa seguinte substitui o orçamento e a pausa
-editorial por continuação automática. Tempos sintéticos não garantem desempenho
-real, e a amostragem nunca comprova páginas não abertas.
-
-## Nova otimização — fila dinâmica de até 1.000 pares HTML
-
-Consulte [decisões, testes e medições](docs/otimizacao-fila-dinamica.md).
-A referência de até 1.000 comparações em cerca de **1h30** orienta o trabalho;
-não é prazo de parada nem garantia para qualquer portal. Não houve validação
-em produção ou em recursos corporativos. O Chromium opera **oculto**,
-com contextos isolados e um par por vez. Não há opção de interface ou variável
-necessária para ativar esse comportamento.
-
-## Estabilização, progresso e HOMOL
-
-Consulte [o diagnóstico comparativo e os testes desta atualização](docs/estabilizacao-varredura.md).
-Erros de certificado identificam ambiente e endereço e sugerem conferir o domínio;
-a proteção TLS continua ativa. `ERR_ABORTED` admite no máximo uma recuperação
-controlada. Página/contexto fechados são substituídos antes de outra tentativa;
-o navegador só é recriado quando desconectado. Resultados e checkpoints são
-preservados se a recuperação se esgotar.
-
-Os resultados usam um seletor de formato e **Baixar relatório**. JSON de relatório
-respeita o escopo escolhido; **Diagnósticos técnicos** oferece separadamente JSON
-da execução e log TXT. CSV, HTML e PDF local continuam disponíveis, assim como
-seleção persistente, confirmação manual, agrupamento, exclusões e filtros.
-**Na branch atual**, as exportações grandes passam por geração independente,
-gravação incremental de JSON e transmissão em blocos; isso não altera a varredura
-ou o teto de páginas. A integridade e a compatibilidade dos formatos seguem
-sujeitas aos testes de regressão e à verificação no Windows. Telas
-sem DIVs ocultam os filtros vazios e informam as limitações da análise.
-
-## Infraestrutura de manutenção com Codex
-
-O `AGENTS.md` reúne regras de desenvolvimento e segurança. As Skills em
-`.agents/skills/` oferecem procedimentos de **diagnóstico de falhas**,
-**otimização medida** e **validação de correções**. Elas orientam o Codex
-quando utilizadas e **não são agentes executados durante a varredura**.
-Não existe integração automática entre essas Skills e o AmbiDiff IA.
-
-O workflow [**Testes AmbiDiff**](.github/workflows/tests.yml) executa
-verificação de JavaScript e a suíte Python no Windows com Chromium.
-Nesta configuração, o workflow é acionado por pushes na branch `chore`,
-por PRs e manualmente; ainda referencia a branch antiga
-`perf/otimizacao-varredura` nos filtros, que precisa de revisão futura.
-**Não faça merge na `main` enquanto houver testes falhando**.
-
-Consulte o [guia de manutenção assistida por IA](docs/manutencao-ia.md)
-para uso das Skills, comandos, segurança e limitações.
+</div>
