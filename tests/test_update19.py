@@ -85,6 +85,50 @@ class Recovery19Tests(unittest.TestCase):
         self.assertFalse(pw.browsers[0].connected);self.assertTrue(all(c.closed for c in pw.browsers[0].contexts))
         self.assertEqual(r['andamento']['pares_concluidos'],3)
 
+    def test_capturas_com_browser_fechado_nao_repetem_targetclosed(self):
+        from unittest.mock import MagicMock
+        from ambidiff.paired import _salvar_evidencias
+        browser=MagicMock();browser.is_connected.return_value=False
+        contextos=[MagicMock(),MagicMock()]
+        paginas=[MagicMock(),MagicMock()]
+        for ctx,page in zip(contextos,paginas):ctx.new_page.return_value=page
+        browser.new_context.side_effect=contextos
+        paginas[0].goto.side_effect=RuntimeError(CLOSED)
+        registros=[{'id':f'DIV-{n:04d}','presente_em':'PRD','nao_identificado_em':'HOMOL',
+            'url_presente':A,'url_comparada':B} for n in range(1,20)]
+        logs=[];diagnosticos=[]
+        with tempfile.TemporaryDirectory() as td:
+            _salvar_evidencias(browser,registros,td,threading.Event(),logs.append,
+                'PRD','HOMOL',diagnosticos=diagnosticos)
+        self.assertEqual(len([s for s in logs if 'TargetClosedError' in s or 'RuntimeError' in s]),1)
+        self.assertIn('capturas restantes ignoradas',logs[-1])
+        self.assertEqual(len(diagnosticos),1)
+        self.assertTrue(all(ctx.close.called for ctx in contextos))
+        self.assertFalse(any(r.get('evidencias') for r in registros))
+
+    def test_capturas_contexto_fechado_na_inicializacao_nao_derrubam_relatorio(self):
+        from unittest.mock import MagicMock
+        from ambidiff.paired import _salvar_evidencias
+        browser=MagicMock();browser.new_context.side_effect=RuntimeError(CLOSED)
+        logs=[];falhas=[]
+        with tempfile.TemporaryDirectory() as td:
+            _salvar_evidencias(browser,[],td,threading.Event(),logs.append,
+                'PRD','HOMOL',diagnosticos=falhas)
+        self.assertEqual(len(falhas),1)
+        self.assertIn('relatório preservado',logs[-1])
+
+    def test_consultar_checkpoints_nao_compete_com_varredura_ativa(self):
+        from web import server
+        with tempfile.TemporaryDirectory() as td,patch.object(server,'PASTA',Path(td)),patch.dict(server.STATE,copy.deepcopy(server.STATE),clear=True):
+            server.STATE['status']='executando'
+            # Um checkpoint grande não deve sequer ser aberto enquanto executando.
+            arquivo=Path(td)/f'checkpoint_{RID}.json';arquivo.write_text('{"invalido":true}',encoding='utf-8')
+            with patch('ambidiff.checkpoints.validar',side_effect=AssertionError('não deveria validar')):
+                response=server.app.test_client().get('/api/checkpoints')
+            self.assertEqual(response.status_code,409)
+            self.assertIn('andamento',response.get_json()['erro'])
+            self.assertTrue(arquivo.exists())
+
     def test_navegador_encerrado_recupera_e_continua_nove_pares(self):
         vezes=0
         def nav(p,u):
