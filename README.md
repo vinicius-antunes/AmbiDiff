@@ -14,7 +14,7 @@ O AmbiDiff é uma ferramenta **local de apoio a QA**: recebe as URLs de dois amb
 |---|---|
 | Comparação PRD × DES/LAB/HOMOL | Detectar diferenças nos dois sentidos entre ambientes autorizados |
 | Varredura inteligente (padrão) | Até 1.000 pares HTML, fila dinâmica e continuação automática, sem prazo global; arquivos fora do teto |
-| Base desatualizada | Separar possíveis diferenças editoriais sem ocultar problemas de navegação ou estrutura |
+| Variações editoriais | Agrupar diferenças de notícias, datas e banners por contexto, mesmo sem base declarada desatualizada; preservar estrutura e navegação |
 | Documentos e links | Conferir referências e, conforme as opções, respostas HTTP HEAD; **não lê o corpo de PDFs ou arquivos** |
 | Progresso e checkpoints | Acompanhar pares visitados/comparados, interromper e retomar a fila quando houver checkpoint válido |
 | Relatórios e revisão | Pesquisar DIVs, confirmar/reclassificar, selecionar independentemente para CSV/HTML/PDF/JSON e baixar diagnósticos |
@@ -64,7 +64,7 @@ Se nenhum funcionar, instale/configure o Python pelo canal aprovado pela TI e ab
 
 1. No painel, abra **Comparar ambientes**. O nome do portal é identificado automaticamente por metadados, título inicial ou domínio; não há campo de nome no formulário.
 2. No **Ambiente A**, escolha PRD, DES ou LAB. No **Ambiente B**, escolha DES (padrão), LAB ou **HOMOL — Homologação**. Cole as URLs completas (`https://...`); nenhuma URL de homologação é presumida. Não use o mesmo ambiente nos dois campos. Relatórios antigos com PRD no Ambiente B continuam consultáveis.
-3. Se houver informação **confirmada** de que uma base está desatualizada, marque o ambiente correspondente. Isso modifica a classificação de possíveis conteúdos editoriais; não prova que uma diferença está correta.
+3. Em **Condição das bases (opcional)**, informe a base desatualizada somente se houver confirmação. Diferenças editoriais são classificadas por contexto mesmo sem a declaração; a escolha acrescenta contexto, não comprova a causa.
 4. A **varredura inteligente** está sempre ativa: admite até **1.000 pares HTML únicos**, organiza as prioridades e continua até dar um resultado a todos os pares admitidos, sem prazo global. O teto não é configurável na tela. **Opções avançadas** conserva apenas destinos externos e cliques internos, desmarcados; habilite-os somente quando autorizados.
 5. Clique **Iniciar varredura**. O Chromium trabalha **oculto**, sem janelas de automação. Acompanhe admitidos, comparados, pendentes, falhos, ocorrências preliminares e tempo. O percentual mede **pares admitidos que receberam estado final**, incluindo falhas; não é percentual de comparações bem-sucedidas nem de cobertura integral. Logs e métricas adicionais ficam em **Diagnóstico e log da execução**.
 6. Ao terminar, abra **Divergências**. Verifique as diferenças principais e as seções informativas de dados, documentos e avisos técnicos; uma execução parcial não comprova equivalência.
@@ -170,20 +170,20 @@ O AmbiDiff pode ser avaliado por colegas em **computadores Windows autorizados**
 
 ## Novidades v1.5
 
-### 1. Bases desatualizadas — controle explícito
+### 1. Variações editoriais — detecção por contexto
 
-No formulário **Atualização das bases de dados**, selecione:
+Em **Condição das bases (opcional)**, selecione:
 
-- **Bases equivalentes / não informado**: não separa conteúdo editorial automaticamente (modo padrão).
-- **Ambiente A está desatualizado** ou **Ambiente B está desatualizado**: separa diferenças reconhecidas como publicações/notícias para **Variações de dados / bases desatualizadas**. A configuração é lembrada por domínio no navegador deste computador.
+- **Nenhuma base declarada desatualizada** (padrão): diferenças reconhecidas como notícias, datas e banners podem ser agrupadas em **Variações editoriais (informativas)** quando a área editorial correspondente foi observada nos dois ambientes. Uma seção editorial sem correspondência continua como divergência para revisão.
+- **Ambiente A está desatualizado** ou **Ambiente B está desatualizado**: informa defasagem conhecida e mantém o agrupamento editorial anterior, inclusive avisos editoriais exclusivos. A configuração é lembrada por domínio neste navegador.
 
-O programa tenta reconhecer avisos públicos de desatualização no DOM e mostra-os como **sinais**, sem ativar esse modo por conta própria. Menus, opções de navegação, redirecionamentos e diferenças de estrutura **não** são ocultados só por haver defasagem. Diferenças editoriais **continuam registradas no JSON**, mas agrupadas como informações, e não como DIVs de defeitos.
+A classificação é baseada em evidências de contexto e destinos das publicações, não pressupõe equivalência ou atualização. Menus, documentos e alterações estruturais continuam sendo avaliados; as variações agrupadas não são tratadas automaticamente como defeitos. Nenhuma declaração substitui validação humana.
 
 O reconhecimento editorial é **conservador**: usa contexto de cartões/artigos, URLs de notícia e elementos que o HTML renderizado oferece. Se a página não fornecer indícios suficientes, a DIV permanece na lista principal para revisão. Dados alterados por outra causa podem parecer uma defasagem; a ferramenta não presume a causa.
 
 ### 2. Menos falso positivo; mesma estrutura em lugar diferente
 
-O comparador já verifica rótulos no conjunto da página e não apenas na posição. A v1.5 melhora o reconhecimento do conteúdo editorial dos cartões, separando datas/títulos/imagens relacionadas quando a base é declarada antiga. Isso **não** suprime diferenças de menu como a opção **ÁUDIOS** da CGE. As referências da imagem de logo do Liferay que diferem apenas no parâmetro de cache `t` não aparecem como mudanças de imagem. Mudanças reais de `img_id` continuam sendo verificadas.
+O comparador já verifica rótulos no conjunto da página e não apenas na posição. O reconhecimento editorial agrupa datas, títulos e imagens de publicações por contexto, mesmo sem base declarada antiga, e preserva seções sem correspondência para revisão. Isso **não** suprime diferenças de menu como a opção **ÁUDIOS** da CGE. As referências da imagem de logo do Liferay que diferem apenas no parâmetro de cache `t` não aparecem como mudanças de imagem. Mudanças reais de `img_id` continuam sendo verificadas.
 
 ### 3. Correção da varredura de documentos
 
