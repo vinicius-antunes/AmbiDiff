@@ -347,6 +347,44 @@ class Interface19Tests(unittest.TestCase):
         self.assertFalse(saida['path'].exists())
         self.assertTrue((self.root/f'comparacao_{RID}.json').is_file())
 
+    def test_formatos_independentes_preservam_json_completo_sem_inflar_html(self):
+        from web import server
+        from ambidiff.storage import atomic_json
+        self.abrir(2)
+        arquivo=self.root/f'comparacao_{RID}.json'
+        payload=json.loads(arquivo.read_text(encoding='utf-8'))
+        marcador='DETALHE_COMPLETO_EXPORTACAO_'+'X'*1_000_000
+        payload['metricas']={'releituras':[{'log':marcador}]}
+        atomic_json(arquivo,payload)
+        original=arquivo.read_bytes()
+        formatos=[]
+        original_exportar=server.exportar
+        def acompanhar(dados,pasta,run_id,**kw):
+            formatos.append(tuple(kw.get('formatos',())))
+            return original_exportar(dados,pasta,run_id,**kw)
+        with patch.object(server,'exportar',side_effect=acompanhar):
+            for fmt in ('csv','html','json'):
+                resposta=self.client.get(f'/download/{RID}/{fmt}?completo=1')
+                self.assertEqual(resposta.status_code,200,fmt)
+                conteudo=resposta.get_data()
+                self.assertGreater(len(conteudo),50,fmt)
+                if fmt=='json':
+                    completo=json.loads(conteudo)
+                    self.assertEqual(len(completo['divergencias']),2)
+                    self.assertIn(marcador,completo['metricas']['releituras'][0]['log'])
+                elif fmt=='html':
+                    self.assertIn(b'DIV-0001',conteudo)
+                    self.assertNotIn(marcador.encode(),conteudo)
+                else:self.assertIn(b'DIV-0001',conteudo)
+                resposta.close()
+            with patch.object(server,'gerar_pdf',side_effect=lambda _html,target:target.write_bytes(b'%PDF-1.7\n'+b'A'*100)):
+                resposta=self.client.get(f'/download/{RID}/pdf?completo=1')
+                self.assertEqual(resposta.status_code,200)
+                self.assertTrue(resposta.get_data().startswith(b'%PDF-1.7'))
+                resposta.close()
+        self.assertEqual(formatos,[('csv',),('html',),('json',),('html',)])
+        self.assertEqual(arquivo.read_bytes(),original)
+
     def test_servidor_nao_entrega_json_sem_divs_esperadas(self):
         from web import server
         self.abrir(2)
