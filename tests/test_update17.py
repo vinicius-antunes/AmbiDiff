@@ -284,7 +284,7 @@ class BrowserUI17Tests(unittest.TestCase):
             self.p.locator('#export-format').select_option(ext);button=self.p.locator('#download-report');button.focus()
             with self.p.expect_download() as info:button.press('Enter')
             self.assertTrue(info.value.suggested_filename.endswith('.'+ext))
-            self.assertIn('enviado ao navegador',self.p.locator('#export-feedback').inner_text())
+            self.assertIn('solicitado ao navegador',self.p.locator('#export-feedback').inner_text())
         # O recurso de escolha de arquivos pode existir e falhar; a exportação
         # não deve depender dele para salvar relatórios.
         self.p.evaluate('()=>{window.pickerInvocado=false;window.showSaveFilePicker=async()=>{window.pickerInvocado=true;throw new DOMException("Sem permissão","NotAllowedError")};}')
