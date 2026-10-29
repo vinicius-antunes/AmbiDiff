@@ -501,6 +501,12 @@ def baixar(run_id,ext):
                 target=pasta_export/'relatorio.pdf';gerar_pdf(paths['html'],target)
             else:target=Path(paths[ext])
             conteudo=target.read_bytes()
+            if not conteudo:
+                raise RuntimeError('Exportação vazia: o arquivo original foi preservado. Consulte o diagnóstico.')
+            if ext=='json' and dados.get('divergencias'):
+                gerado=json.loads(conteudo)
+                if not gerado.get('divergencias'):
+                    raise RuntimeError('Exportação JSON sem divergências esperadas; arquivo original preservado.')
         tipos={'pdf':'application/pdf','csv':'text/csv','json':'application/json','html':'text/html'}
         return send_file(io.BytesIO(conteudo),mimetype=tipos[ext],as_attachment=True,download_name=nome_amigavel(dados.get('site_nome'),ext,escopo,run_id))
     except RuntimeError as exc:return jsonify(erro=str(exc)),500
