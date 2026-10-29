@@ -377,7 +377,7 @@ class Interface19Tests(unittest.TestCase):
                     self.assertNotIn(marcador.encode(),conteudo)
                 else:self.assertIn(b'DIV-0001',conteudo)
                 resposta.close()
-            with patch.object(server,'gerar_pdf',side_effect=lambda _html,target:target.write_bytes(b'%PDF-1.7\n'+b'A'*100)):
+            with patch('ambidiff.exports.gerar_pdf',side_effect=lambda _html,target:target.write_bytes(b'%PDF-1.7\n'+b'A'*100)):
                 resposta=self.client.get(f'/download/{RID}/pdf?completo=1')
                 self.assertEqual(resposta.status_code,200)
                 self.assertTrue(resposta.get_data().startswith(b'%PDF-1.7'))
