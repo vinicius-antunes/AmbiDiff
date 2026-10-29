@@ -30,8 +30,12 @@ def separar_editoriais(comps, pa, pb, itens_a, itens_b, nomes, defasado):
     Preserva a DIV quando não se identifica uma área editorial correspondente
     no outro ambiente. A declaração de defasagem fornece apenas contexto.
     """
-    ids_a={(i.tipo,normalizar(i.chave)) for i in itens_a if item_editorial(i,pa)}
-    ids_b={(i.tipo,normalizar(i.chave)) for i in itens_b if item_editorial(i,pb)}
+    editoriais_a=[i for i in itens_a if item_editorial(i,pa)]
+    editoriais_b=[i for i in itens_b if item_editorial(i,pb)]
+    ids_a={(i.tipo,normalizar(i.chave)) for i in editoriais_a}
+    ids_b={(i.tipo,normalizar(i.chave)) for i in editoriais_b}
+    locais_a={normalizar(i.local) for i in editoriais_a}
+    locais_b={normalizar(i.local) for i in editoriais_b}
     regs=[];data=[]
     for d in comps:
         k=(d.get('tipo',''),normalizar(d.get('elemento','')))
@@ -47,10 +51,8 @@ def separar_editoriais(comps, pa, pb, itens_a, itens_b, nomes, defasado):
         publicacao=d.get('tipo')=='Opção' and any(ROTA_EDITORIAL.search(urlsplit(i.destino).path) for i in candidatos if i.destino)
         # Uma lista ou seção editorial totalmente ausente pode ser um problema
         # estrutural: nesse caso não deslocar seus itens para o grupo informativo.
-        itens_opostos,pagina_oposta=(itens_b,pb) if d.get('presente_em')==nomes[0] else (itens_a,pa)
-        area_correspondente=bool(candidatos) and any(
-            item_editorial(i,pagina_oposta) and normalizar(i.local)==normalizar(candidatos[0].local)
-            for i in itens_opostos)
+        locais_opostos=locais_b if d.get('presente_em')==nomes[0] else locais_a
+        area_correspondente=bool(candidatos) and normalizar(candidatos[0].local) in locais_opostos
         if editorial and area_correspondente and (d.get('tipo') in ('Texto','Imagem') or publicacao):
             motivo=('Contexto editorial observado; base desatualizada declarada pelo usuário. '
                     'A causa da diferença não foi comprovada.' if defasado else
