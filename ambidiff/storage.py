@@ -37,7 +37,14 @@ def atomic_json(path:Path,data)->None:
         # Escrever incrementalmente evita manter uma segunda cópia gigantesca
         # do JSON na memória, especialmente durante exportações completas.
         with temp.open('w',encoding='utf-8') as arquivo:
-            json.dump(data,arquivo,ensure_ascii=False,indent=2)
+            # Agrupar pequenos fragmentos do encoder evita milhões de write()
+            # em relatórios extensos sem montar o JSON inteiro na RAM.
+            partes=[];tamanho=0
+            for trecho in json.JSONEncoder(ensure_ascii=False,indent=2).iterencode(data):
+                partes.append(trecho);tamanho+=len(trecho)
+                if tamanho>=262144:
+                    arquivo.write(''.join(partes));partes.clear();tamanho=0
+            if partes:arquivo.write(''.join(partes))
         os.replace(temp,path)
     finally:
         temp.unlink(missing_ok=True)
