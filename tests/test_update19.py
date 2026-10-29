@@ -284,6 +284,46 @@ class Interface19Tests(unittest.TestCase):
         self.assertIn('separadamente',self.p.locator('#export-description').inner_text())
 
 
+    def test_json_completo_e_selecionadas_nao_sao_vazios_e_preservam_origem(self):
+        self.abrir(3)
+        original=(self.root/f'comparacao_{RID}.json').read_bytes()
+        self.p.locator('#export-scope').select_option('completo')
+        self.p.locator('#export-format').select_option('json')
+        with self.p.expect_download() as info:
+            self.p.locator('#download-report').click()
+        arquivo=self.root/'export-completo.json'
+        info.value.save_as(str(arquivo))
+        self.assertGreater(arquivo.stat().st_size,50)
+        completo=json.loads(arquivo.read_text(encoding='utf-8'))
+        self.assertEqual({d['id'] for d in completo['divergencias']},
+                         {'DIV-0001','DIV-0002','DIV-0003'})
+        self.assertIn('completo=1',[p for _,p,_ in self.requests if p.startswith('/download/')][-1])
+
+        self.p.locator('.div-export-selection').first.check()
+        self.p.wait_for_function("document.querySelector('#selected-count').textContent==='1 IDs selecionados'")
+        self.p.locator('#export-scope').select_option('selecionadas')
+        self.p.locator('#export-format').select_option('json')
+        with self.p.expect_download() as info:
+            self.p.locator('#download-report').click()
+        arquivo=self.root/'export-selecionado.json'
+        info.value.save_as(str(arquivo))
+        selecionado=json.loads(arquivo.read_text(encoding='utf-8'))
+        self.assertEqual([d['id'] for d in selecionado['divergencias']],['DIV-0001'])
+        self.assertEqual(selecionado['ids_selecionados'],['DIV-0001'])
+        self.assertIn('selecionadas=1',[p for _,p,_ in self.requests if p.startswith('/download/')][-1])
+        self.assertEqual((self.root/f'comparacao_{RID}.json').read_bytes(),original)
+
+    def test_resposta_vazia_rejeitada_sem_gerar_download(self):
+        self.abrir(1)
+        self.p.route('**/download/**',
+                     lambda route:route.fulfill(status=200,content_type='application/json',body=''))
+        self.p.locator('#export-scope').select_option('completo')
+        self.p.locator('#export-format').select_option('json')
+        self.p.locator('#download-report').click()
+        self.p.wait_for_function("document.querySelector('#export-feedback').textContent.includes('arquivo vazio')")
+        self.assertFalse(self.p.locator('#download-report').is_disabled())
+
+
 class Homol19Tests(unittest.TestCase):
     def test_homol_api_nova_e_prd_b_legado_continua_consultavel(self):
         from web import server
