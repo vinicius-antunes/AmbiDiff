@@ -508,7 +508,8 @@ def baixar(run_id,ext):
             # intermediário; arquivos de centenas de MB não são duplicados.
             formatos=('html',) if ext=='pdf' else (ext,)
             paths=exportar(dados,pasta_export,'filtrado_'+run_id,
-                evidencias_root=PASTA,formatos=formatos,preparado=True)
+                evidencias_root=PASTA,formatos=formatos,
+                preparado=(escopo!='selecionadas'))
             if ext=='pdf':
                 target=pasta_export/'relatorio.pdf';gerar_pdf(paths['html'],target)
             else:target=Path(paths[ext])
