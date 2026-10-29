@@ -395,20 +395,24 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
     """
     if not evidencias_dir:return
     pasta=Path(evidencias_dir);pasta.mkdir(parents=True,exist_ok=True)
+    from .browser import fechado
     contexts={};pages={};atuais={};cache={};sondas={}
+    recuperacoes_captura=0
     origens={(urlsplit(r.get(k,'')).scheme,urlsplit(r.get(k,'')).netloc) for r in registros for k in ('url_presente','url_comparada') if r.get(k)}
     def filtro_captura(route):
         req=route.request;p=urlsplit(req.url)
         from .documents import ACOES_ESCRITA
         if req.method not in ('GET','HEAD','OPTIONS') or ACOES_ESCRITA.search(unquote(req.url)) or (req.is_navigation_request() and (p.scheme,p.netloc) not in origens):route.abort()
         else:route.continue_()
-    for env in (nome_a,nome_b):
+    def criar_contexto(env):
         context=browser.new_context(locale='pt-BR',viewport={'width':1366,'height':850},service_workers='block',accept_downloads=False)
         contexts[env]=context
         if metricas:context.on('request',lambda _:metricas.contagens.update(['requisicoes_navegador']))
         context.route('**/*',filtro_captura);pages[env]=context.new_page()
+        atuais.pop(env,None);sondas.pop(env,None)
     qtd=0;inicio_capturas=time.monotonic()
     try:
+        for env in (nome_a,nome_b):criar_contexto(env)
         for r in registros:
             if qtd>=_MAX_EVIDENCIAS or time.monotonic()-inicio_capturas>240 or parar.is_set():break
             urls={r.get('presente_em'):r.get('url_presente'),
@@ -464,12 +468,36 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
                         registro=registrar_excecao({'falhas':diagnosticos},exc,ambiente=env,url=url)
                         registro['etapa']='evidencias'
                     log('[Evidência] '+r['id']+' '+env+': '+type(exc).__name__)
+                    if fechado(exc):
+                        # Capturas são opcionais: um navegador encerrado não
+                        # deve impedir o relatório nem repetir dezenas de erros.
+                        if not browser.is_connected() or recuperacoes_captura>=2:
+                            log('[Evidência] Navegador encerrado ou limite de recuperação atingido; capturas restantes ignoradas. DIVs preservadas.')
+                            return
+                        recuperacoes_captura+=1
+                        try:
+                            contexts[env].close()
+                        except Exception:pass
+                        try:
+                            criar_contexto(env)
+                            cache={k:v for k,v in cache.items() if k[0]!=env}
+                            log('[Evidência] Recriado contexto de '+env+' para próximas capturas (tentativa '+str(recuperacoes_captura)+'/2).')
+                        except Exception as falha:
+                            log('[Evidência] Recuperação indisponível ('+type(falha).__name__+'); DIVs preservadas.')
+                            return
             if result:
                 if metricas:metricas.contagens['referencias_evidencias']+=len(result)
                 r['evidencias']=result
                 r['marcacoes']=mark
                 r['evidencia']=next(iter(result.values()))
                 qtd+=1
+    except Exception as exc:
+        if not fechado(exc):raise
+        from .diagnostics import registrar_excecao
+        if diagnosticos is not None:
+            registro=registrar_excecao({'falhas':diagnosticos},exc,ambiente='AUTOMAÇÃO')
+            registro['etapa']='evidencias'
+        log('[Evidência] Recurso encerrado ao preparar capturas; relatório preservado ('+type(exc).__name__+').')
     finally:
         for context in contexts.values():
             try:context.close()
