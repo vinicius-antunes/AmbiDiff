@@ -173,9 +173,31 @@ function occurrences(card,d){
   }
   details.append(ul);card.append(details);
 }
-function normalizedDivSearch(query){
-  const m=/^(?:div[\s-]*)?(\d{1,9})$/i.exec(query.trim());
-  return m?'DIV-'+m[1].padStart(4,'0'):null;
+function parseDivSearch(query){
+  // Uma DIV, várias DIVs separadas por vírgula ou faixas inclusivas.
+  // Ex.: 179,180, 179-185, DIV-0179, DIV180-185.
+  const value=query.trim().replace(/,\s*$/,'').trim();
+  if(!value)return null;
+  const single=/^(?:div[\s-]*)?(\d{1,9})$/i;
+  const range=/^(?:div[\s-]*)?(\d{1,9})\s*-\s*(?:div[\s-]*)?(\d{1,9})$/i;
+  const intervals=[];
+  for(const part of value.split(',')){
+    const term=part.trim(),one=single.exec(term);
+    if(one){const id=Number(one[1]);intervals.push([id,id]);continue;}
+    const m=range.exec(term);
+    if(!m)return null;
+    const first=Number(m[1]),last=Number(m[2]);
+    if(first>last)return null;
+    intervals.push([first,last]);
+  }
+  return intervals.length?intervals:null;
+}
+function matchesDivSearch(d,intervals){
+  for(const id of [d.id,...(d.ids_agrupados||[])]){
+    const m=/^DIV-(\d{1,9})$/i.exec(id||'');
+    if(m&&intervals.some(([first,last])=>Number(m[1])>=first&&Number(m[1])<=last))return true;
+  }
+  return false;
 }
 async function copyId(id,button){
   try{
@@ -285,11 +307,11 @@ function renderNext(){
 function refilter(){
   if(!currentReport)return;
   const q=$('search-results').value.trim().toLocaleLowerCase('pt-BR'),side=$('filter-side').value,type=$('filter-type').value;
-  const searchedId=normalizedDivSearch(q);
+  const searchedIds=parseDivSearch(q);
   filtered=currentReport.divergencias.filter(d=>
     ($('filter-review').value==='todos'||($('filter-review').value==='pendentes'?!d.revisao_manual:!!d.revisao_manual))&&
     ($('show-all-differences').checked||!['baixa','editorial'].includes(d.classificacao))&&
-    (searchedId?(d.id===searchedId||(d.ids_agrupados||[]).includes(searchedId)):
+    (searchedIds?matchesDivSearch(d,searchedIds):
       (selectedCategory==='todas'||d.categoria===selectedCategory)&&
       (side==='todos'||d.presente_em===side)&&(type==='todos'||d.tipo===type)&&
       (!q||[JSON.stringify(d.itens_agrupados||[]),d.id,d.elemento,d.pagina,d.descricao,d.local,d.caminho,d.posicao,d.destino_a,d.destino_b,d.url_presente,d.url_comparada].some(v=>(v||'').toLocaleLowerCase('pt-BR').includes(q)))));
