@@ -86,7 +86,7 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
       'site_nome':resultado.get('site_nome',''),'ambientes':resultado.get('ambientes',{}),
       'situacao_analise':resultado.get('situacao_analise','inconclusivo'),'fila_execucao':resultado.get('fila_execucao',{}),
       'cobertura':resultado.get('cobertura',{}),'motivo_encerramento':resultado.get('motivo_encerramento',''),
-      'estados_pares':resultado.get('estados_pares',[]),
+      'estados_pares':resultado.get('estados_pares',[]),'diagnosticos_pares':resultado.get('diagnosticos_pares',[]),
       'equivalencias_compartilhamento':resultado.get('equivalencias_compartilhamento',[]),
       'modo_varredura':resultado.get('modo_varredura','atual'),
       'exportacao_worker_segundos':resultado.get('exportacao_worker_segundos'),'metricas':resultado.get('metricas',{}),'otimizacao':resultado.get('otimizacao',{}),

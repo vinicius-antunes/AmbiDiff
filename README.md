@@ -168,6 +168,8 @@ Os testes automatizados locais utilizam o framework `unittest`:
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
+Pareamento, contadores auditáveis e comparação controlada com fixtures: [guia de eficiência da varredura](docs/pareamento-eficiencia.md).
+
 O código é organizado em `ambidiff/` (comparação), `web/` (painel e API), `tests/` (regressão) e `scripts/` (benchmarks). Para trabalhar nesta branch com o Codex, consulte também `AGENTS.md` e as Skills em `.agents/skills/`. Testes simulados **não substituem validação nos ambientes reais**.
 
 ---

@@ -150,6 +150,16 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None, 
             smart_html=esc('Detalhes técnicos completos disponíveis no diagnóstico local. Metadados não comprovam identidade dos arquivos.')
         cobertura=dados.get('cobertura',{})
         cobertura_html=('<small>Limite de admissão: '+esc(cobertura['limite_pares_html'])+' pares HTML · Admitidos: '+esc(cobertura.get('pares_admitidos_html',0))+'. A fila analisada não comprova cobertura integral do portal.</small>') if cobertura.get('limite_pares_html') else ''
+        reconciliacao=cobertura.get('reconciliacao',{})
+        if reconciliacao:
+            terminais=reconciliacao.get('terminais',{})
+            cobertura_html+='<p>Fila processada não significa conteúdo integralmente comparado. '+esc(
+                'Admitidos: '+str(reconciliacao.get('total_admitido',0))+'; comparados: '+str(terminais.get('comparado',0))+
+                '; inspeções unilaterais sem contraparte: '+str(terminais.get('sem_contraparte',0))+
+                '; inconclusivos (incluem inspeções unilaterais e redirecionamentos): '+str(sum(n for k,n in terminais.items() if k not in ('comparado','falha','nao_html')))+
+                '; falhas: '+str(terminais.get('falha',0))+'; fora do escopo: '+str(terminais.get('fora_escopo',0))+
+                '; não HTML: '+str(reconciliacao.get('nao_html_observado',0))+'; pendentes: '+str(reconciliacao.get('pendentes',0))+
+                '; referências não admitidas: '+str(cobertura.get('referencias_nao_admitidas',0)))+'</p>'
         cobertura_html+='<details><summary>Cobertura e estratégia</summary><pre style="white-space:pre-wrap">'+esc(json.dumps(cobertura,ensure_ascii=False,indent=2))+'</pre></details>'
         doc=f'''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>AmbiDiff · {esc(dados.get('site_nome',''))}</title><style>
@@ -176,7 +186,7 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None, 
         <p>{len(dados['divergencias'])} grupo(s) de divergência · {esc(dados.get('ocorrencias_brutas',len(dados['divergencias'])))} ocorrência(s) antes do agrupamento</p>
         <p>{('DIVs excluídas pelo revisor: '+str(dados['divergencias_ocultadas'])+'.') if dados.get('divergencias_ocultadas') else ''}</p>
         <p>{' · '.join(esc(k)+': '+str(v)+' páginas lidas' for k,v in dados.get('paginas',{}).items())}</p>
-        <div class="notice">URLs distintas para a mesma opção são registradas como divergências e esses destinos não são explorados. Diferenças não determinam qual ambiente está correto. {esc('A varredura não foi concluída em todas as páginas.' if state!='concluido' else '')}</div>
+        <div class="notice">URLs distintas para a mesma opção são registradas como divergências. Rotas internas distintas só são comparadas quando há evidências corroboradas de finalidade comum; associações ambíguas encerram somente o ramo. Diferenças não determinam qual ambiente está correto. {esc('A varredura não foi concluída em todas as páginas.' if state!='concluido' else '')}</div>
         <label for="search-div"><b>Pesquisar divergência por ID (DIV-0033, 0033, 33) ou texto:</b></label>
         <input type="search" id="search-div" class="search-div" placeholder="Ex.: DIV-0033 ou Radar">
         <h2>Equivalência, documentos e cobertura</h2><p>Equivalência estática não comprova funcionamento. Metadados não comprovam arquivos idênticos. Inspeções profundas omitidas limitam a cobertura.</p><details><summary>Resultados e métricas do modo {esc(dados.get("modo_varredura","atual"))}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{smart_html}</pre></details>

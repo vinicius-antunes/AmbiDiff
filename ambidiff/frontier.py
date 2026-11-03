@@ -25,9 +25,9 @@ def categoria(par,contexto=''):
     if len(par[2])==1 or re.search(r'menu|navegação|navegacao|cabeçalho|cabecalho|rodapé|rodape',contexto):return 0
     if re.search(r'servi[cç]o|sistema|consulta|atendimento|[aá]udios',texto):return 1
     if re.search(r'hist[oó]ric|arquivo morto|acervo',texto):return 5
-    if re.search(r'not[ií]cia|/w/|/blog/|galeria|imprensa',texto):return 2
-    if re.search(r'legisla|jurisprud|portaria|normativ|decreto|resolu',texto):return 3
-    return 4
+    if re.search(r'legisla|jurisprud|portaria|normativ|decreto|resolu|/documents/|\.(?:pdf|docx?|xlsx?|odt)(?:$|/)',texto):return 2
+    if re.search(r'not[ií]cia|/w/|/blog/|galeria|imprensa',texto):return 4
+    return 3
 
 
 class Fila:
