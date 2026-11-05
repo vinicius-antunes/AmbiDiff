@@ -10,10 +10,16 @@ comprovado nem um prazo de interrupção. INDEA, SEMA e outros portais reais
 Instale as dependências de desenvolvimento e o Chromium. Na pasta do Next:
 
 ```text
-python scripts/benchmark_comparative.py --program both --news 8 --repeats 1
-python scripts/benchmark_comparative.py --program both --news 30 --repeats 3
+python scripts/benchmark_comparative.py --program next --news 8 --repeats 1
+python scripts/benchmark_comparative.py --program next --news 30 --repeats 3
 python -m pytest tests/test_benchmark.py -q
 ```
+
+Para comparar com o legado, faça outro checkout da branch original em uma pasta
+separada, configure `AMBIDIFF_LEGACY_PATH` para essa pasta e execute
+`python scripts/benchmark_comparative.py --program both --news 8 --repeats 1`.
+A branch Next não contém mais os arquivos originais. O comparativo usa a cópia
+externa somente quando solicitado. Sem ela, use `--program next` (padrão).
 
 Comece pelo cenário pequeno. O segundo comando é opcional e custa mais tempo;
 não é um requisito para manutenção documental. O script aceita `both`, `next`

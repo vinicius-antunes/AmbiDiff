@@ -10,8 +10,10 @@ Painel localhost -> worker Engine -> Planner -> tarefas SQLite
                                -> ocorrências -> DIVs consolidadas -> revisões
 ```
 
-O programa não importa o AmbiDiff legado. Apenas o script comparativo importa o
-motor antigo, de forma explícita, para medi-lo sem alterar seus arquivos.
+O programa não importa o AmbiDiff legado. A branch contém apenas os arquivos
+do Next. O script comparativo pode importar o motor original de uma **outra
+cópia local** indicada por `AMBIDIFF_LEGACY_PATH`, somente quando o comparativo
+é solicitado, sem alterar os arquivos originais.
 
 ## Responsabilidades
 

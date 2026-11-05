@@ -91,3 +91,17 @@ def test_portals_are_local_identical_except_manifest_properties_and_count_reques
         stats=portals.snapshot()['counts']
         assert stats['html_requests']==5;assert stats['document_requests']==1
         assert stats.get('unsafe',0)==0
+
+
+def test_comparacao_legado_requer_copia_separada(monkeypatch,tmp_path):
+    import pytest
+    monkeypatch.delenv('AMBIDIFF_LEGACY_PATH',raising=False)
+    with pytest.raises(RuntimeError,match='AMBIDIFF_LEGACY_PATH'):
+        benchmark.run_legacy(('http://127.0.0.1:1/','http://127.0.0.1:2/'),tmp_path)
+
+
+def test_comparacao_legado_rejeita_pasta_sem_codigo(monkeypatch,tmp_path):
+    import pytest
+    monkeypatch.setenv('AMBIDIFF_LEGACY_PATH',str(tmp_path))
+    with pytest.raises(RuntimeError,match='AMBIDIFF_LEGACY_PATH inválido'):
+        benchmark.run_legacy(('http://127.0.0.1:1/','http://127.0.0.1:2/'),tmp_path)

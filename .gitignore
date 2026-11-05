@@ -1,7 +1,6 @@
 .venv/
+data/
+.pytest_cache/
+*.egg-info/
 __pycache__/
-*.pyc
-relatorios/*
-!relatorios/.gitkeep
-historico.json
-.env
+*.py[cod]

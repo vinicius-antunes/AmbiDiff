@@ -1,182 +1,133 @@
-<div align="center">
+# AmbiDiff Next — 0.1.0 experimental
 
-  <h1>AmbiDiff</h1>
-  <p><strong>Compare ambientes web com mais contexto e menos falsos positivos.</strong></p>
-  <p>Uma ferramenta <strong>local para Windows</strong> que analisa páginas, navegação, menus, serviços e referências entre ambientes, preservando evidências para revisão humana.</p>
-  <p><strong>PRD · DES · LAB · HOMOL</strong> &nbsp;|&nbsp; <strong>Somente leitura</strong> &nbsp;|&nbsp; <strong>Relatórios locais</strong></p>
-  <p><small>Versão de desenvolvimento · branch <code>chore/infra-codex-agents-skills-ci</code></small></p>
-  <p><a href="#comece-em-5-minutos">Instalação</a> · <a href="#sua-primeira-comparação">Primeira comparação</a> · <a href="#como-interpretar-o-resultado">Como ler o resultado</a> · <a href="docs/guia-de-uso.md">Guia completo</a></p>
+Ferramenta independente de QA comparativo local. Esta branch contém **somente os
+arquivos do Next**, diretamente na raiz; o AmbiDiff 1.5 permanece nas outras
+branches e não foi alterado. A unidade de análise é o componente: menus, controles, referências,
+comportamento observado e capturas. Descoberta de URLs organiza verificações,
+sem meta de atingir 1.000 páginas.
 
-</div>
+## Instalação no Windows
 
----
+Requisitos: Python 3.10 ou superior com Python Launcher, acesso para instalar
+pacotes e Chromium. Nesta pasta, execute `instalar.cmd` e depois `iniciar.cmd`.
+Abra **http://127.0.0.1:5011**. O instalador é um script local de preparação de
+venv/dependências, não um executável autônomo ou instalador assinado.
 
-## O que o AmbiDiff faz?
+Alternativa manual (PowerShell, nesta pasta):
 
-O AmbiDiff percorre páginas públicas ou autorizadas de **dois ambientes** e procura diferenças que merecem investigação. Ele ajuda a identificar problemas de interface, navegação e conteúdo sem presumir que o ambiente de produção (PRD) esteja sempre correto.
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python -m playwright install chromium
+.\.venv\Scripts\python -m ambidiff_next
+```
 
-| Analisa | Considera ao interpretar |
-|---|---|
-| Menus, opções e caminhos de navegação | Um elemento pode ser equivalente mesmo com HTML ou posição diferentes. |
-| Serviços, textos, links e referências | Destinos diferentes nem sempre significam um link quebrado; é preciso revisar. |
-| Notícias e conteúdo editorial | Diferencia variações editoriais por contexto, mesmo sem base declarada desatualizada; não oculta omissões estruturais. |
-| Documentos vinculados e recursos | Verifica referências e respostas permitidas, **não compara o conteúdo interno de PDFs**. |
-| Falhas, interrupções e cobertura | Uma página inconclusiva ou não examinada **não é considerada equivalente**. |
+O AmbiDiff anterior mantém porta e diretórios próprios quando executado por
+uma cópia de sua branch. O Next grava somente em `data/`: SQLite, evidências e
+benchmarks, ignorados pelo Git. Para
+outra pasta/porta, use `python -m ambidiff_next --data-dir CAMINHO --port 5012`.
+O servidor sempre escuta em 127.0.0.1, sem depuração, telemetria ou upload.
 
-> **O resultado é uma triagem de QA, não um veredito automático.** Cada divergência relevante precisa de revisão. O AmbiDiff não modifica os sites analisados.
+## Uso
 
-## Comece em 5 minutos
+1. Informe órgão, URLs e identificações dos ambientes (PRD, HOMOL, DES ou LAB).
+2. Opcionalmente registre qual base pode estar desatualizada. Isso não torna
+   diferenças estruturais editoriais e não considera PRD automaticamente correto.
+3. Inicie e acompanhe a fila, componentes, testes, imagens e limitações.
+4. Interromper solicita parada cooperativa em um clique; uma operação já iniciada
+   pode aguardar seu timeout. O relatório parcial e tarefas pendentes permanecem.
+5. Retome pelo histórico, inclusive após reiniciar o servidor. Tarefas concluídas
+   e ocorrências estáveis são preservadas; falhas definitivas não entram em ciclo.
+6. Revise DIVs e selecione para exportar separadamente. Confirmar, falso positivo,
+   editorial, corrigida e ocultar não reescrevem ocorrências brutas.
 
-**Você precisa de:** Windows, Python 3 e permissão para instalar dependências e acessar os ambientes de teste. O projeto usa **Flask + Playwright (Chromium)** e não possui instalador `.exe`.
+Buscas aceitam ID, texto, `12,15,19` e `12-20`. “Todas as filtradas” seleciona o
+conjunto filtrado, não confirma defeitos. JSON completo/selecionado, CSV com BOM
+UTF-8 e `;`, HTML com PNGs incorporados dentro dos limites e ZIP de evidências
+são gerados localmente. Diagnóstico JSON e log de execução integram o ZIP; o JSON completo também
+preserva o diagnóstico estruturado.
+A exportação selecionada evita anexar filas/logs/inventários não relacionados.
+A janela de salvar depende do navegador; cancelamento e download nativo têm
+tratamento explícito. O browser pode manter a última pasta quando suportado.
 
-1. Na página do repositório, selecione a branch **`chore/infra-codex-agents-skills-ci`** e use **Code → Download ZIP** (ou receba o pacote por canal interno autorizado). A `main` contém outra versão.
-2. Extraia o ZIP para uma pasta própria, fora do arquivo compactado.
-3. Execute **`instalar.bat`** uma vez. Ele cria `.venv`, instala as dependências e o Chromium.
-4. Execute **`INICIAR_AMBIDIFF.bat`**. Mantenha a janela do terminal aberta durante o uso.
-5. Acesse **http://127.0.0.1:8765** se o painel não abrir automaticamente.
+## O que esta versão implementa
+
+- Modelo semântico independente de igualdade de seletores; extração de elementos
+  visíveis e ocultos, hierarquia, destinos, geometria e estilos.
+- Pareamento mútuo conservador por nome, tipo, contexto, destino e vocabulário
+  português limitado. Hipóteses intermediárias de rotas internas recebem uma
+  verificação adicional de título específico e estrutura; ambiguidade permanece
+  inconclusiva. Não há IA remota ou modelo de linguagem em execução.
+- Comparação estrutural bidirecional, inclusive ÁUDIOS da CGE, opções ausentes,
+  diferenças documentais, de destino e redirecionamento. Mudar de posição HTML
+  sozinho não comprova divergência.
+- Controles ARIA/details reconhecidos podem ser exercitados em páginas isoladas,
+  com capturas antes/depois. Não são enviados formulários. Um controle existente
+  ou um destino que responde HTTP não comprova funcionamento integral.
+- Capturas reais por componente, análise Pillow e geometria para visibilidade,
+  sobreposição, recorte, dimensões e pixels. Sem duas imagens válidas, não há
+  comparação de imagem concluída. `visibility:hidden` pode ser evidenciado pela
+  região vazia real; `display:none` fica como observação DOM com limitação visual.
+- Planejamento por prioridade, deduplicação, representantes editoriais e paginação,
+  inspeção unilateral sem expansão indiscriminada, capacidade configurável até
+  1.000 pares como proteção. Não há prazo global obrigatório para parar.
+- SQLite transacional incremental, logs com cursor sequencial, retomada, falhas por
+  tarefa e recuperação limitada do navegador. Ocorrências e revisões são separadas.
+
+## Segurança e limites
+
+Somente escopos configurados são navegados. Métodos modificadores, URLs com
+credenciais/tokens e GETs reconhecidamente perigosos são bloqueados. Durante
+cliques ARIA/details, novas requisições são bloqueadas, inclusive GET; interferência
+vira inconclusão. A aplicação não autentica, resolve CAPTCHA nem ignora TLS.
+A máquina continua executando JavaScript das páginas autorizadas: semântica de
+negócio de um endpoint GET desconhecido não pode ser provada por sua URL. Utilize
+somente ambientes e rotas autorizados para inspeção de leitura.
+
+Handlers inline desconhecidos e ações sem contrato seguro não são testados.
+Modais e menus sem ARIA/details suficiente podem ficar inconclusivos. Links usam
+navegação HTTP direta; o handler JavaScript de clique desses links não é validado.
+Documentos recebem somente HEAD, não leitura de corpo; HEAD recusado não prova
+arquivo ausente. Recursos externos podem afetar widgets e produzir limitações.
+
+Amostragem não valida páginas omitidas. Componentes compartilhados têm mapa
+reutilizável, mas suas funções não são presumidas corretas em todas as páginas.
+Extração após DOMContentLoaded pode não encontrar conteúdo tardio; isso é
+registrado. Semântica, responsividade, acessibilidade e alinhamento não são uma
+avaliação humana integral. Viewport é configurável; cada execução usa um tamanho,
+sem prometer cobertura de todos os dispositivos. Máscaras exigem limites e
+justificativa explícita; esta versão não inventa máscaras universais de notícias.
+
+## Testes e desempenho
 
 ```text
-AmbiDiff/
-├── instalar.bat             ← primeira instalação
-├── INICIAR_AMBIDIFF.bat    ← iniciar o programa
-└── ...
+python -m pip install -r requirements-dev.txt
+python -m playwright install chromium
+python -m pytest -q
+node --check ambidiff_next/static/app.js
+node --check ambidiff_next/extract.js
+python scripts/benchmark_comparative.py --program next --news 8 --repeats 3
 ```
 
-Em redes corporativas, a instalação ou o acesso ao DES/LAB/HOMOL pode depender de permissões, DNS ou VPN. **Não contorne bloqueios de segurança.** Veja o [guia de instalação e solução de problemas](docs/guia-de-uso.md).
+Para comparar **as duas versões**, mantenha uma segunda cópia local do
+repositório com checkout da branch original e informe sua pasta no PowerShell:
 
-## Sua primeira comparação
-
-1. Abra **Comparar ambientes**.
-2. Em **Ambiente A**, escolha PRD, DES ou LAB; em **Ambiente B**, escolha DES, LAB ou **HOMOL (Homologação)**. Informe as duas URLs autorizadas.
-3. Se houver confirmação de que uma base está desatualizada, selecione essa condição. Ela ajuda a interpretar dados editoriais, **sem esconder problemas de menu ou navegação**.
-4. Clique em **Iniciar varredura**. O Chromium trabalha **oculto**; acompanhe o progresso e o diagnóstico no painel.
-5. Ao finalizar, revise as **Divergências**, classifique os achados e exporte os registros que interessam.
-
-### Como a varredura funciona
-
-| Regra | Comportamento |
-|---|---|
-| **Até 1.000 pares HTML** | Atingido o teto, não admite novos pares; conclui ou registra falha nos já admitidos. |
-| **Prioridade inteligente** | Menus → serviços → notícias → legislação → institucionais → históricos. |
-| **Arquivos e documentos** | Seguem verificações específicas e não consomem as vagas de páginas HTML. |
-| **Sem tempo máximo global** | **1h30 é meta de desempenho**, não interrupção obrigatória. |
-| **Parada e retomada** | Preserva resultados parciais e tenta manter checkpoints recuperáveis. |
-
-As opções de verificações adicionais, como destinos externos e cliques internos, ficam desativadas por padrão e só devem ser usadas quando autorizadas.
-
-## Como interpretar o resultado
-
-| O que aparece | Como tratar |
-|---|---|
-| **Divergência** | Diferença encontrada; verifique o impacto e as evidências antes de confirmar. |
-| **Variação editorial** | Pode refletir atualização de notícias ou dados entre bases. |
-| **Inconclusivo / sem correspondência** | A ferramenta não reuniu evidência suficiente para concluir. |
-| **Aviso ou falha técnica** | Pode indicar bloqueio, indisponibilidade, timeout ou falha da automação. |
-
-**Atenção ao progresso:** 100% dos pares admitidos encerrados **não significa** que todas as páginas do portal foram analisadas nem que todas as comparações deram certo. Consulte sempre a cobertura, os pares falhos e o diagnóstico.
-
-### Relatórios e evidências
-
-- **CSV:** abrir e filtrar em planilhas.
-- **HTML:** revisar divergências e imagens disponíveis.
-- **PDF:** compartilhar uma apresentação legível dos resultados.
-- **JSON:** dados estruturados, inclusive para análises posteriores.
-- **Diagnóstico JSON e log TXT:** entender falhas, limitações e possíveis causas da execução.
-
-Você pode **selecionar DIVs**, reclassificar relevância e confirmar manualmente achados sem alterar o relatório bruto. O histórico, as seleções e as evidências ficam **no computador local**. Confira o [guia de relatórios, recuperação e atualização](docs/guia-de-uso.md).
-
-**Nesta branch, a exportação foi otimizada:** cada solicitação gera apenas o formato necessário; arquivos grandes são transmitidos em blocos, e o JSON completo preserva os dados técnicos. Para escolher onde salvar, ative **“Perguntar onde salvar cada arquivo”** nas configurações do navegador.
-
-## O que esta branch acrescenta
-
-Esta é a branch de **desenvolvimento assistido pelo Codex**, com as funcionalidades do AmbiDiff e algumas melhorias ainda em validação:
-
-| Melhoria | O que muda |
-|---|---|
-| **Exportações mais eficientes** | CSV, JSON, HTML e PDF são gerados conforme o formato solicitado, reduzindo processamento desnecessário. |
-| **Classificação editorial contextual** | Notícias e publicações podem ser agrupadas como variações informativas sem exigir que uma base seja declarada antiga; menus, opções e documentos continuam sujeitos à comparação. |
-| **Manutenção com IA** | `AGENTS.md` estabelece diretrizes e as Skills de `.agents/skills/` ajudam o Codex a diagnosticar, otimizar e validar mudanças. |
-| **Testes automatizados** | GitHub Actions executa regressões no Windows com Python, JavaScript e Playwright. |
-
-**Estado da validação (29/10/2026):** os downloads de CSV e JSON funcionaram em testes manuais no Windows relatados pelo mantenedor. HTML e PDF ainda precisam de confirmação nesse ambiente. Na última execução consultada, **252 de 254 testes passaram e 2 falharam**; por isso, esta branch **não está pronta para integração automática à `main`**. Consulte [GitHub Actions](https://github.com/vinicius-antunes/AmbiDiff/actions) para o estado mais recente.
-
-Essas Skills apoiam **o desenvolvimento**, não executam agentes durante as varreduras nem enviam relatórios a serviços externos. Veja o [guia de manutenção assistida por IA](docs/manutencao-ia.md).
-
-## Análise inteligente de divergências (opcional)
-
-O **AmbiDiff IA** é um assistente complementar e **independente** da varredura. Ele ajuda a interpretar divergências a partir de **relatórios JSON exportados** e, quando disponíveis, diagnósticos e capturas de tela.
-
-- Identifica achados com maior impacto em menus, navegação e serviços.
-- Diferencia possíveis problemas estruturais, funcionais, editoriais e falsos positivos.
-- Organiza prioridades e gera um resumo executivo com diagnóstico técnico.
-
-A análise é **manual e opcional**: não há envio automático de dados pelo AmbiDiff. Antes de utilizar a IA, verifique se os arquivos contêm **somente informações públicas e sanitizadas**. As conclusões são recomendações que exigem **validação humana**.
-
-O acesso ao assistente é destinado a colegas autorizados e depende da disponibilidade e das permissões da ferramenta; não é necessário para utilizar o AmbiDiff.
-
-### Como instalar o AmbiDiff IA no ChatGPT
-
-O assistente é um **plugin opcional do ChatGPT**, não um componente instalado no Windows junto com o AmbiDiff.
-
-1. Tenha uma conta ChatGPT com acesso ao recurso **Plugins**. Solicite ao responsável pelo AmbiDiff IA o compartilhamento com seu usuário ou equipe.
-2. No ChatGPT, abra **Plugins** (ou **Personalizar → Plugins**, conforme a interface), procure **AmbiDiff IA** na seção de plugins compartilhados e selecione **Instalar (+)**. A disponibilidade depende das permissões da conta e do ambiente.
-3. Inicie uma **nova conversa**, digite **@AmbiDiff IA** e selecione o plugin.
-4. Anexe os **JSONs exportados** pelo AmbiDiff e, se disponíveis, o **diagnóstico completo e as imagens**. Peça, por exemplo: *“Priorize as divergências, preserve os IDs e separe fatos, hipóteses e verificações necessárias.”*
-
-Se o plugin não aparecer no catálogo ou na busca por `@`, confirme com o responsável se o compartilhamento foi habilitado e se sua conta tem permissão de instalar plugins. **Não é necessário instalar ou executar o arquivo `plugin.zip` no computador**: o ZIP é um pacote usado pelo mantenedor para configurar ou atualizar o plugin.
-
-Antes de anexar relatórios, confirme que eles contêm **somente dados públicos verificados e sanitizados**. O uso do assistente não substitui a revisão humana.
-
-## Limitações importantes
-
-- Não determina qual ambiente está correto, nem garante igualdade visual pixel a pixel.
-- Não executa testes completos de formulários, APIs ou todos os componentes dinâmicos.
-- Não lê o conteúdo dos PDFs/documentos: analisa referências e verificações permitidas.
-- Bloqueios de rede, login ou certificado podem impedir a coleta; **não são corrigidos automaticamente**.
-- Tempos e ganhos observados em benchmarks sintéticos **não garantem desempenho em portais reais**.
-
-## Quando algo não funciona
-
-| Sintoma | Primeiro passo |
-|---|---|
-| Não inicia | Rode `instalar.bat` e confira o Python (`py -3 --version`). |
-| `127.0.0.1:8765` não abre | Verifique se `INICIAR_AMBIDIFF.bat` continua aberto e se a porta está livre. |
-| **Failed to fetch** no painel | Verifique `/api/status` no endereço local e o terminal; não presuma falha do portal. |
-| Um ambiente não carrega | Confirme URL, rede/VPN, DNS e certificados com a TI. |
-| Varredura parcial | Consulte diagnósticos, logs, páginas pendentes e checkpoints. |
-| Download não conclui | Confira se está usando a versão atual da branch, reinicie o programa e atualize o painel com **Ctrl + F5**. Veja **Ctrl + J** no Chrome e os erros no terminal. Preserve a pasta `relatorios/`. |
-
-O [guia completo](docs/guia-de-uso.md#4-solução-de-problemas) traz um roteiro de diagnóstico para esses casos.
-
-## Documentação
-
-| Quero saber sobre... | Onde ler |
-|---|---|
-| Instalação, uso, atualização e testes com colegas | [Guia de uso](docs/guia-de-uso.md) |
-| Estabilização, Chromium oculto, progresso e HOMOL | [Estabilização da varredura](docs/estabilizacao-varredura.md) |
-| Limite de 1.000 pares e gestão dinâmica da fila | [Otimização da fila](docs/otimizacao-fila-dinamica.md) |
-| Checkpoints, portais extensos e cobertura | [Portais extensos](docs/atualizacao-portais-extensos.md) |
-| Critérios de relevância e falsos positivos | [Filtro de relevância](docs/filtro-relevancia.md) |
-| Histórico de decisões, testes e benchmarks | [Documentação técnica](docs/varredura-inteligente.md) · [Otimização](docs/otimizacao-varredura.md) · [Melhorias 13–17](docs/atualizacao-13-17.md) |
-| Desenvolvimento com Codex | [`AGENTS.md`](AGENTS.md) · [Guia das Skills e CI](docs/manutencao-ia.md) |
-
-### Para quem desenvolve
-
-Os testes automatizados locais utilizam o framework `unittest`:
-
-```cmd
-.venv\Scripts\python.exe -m unittest discover -s tests -v
+```powershell
+$env:AMBIDIFF_LEGACY_PATH = 'C:\\caminho\\para\\AmbiDiff-original'
+python scripts/benchmark_comparative.py --program both --news 8 --repeats 3
 ```
 
-Pareamento, contadores auditáveis e comparação controlada com fixtures: [guia de eficiência da varredura](docs/pareamento-eficiencia.md).
+A cópia indicada deve conter `ambidiff/paired.py`. Sem a variável, o benchmark
+roda somente o Next por padrão. O comparativo sintético anterior permanece
+documentado; limpar a branch não prova um novo ganho.
 
-O código é organizado em `ambidiff/` (comparação), `web/` (painel e API), `tests/` (regressão) e `scripts/` (benchmarks). Para trabalhar nesta branch com o Codex, consulte também `AGENTS.md` e as Skills em `.agents/skills/`. Testes simulados **não substituem validação nos ambientes reais**.
+Confira [arquitetura e manutenção](docs/arquitetura.md),
+[método de benchmark](docs/benchmark-method.md) e
+[resultados e pendências](docs/validacao.md).
 
----
-
-<div align="center">
-
-  <p><strong>AmbiDiff é uma ferramenta de apoio à revisão humana.</strong></p>
-  <p>Use apenas em ambientes autorizados. Não compartilhe logs, capturas ou relatórios internos sem verificar e sanitizar o conteúdo.</p>
-
-</div>
+**Meta experimental:** reduzir 30–50% do tempo com cobertura e detecção preservadas.
+Isso não é ganho comprovado. O comparativo usa os mesmos portais fictícios para
+Next e legado, verdade conhecida, negativos, tempos, navegações, elementos,
+funções, imagens, FP/FN e volume de artefatos. Métrica ausente fica desconhecida.
+Nenhum teste de INDEA, SEMA ou outro portal institucional foi autorizado/executado.
+Esses testes dependerão de autorização futura e de cenários comparáveis.

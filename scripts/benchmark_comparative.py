@@ -1,6 +1,8 @@
 """Benchmark local real: dois motores, portais idênticos e verdade conhecida.
 
-Executar dentro de ambidiff-next: python scripts/benchmark_comparative.py --program both
+Executar na raiz desta branch: python scripts/benchmark_comparative.py --program next
+Para comparar com o original, forneça AMBIDIFF_LEGACY_PATH apontando para uma
+cópia local separada do AmbiDiff antigo (checkout de outra branch).
 O executável Chromium pode ser configurado por AMBIDIFF_NEXT_CHROMIUM. O benchmark
 não oferece parâmetro URL e nunca inicia acesso aos portais institucionais reais.
 """
@@ -17,8 +19,7 @@ import unicodedata
 from urllib.parse import urlsplit
 
 NEXT_ROOT=Path(__file__).resolve().parents[1]
-REPOSITORY=NEXT_ROOT.parent
-sys.path[:0]=[str(NEXT_ROOT),str(NEXT_ROOT/'tests'),str(REPOSITORY)]
+sys.path[:0]=[str(NEXT_ROOT),str(NEXT_ROOT/'tests')]
 from benchmark_portals import PortalPair, TRUTH, NEGATIVES, VIEWPORT
 
 
@@ -140,6 +141,14 @@ def run_next(roots,folder,capacity=80):
 
 
 def run_legacy(roots,folder):
+    # O código legado é opcional e vive em outra branch/cópia, nunca nesta árvore.
+    location=os.environ.get('AMBIDIFF_LEGACY_PATH','').strip()
+    if not location:
+        raise RuntimeError('O AmbiDiff original não existe nesta branch. Para --program both/legacy, configure AMBIDIFF_LEGACY_PATH para uma cópia local separada da branch legada; para testar apenas o Next use --program next.')
+    legacy_root=Path(location).expanduser().resolve()
+    if not (legacy_root/'ambidiff'/'paired.py').is_file():
+        raise RuntimeError('AMBIDIFF_LEGACY_PATH inválido: a pasta deve conter ambidiff/paired.py do programa original.')
+    if str(legacy_root) not in sys.path:sys.path.insert(0,str(legacy_root))
     from ambidiff.paired import executar_pareado
     from ambidiff.checkpoints import gravar
     folder.mkdir(parents=True,exist_ok=True)
@@ -211,7 +220,7 @@ def benchmark(program='both',news=8,repeats=1,output=None):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--program',choices=('both','next','legacy'),default='both')
+    parser.add_argument('--program',choices=('both','next','legacy'),default='next')
     parser.add_argument('--news',type=int,default=8)
     parser.add_argument('--repeats',type=int,default=1)
     parser.add_argument('--output',type=Path)

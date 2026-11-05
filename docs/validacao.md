@@ -128,5 +128,10 @@ melhorar artificialmente a pontuação. O ensaio cobre apenas uma família de
 portais fictícios; não estabelece precisão universal.
 
 Preservação do legado: **272 testes aprovados em 141,715 s**, sem falhas/skips.
-O diff em relação à base fora de `ambidiff-next/` é vazio: código, interface,
-relatórios antigos, dependências e testes do programa original não foram alterados.
+Na implementação inicial, o diff fora de `ambidiff-next/` era vazio. Em seguida,
+a árvore da branch Next foi reorganizada para manter **apenas os arquivos do
+novo programa na raiz**. O código original continua preservado nas outras
+branches; não houve exclusão ou alteração da `main` ou do programa original.
+Para refazer o benchmark entre as duas versões, use uma cópia separada do legado
+e configure `AMBIDIFF_LEGACY_PATH`. A reorganização da branch não constitui
+nova validação de funcionalidade ou desempenho.
