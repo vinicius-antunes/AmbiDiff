@@ -85,6 +85,69 @@ class Recovery19Tests(unittest.TestCase):
         self.assertFalse(pw.browsers[0].connected);self.assertTrue(all(c.closed for c in pw.browsers[0].contexts))
         self.assertEqual(r['andamento']['pares_concluidos'],3)
 
+    def test_capturas_com_browser_fechado_nao_repetem_targetclosed(self):
+        from unittest.mock import MagicMock
+        from ambidiff.paired import _salvar_evidencias
+        browser=MagicMock();browser.is_connected.return_value=False
+        contextos=[MagicMock(),MagicMock()]
+        paginas=[MagicMock(),MagicMock()]
+        for ctx,page in zip(contextos,paginas):ctx.new_page.return_value=page
+        browser.new_context.side_effect=contextos
+        paginas[0].goto.side_effect=RuntimeError(CLOSED)
+        registros=[{'id':f'DIV-{n:04d}','presente_em':'PRD','nao_identificado_em':'HOMOL',
+            'url_presente':A,'url_comparada':B} for n in range(1,20)]
+        logs=[];diagnosticos=[]
+        with tempfile.TemporaryDirectory() as td:
+            _salvar_evidencias(browser,registros,td,threading.Event(),logs.append,
+                'PRD','HOMOL',diagnosticos=diagnosticos)
+        self.assertEqual(len([s for s in logs if 'TargetClosedError' in s or 'RuntimeError' in s]),1)
+        self.assertIn('capturas restantes ignoradas',logs[-1])
+        self.assertEqual(len(diagnosticos),1)
+        self.assertTrue(all(ctx.close.called for ctx in contextos))
+        self.assertFalse(any(r.get('evidencias') for r in registros))
+
+    def test_capturas_recriam_contexto_para_divs_seguinte_quando_browser_ativo(self):
+        from unittest.mock import MagicMock
+        from ambidiff.paired import _salvar_evidencias
+        browser=MagicMock();browser.is_connected.return_value=True
+        contextos=[MagicMock() for _ in range(3)]
+        paginas=[MagicMock() for _ in range(3)]
+        for ctx,pag in zip(contextos,paginas):
+            ctx.new_page.return_value=pag;pag.goto.return_value=None
+        browser.new_context.side_effect=contextos
+        paginas[0].goto.side_effect=RuntimeError(CLOSED)
+        registros=[{'id':f'DIV-{n:04d}','presente_em':'PRD','nao_identificado_em':'HOMOL',
+            'url_presente':A,'url_comparada':B} for n in (1,2)]
+        logs=[]
+        with tempfile.TemporaryDirectory() as td,patch('ambidiff.adaptive.sondar',return_value={}):
+            _salvar_evidencias(browser,registros,td,threading.Event(),logs.append,'PRD','HOMOL')
+        self.assertTrue(any('Recriado contexto de PRD' in s for s in logs))
+        self.assertEqual(set(registros[1]['evidencias']),{'PRD','HOMOL'})
+        self.assertTrue(all(ctx.close.called for ctx in contextos))
+
+    def test_capturas_contexto_fechado_na_inicializacao_nao_derrubam_relatorio(self):
+        from unittest.mock import MagicMock
+        from ambidiff.paired import _salvar_evidencias
+        browser=MagicMock();browser.new_context.side_effect=RuntimeError(CLOSED)
+        logs=[];falhas=[]
+        with tempfile.TemporaryDirectory() as td:
+            _salvar_evidencias(browser,[],td,threading.Event(),logs.append,
+                'PRD','HOMOL',diagnosticos=falhas)
+        self.assertEqual(len(falhas),1)
+        self.assertIn('relatório preservado',logs[-1])
+
+    def test_consultar_checkpoints_nao_compete_com_varredura_ativa(self):
+        from web import server
+        with tempfile.TemporaryDirectory() as td,patch.object(server,'PASTA',Path(td)),patch.dict(server.STATE,copy.deepcopy(server.STATE),clear=True):
+            server.STATE['status']='executando'
+            # Um checkpoint grande não deve sequer ser aberto enquanto executando.
+            arquivo=Path(td)/f'checkpoint_{RID}.json';arquivo.write_text('{"invalido":true}',encoding='utf-8')
+            with patch('ambidiff.checkpoints.validar',side_effect=AssertionError('não deveria validar')):
+                response=server.app.test_client().get('/api/checkpoints')
+            self.assertEqual(response.status_code,409)
+            self.assertIn('andamento',response.get_json()['erro'])
+            self.assertTrue(arquivo.exists())
+
     def test_navegador_encerrado_recupera_e_continua_nove_pares(self):
         vezes=0
         def nav(p,u):
@@ -282,6 +345,123 @@ class Interface19Tests(unittest.TestCase):
         self.assertTrue(self.p.locator('[data-export="diagnostico-json"]').is_visible())
         self.assertTrue(self.p.locator('[data-export="diagnostico-txt"]').is_visible())
         self.assertIn('separadamente',self.p.locator('#export-description').inner_text())
+
+
+    def test_json_completo_e_selecionadas_nao_sao_vazios_e_preservam_origem(self):
+        self.abrir(3)
+        original=(self.root/f'comparacao_{RID}.json').read_bytes()
+        self.p.locator('#export-scope').select_option('completo')
+        self.p.locator('#export-format').select_option('json')
+        with self.p.expect_download() as info:
+            self.p.locator('#download-report').click()
+        arquivo=self.root/'export-completo.json'
+        info.value.save_as(str(arquivo))
+        self.assertGreater(arquivo.stat().st_size,50)
+        completo=json.loads(arquivo.read_text(encoding='utf-8'))
+        self.assertEqual({d['id'] for d in completo['divergencias']},
+                         {'DIV-0001','DIV-0002','DIV-0003'})
+        self.assertIn('completo=1',[p for _,p,_ in self.requests if p.startswith('/download/')][-1])
+
+        self.p.locator('.div-export-selection').first.check()
+        self.p.wait_for_function("document.querySelector('#selected-count').textContent==='1 IDs selecionados'")
+        self.p.locator('#export-scope').select_option('selecionadas')
+        self.p.locator('#export-format').select_option('json')
+        with self.p.expect_download() as info:
+            self.p.locator('#download-report').click()
+        arquivo=self.root/'export-selecionado.json'
+        info.value.save_as(str(arquivo))
+        selecionado=json.loads(arquivo.read_text(encoding='utf-8'))
+        self.assertEqual([d['id'] for d in selecionado['divergencias']],['DIV-0001'])
+        self.assertEqual(selecionado['ids_selecionados'],['DIV-0001'])
+        self.assertIn('selecionadas=1',[p for _,p,_ in self.requests if p.startswith('/download/')][-1])
+        self.assertEqual((self.root/f'comparacao_{RID}.json').read_bytes(),original)
+
+    def test_erro_exportacao_aparece_no_painel_sem_download(self):
+        self.abrir(1)
+        self.p.route('**/download/**',
+                     lambda route:route.fulfill(status=500,content_type='application/json',
+                       body='{"erro":"Exportação vazia: arquivo original preservado."}'))
+        self.p.locator('#export-scope').select_option('completo')
+        self.p.locator('#export-format').select_option('json')
+        self.p.locator('#download-report').click()
+        self.p.wait_for_function("document.querySelector('#export-feedback').textContent.includes('Exportação vazia')")
+        self.assertFalse(self.p.locator('#download-report').is_disabled())
+
+
+    def test_resposta_grande_streaming_liberada_apos_download(self):
+        from web import server
+        self.abrir(2)
+        saida={}
+        bloco=b'Exemplo;DIV-0001\n'+b'x'*1024*1024
+        def exportar_grande(dados,pasta,run_id,**_kw):
+            arquivo=pasta/f'comparacao_{run_id}.csv'
+            with arquivo.open('wb') as out:
+                for _ in range(6):out.write(bloco)
+            saida['path']=arquivo
+            return {'csv':str(arquivo)}
+        with patch.object(server,'exportar',side_effect=exportar_grande):
+            response=self.client.get(f'/download/{RID}/csv?completo=1',buffered=False)
+            self.assertEqual(response.status_code,200)
+            self.assertTrue(response.is_streamed)
+            self.assertEqual(int(response.headers['Content-Length']),len(bloco)*6)
+            pedacos=iter(response.response)
+            self.assertLessEqual(len(next(pedacos)),1024*1024)
+            response.close()
+        self.assertFalse(saida['path'].exists())
+        self.assertTrue((self.root/f'comparacao_{RID}.json').is_file())
+
+    def test_formatos_independentes_preservam_json_completo_sem_inflar_html(self):
+        from web import server
+        from ambidiff.storage import atomic_json
+        self.abrir(2)
+        arquivo=self.root/f'comparacao_{RID}.json'
+        payload=json.loads(arquivo.read_text(encoding='utf-8'))
+        marcador='DETALHE_COMPLETO_EXPORTACAO_'+'X'*1_000_000
+        payload['metricas']={'releituras':[{'log':marcador}]}
+        atomic_json(arquivo,payload)
+        original=arquivo.read_bytes()
+        formatos=[]
+        original_exportar=server.exportar
+        def acompanhar(dados,pasta,run_id,**kw):
+            formatos.append(tuple(kw.get('formatos',())))
+            return original_exportar(dados,pasta,run_id,**kw)
+        with patch.object(server,'exportar',side_effect=acompanhar):
+            for fmt in ('csv','html','json'):
+                resposta=self.client.get(f'/download/{RID}/{fmt}?completo=1')
+                self.assertEqual(resposta.status_code,200,fmt)
+                conteudo=resposta.get_data()
+                self.assertGreater(len(conteudo),50,fmt)
+                if fmt=='json':
+                    completo=json.loads(conteudo)
+                    self.assertEqual(len(completo['divergencias']),2)
+                    self.assertIn(marcador,completo['metricas']['releituras'][0]['log'])
+                elif fmt=='html':
+                    self.assertIn(b'DIV-0001',conteudo)
+                    self.assertNotIn(marcador.encode(),conteudo)
+                else:self.assertIn(b'DIV-0001',conteudo)
+                resposta.close()
+            with patch('ambidiff.exports.gerar_pdf',side_effect=lambda _html,target:target.write_bytes(b'%PDF-1.7\n'+b'A'*100)):
+                resposta=self.client.get(f'/download/{RID}/pdf?completo=1')
+                self.assertEqual(resposta.status_code,200)
+                self.assertTrue(resposta.get_data().startswith(b'%PDF-1.7'))
+                resposta.close()
+        self.assertEqual(formatos,[('csv',),('html',),('json',),('html',)])
+        self.assertEqual(arquivo.read_bytes(),original)
+
+    def test_servidor_nao_entrega_json_sem_divs_esperadas(self):
+        from web import server
+        self.abrir(2)
+        original=(self.root/f'comparacao_{RID}.json').read_bytes()
+        def exportar_truncado(dados, pasta, run_id, **_kw):
+            p=pasta/f'comparacao_{run_id}.json'
+            p.write_text('{"divergencias":[]}',encoding='utf-8')
+            return {'json':str(p)}
+        with patch.object(server,'exportar',side_effect=exportar_truncado):
+            response=self.client.get(f'/download/{RID}/json?completo=1')
+            self.assertEqual(response.status_code,500)
+            self.assertIn('sem divergências esperadas',response.get_json()['erro'])
+            response.close()
+        self.assertEqual((self.root/f'comparacao_{RID}.json').read_bytes(),original)
 
 
 class Homol19Tests(unittest.TestCase):

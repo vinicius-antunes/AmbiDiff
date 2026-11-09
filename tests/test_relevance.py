@@ -93,7 +93,7 @@ class RelevanceTests(unittest.TestCase):
             root=Path(tmp);path=root/f'comparacao_{RID}.json';atomic_json(path,report([svg(),{'id':'DIV-0002','tipo':'Opção','elemento':'ÁUDIOS'}]));original=path.read_bytes()
             client=server.app.test_client()
             with sync_playwright() as p:
-                browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
+                browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
                 try:
                     page=browser.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
                     def respond(route):
@@ -118,7 +118,7 @@ class RelevanceTests(unittest.TestCase):
         from ambidiff.visual import comparar_visuais
         from ambidiff.core import Pagina
         with sync_playwright() as p:
-            browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
+            browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
             try:
                 pages=[browser.new_page(),browser.new_page()]
                 for page,path in zip(pages,['M1 1','M2 2']):

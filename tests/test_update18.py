@@ -81,9 +81,9 @@ class FilaDinamicaTests(unittest.TestCase):
         nomes=['Menu','Serviço','Notícia','Legislação','Institucional','Arquivo histórico']
         pares=[(A+str(i),B+str(i),['Início',nome]) for i,nome in enumerate(nomes)]
         cats={tuple(p[:2]):categoria(p,'Menu lateral' if i==0 else '') for i,p in enumerate(pares)}
-        self.assertEqual(list(cats.values()),list(range(6)))
+        self.assertEqual(list(cats.values()),[0,1,4,2,3,5])
         f=Fila(reversed(pares),dinamica=True,categorias=cats)
-        self.assertEqual([f.popleft() for _ in range(6)],pares)
+        self.assertEqual([f.popleft() for _ in range(6)],[pares[i] for i in (0,1,3,4,2,5)])
         f=Fila(dinamica=True)
         antigo=(A+'historico/9',B+'historico/9',['Início','Arquivo histórico']);f.append(antigo)
         vistos=[]

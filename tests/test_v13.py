@@ -78,7 +78,7 @@ class V13(unittest.TestCase):
     def test_extracao_da_ordem_do_dom_e_crawler(self):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
-            try:browser=pw.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+            try:browser=pw.chromium.launch(headless=True,args=['--no-sandbox'])
             except Exception as e:self.skipTest('Chromium de testes indisponível: '+str(e)[:100])
             try:
                 page=browser.new_page()

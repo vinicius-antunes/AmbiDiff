@@ -117,7 +117,7 @@ class TestLocalCrawl(unittest.TestCase):
         from playwright.sync_api import sync_playwright
         from ambidiff.core import JS_EXTRAIR
         with sync_playwright() as pw:
-            try:browser=pw.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+            try:browser=pw.chromium.launch(headless=True,args=['--no-sandbox'])
             except Exception as e:self.skipTest('Chromium de testes indisponível: '+str(e)[:120])
             try:
                 page=browser.new_page()
@@ -136,7 +136,7 @@ class TestLocalCrawl(unittest.TestCase):
         try:
             base=f'http://127.0.0.1:{serv.server_port}/'
             with sync_playwright() as pw:
-                try:browser=pw.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+                try:browser=pw.chromium.launch(headless=True,args=['--no-sandbox'])
                 except Exception as e:self.skipTest('Chromium local não disponível: '+str(e)[:100])
                 try:
                     pg,fail,full,meta=coletar_site(browser,base,threading.Event(),lambda _:None,lambda _:None,'PRD')

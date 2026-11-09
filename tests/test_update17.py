@@ -193,6 +193,31 @@ class BulkSelectionTests(unittest.TestCase):
             self.assertEqual(len(filtrar_divergencias(rows,{})),1)
             self.assertEqual(len(filtrar_divergencias(rows,{'mostrar_todas':True})),2)
 
+    def test_busca_lista_intervalo_e_selecao_filtrada_sincronizados(self):
+        from ambidiff.storage import selecionar_lote,selecionar,filtrar_divergencias,preparar_relatorio
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);report_fixture(root,210)
+            rows=preparar_relatorio(root,RID)['divergencias']
+            def ids(query,**extras):
+                return [row['id'] for row in filtrar_divergencias(rows,{'busca':query,**extras})]
+            self.assertEqual(ids('179,180'),['DIV-0179','DIV-0180'])
+            self.assertEqual(ids('179,180,'),['DIV-0179','DIV-0180'])
+            self.assertEqual(ids('DIV179, DIV-0180'),['DIV-0179','DIV-0180'])
+            self.assertEqual(ids('179-185'),[f'DIV-{i:04d}' for i in range(179,186)])
+            self.assertEqual(ids('179, 182-185'),['DIV-0179',*[f'DIV-{i:04d}' for i in range(182,186)]])
+            self.assertEqual(ids('179 - 181',categoria='Inexistente',lado='DES',tipo='Imagem'),
+                ['DIV-0179','DIV-0180','DIV-0181'])
+            self.assertEqual(ids('Item 179'),['DIV-0179'])
+            self.assertEqual(ids('185-179'),[])
+            self.assertEqual(ids('179,,180'),[])
+            grupos=[{'id':'DIV-0170','ids_agrupados':['DIV-0170','DIV-0179'],'classificacao':'relevante'}]
+            self.assertEqual([r['id'] for r in filtrar_divergencias(grupos,{'busca':'179'})],['DIV-0170'])
+            selecionar(root,RID,'DIV-0002',True)
+            selecionados=selecionar_lote(root,RID,'filtradas',
+                {'busca':'179-185','categoria':'Inexistente','lado':'DES'})
+            self.assertEqual(set(selecionados['ids_selecionados']),
+                {'DIV-0002',*(f'DIV-{i:04d}' for i in range(179,186))})
+
     def test_grupos_parciais_e_falha_de_gravacao_preserva_selecao(self):
         from test_update12 import ExportTests
         from ambidiff.storage import selecionar,selecionar_lote,ler_selecao
@@ -278,17 +303,42 @@ class BrowserUI17Tests(unittest.TestCase):
         self.p.locator('.div-export-selection').first.check();self.p.wait_for_function("document.querySelector('#selected-count').textContent==='1 IDs selecionados'")
         self.assertFalse((self.root/f'revisoes_{RID}.json').exists())
 
+    def test_pesquisa_de_multiplas_divs_e_intervalo_na_interface(self):
+        self.abrir(205)
+        busca=self.p.locator('#search-results')
+        busca.fill('179,180')
+        self.assertEqual(self.p.locator('#visible-count').inner_text(),'2 divergência(s) agrupada(s)')
+        self.assertEqual(self.p.locator('.result-heading > strong').all_inner_texts(),['DIV-0179','DIV-0180'])
+        busca.fill('DIV179, 180-182')
+        self.assertEqual(self.p.locator('.result-heading > strong').all_inner_texts(),
+            ['DIV-0179','DIV-0180','DIV-0181','DIV-0182'])
+        self.p.locator('#filter-side').select_option('DES')
+        busca.fill('179-185')
+        self.assertEqual(self.p.locator('#visible-count').inner_text(),'7 divergência(s) agrupada(s)')
+        self.p.locator('#select-filtered-divs').click()
+        self.p.wait_for_function("document.querySelector('#selected-count').textContent==='7 IDs selecionados'")
+        self.assertEqual(self.p.locator('.result-heading > strong').all_inner_texts(),
+            [f'DIV-{i:04d}' for i in range(179,186)])
+        busca.fill('Item 179')
+        self.assertEqual(self.p.locator('#visible-count').inner_text(),'0 divergência(s) agrupada(s)')
+        self.p.locator('#filter-side').select_option('todos')
+        self.assertEqual(self.p.locator('.result-heading > strong').all_inner_texts(),['DIV-0179'])
+
     def test_formatos_teclado_cancelamento_e_falha_visivel(self):
         self.abrir(2);self.p.evaluate('window.showSaveFilePicker=undefined');self.p.locator('#export-scope').select_option('completo')
         for ext in ('csv','html','pdf','json'):
             self.p.locator('#export-format').select_option(ext);button=self.p.locator('#download-report');button.focus()
             with self.p.expect_download() as info:button.press('Enter')
             self.assertTrue(info.value.suggested_filename.endswith('.'+ext))
-            self.assertIn('enviado ao navegador',self.p.locator('#export-feedback').inner_text())
-        self.p.evaluate('()=>{window.showSaveFilePicker=async()=>{throw new DOMException("Cancelado","AbortError")};}')
-        before=len(self.requests);self.p.locator('#export-format').select_option('csv');self.p.locator('#download-report').click();self.p.wait_for_function("document.querySelector('#export-feedback').textContent.includes('cancelada')")
-        self.assertFalse(any(path.startswith('/download/') for _,path,_ in self.requests[before:]))
-        self.p.evaluate('window.showSaveFilePicker=undefined');self.fail_download=True
+            self.assertIn('solicitado ao navegador',self.p.locator('#export-feedback').inner_text())
+        # O recurso de escolha de arquivos pode existir e falhar; a exportação
+        # não deve depender dele para salvar relatórios.
+        self.p.evaluate('()=>{window.pickerInvocado=false;window.showSaveFilePicker=async()=>{window.pickerInvocado=true;throw new DOMException("Sem permissão","NotAllowedError")};}')
+        self.p.locator('#export-format').select_option('csv')
+        with self.p.expect_download() as info:self.p.locator('#download-report').click()
+        self.assertTrue(info.value.suggested_filename.endswith('.csv'))
+        self.assertFalse(self.p.evaluate('window.pickerInvocado'))
+        self.fail_download=True
         self.p.locator('#export-format').select_option('pdf');self.p.locator('#download-report').click();self.p.wait_for_function("document.querySelector('#export-feedback').textContent.includes('Falha de geração simulada')")
         self.assertTrue(self.p.locator('#export-feedback').is_visible());self.assertFalse(self.p.locator('[data-export="pdf"]').is_disabled())
 

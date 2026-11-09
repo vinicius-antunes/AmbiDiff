@@ -169,6 +169,7 @@ def recuperar(snapshot):
     for registro in snap['divergencias']:
         registro.update(estado.get('evidencias_preservadas',{}).get(registro['id'],{}))
     snap['estados_pares']=estado.get('estados_pares',snap.get('estados_pares',[]))
+    snap['diagnosticos_pares']=estado.get('diagnosticos_pares',snap.get('diagnosticos_pares',[]))
     from .execution import resumir
     snap['fila_execucao']=resumir(snap)
     tempos=snap.setdefault('metricas',{}).setdefault('tempos_segundos',{})

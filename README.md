@@ -18,7 +18,7 @@ O AmbiDiff percorre páginas públicas ou autorizadas de **dois ambientes** e pr
 |---|---|
 | Menus, opções e caminhos de navegação | Um elemento pode ser equivalente mesmo com HTML ou posição diferentes. |
 | Serviços, textos, links e referências | Destinos diferentes nem sempre significam um link quebrado; é preciso revisar. |
-| Notícias e conteúdo editorial | Bases desatualizadas podem explicar diferenças de dados, mas não justificam omissões estruturais. |
+| Notícias e conteúdo editorial | Diferencia variações editoriais por contexto, mesmo sem base declarada desatualizada; não oculta omissões estruturais. |
 | Documentos vinculados e recursos | Verifica referências e respostas permitidas, **não compara o conteúdo interno de PDFs**. |
 | Falhas, interrupções e cobertura | Uma página inconclusiva ou não examinada **não é considerada equivalente**. |
 
@@ -28,7 +28,7 @@ O AmbiDiff percorre páginas públicas ou autorizadas de **dois ambientes** e pr
 
 **Você precisa de:** Windows, Python 3 e permissão para instalar dependências e acessar os ambientes de teste. O projeto usa **Flask + Playwright (Chromium)** e não possui instalador `.exe`.
 
-1. Na página do repositório, use **Code → Download ZIP** da branch `main` (ou receba o pacote por canal interno autorizado).
+1. Na página do repositório, selecione a branch **`main`** e use **Code → Download ZIP** (ou receba o pacote por canal interno autorizado).
 2. Extraia o ZIP para uma pasta própria, fora do arquivo compactado.
 3. Execute **`instalar.bat`** uma vez. Ele cria `.venv`, instala as dependências e o Chromium.
 4. Execute **`INICIAR_AMBIDIFF.bat`**. Mantenha a janela do terminal aberta durante o uso.
@@ -84,6 +84,23 @@ As opções de verificações adicionais, como destinos externos e cliques inter
 
 Você pode **selecionar DIVs**, reclassificar relevância e confirmar manualmente achados sem alterar o relatório bruto. O histórico, as seleções e as evidências ficam **no computador local**. Confira o [guia de relatórios, recuperação e atualização](docs/guia-de-uso.md).
 
+**Nesta versão, a exportação foi otimizada:** cada solicitação gera apenas o formato necessário; arquivos grandes são transmitidos em blocos, e o JSON completo preserva os dados técnicos. Para escolher onde salvar, ative **“Perguntar onde salvar cada arquivo”** nas configurações do navegador.
+
+## Melhorias incorporadas à versão principal
+
+Esta versão reúne as melhorias da branch `fix/pareamento-eficiencia-varredura`, promovidas à `main` após testes manuais relatados pelo mantenedor. Os recursos continuam sujeitos a regressões e validação nos ambientes reais:
+
+| Melhoria | O que muda |
+|---|---|
+| **Exportações mais eficientes** | CSV, JSON, HTML e PDF são gerados conforme o formato solicitado, reduzindo processamento desnecessário. |
+| **Classificação editorial contextual** | Notícias e publicações podem ser agrupadas como variações informativas sem exigir que uma base seja declarada antiga; menus, opções e documentos continuam sujeitos à comparação. |
+| **Manutenção com IA** | `AGENTS.md` estabelece diretrizes e as Skills de `.agents/skills/` ajudam o Codex a diagnosticar, otimizar e validar mudanças. |
+| **Testes automatizados** | O fluxo de GitHub Actions está configurado para executar regressões no Windows com Python, JavaScript e Playwright. Consulte o estado da execução no GitHub. |
+
+**Estado da validação (09/11/2026):** a promoção para a `main` foi solicitada após testes manuais da varredura pelo mantenedor. A documentação anterior registrava **252 de 254 testes aprovados e 2 falhas (29/10)**; esse resultado histórico não comprova o estado atual. Os testes de regressão e a validação completa em Windows/portais reais ainda devem ser conferidos. Consulte [GitHub Actions](https://github.com/vinicius-antunes/AmbiDiff/actions) para execuções disponíveis.
+
+Essas Skills apoiam **o desenvolvimento**, não executam agentes durante as varreduras nem enviam relatórios a serviços externos. Veja o [guia de manutenção assistida por IA](docs/manutencao-ia.md).
+
 ## Análise inteligente de divergências (opcional)
 
 O **AmbiDiff IA** é um assistente complementar e **independente** da varredura. Ele ajuda a interpretar divergências a partir de **relatórios JSON exportados** e, quando disponíveis, diagnósticos e capturas de tela.
@@ -126,6 +143,7 @@ Antes de anexar relatórios, confirme que eles contêm **somente dados públicos
 | **Failed to fetch** no painel | Verifique `/api/status` no endereço local e o terminal; não presuma falha do portal. |
 | Um ambiente não carrega | Confirme URL, rede/VPN, DNS e certificados com a TI. |
 | Varredura parcial | Consulte diagnósticos, logs, páginas pendentes e checkpoints. |
+| Download não conclui | Confira se está usando a versão atual da branch, reinicie o programa e atualize o painel com **Ctrl + F5**. Veja **Ctrl + J** no Chrome e os erros no terminal. Preserve a pasta `relatorios/`. |
 
 O [guia completo](docs/guia-de-uso.md#4-solução-de-problemas) traz um roteiro de diagnóstico para esses casos.
 
@@ -139,6 +157,7 @@ O [guia completo](docs/guia-de-uso.md#4-solução-de-problemas) traz um roteiro 
 | Checkpoints, portais extensos e cobertura | [Portais extensos](docs/atualizacao-portais-extensos.md) |
 | Critérios de relevância e falsos positivos | [Filtro de relevância](docs/filtro-relevancia.md) |
 | Histórico de decisões, testes e benchmarks | [Documentação técnica](docs/varredura-inteligente.md) · [Otimização](docs/otimizacao-varredura.md) · [Melhorias 13–17](docs/atualizacao-13-17.md) |
+| Desenvolvimento com Codex | [`AGENTS.md`](AGENTS.md) · [Guia das Skills e CI](docs/manutencao-ia.md) |
 
 ### Para quem desenvolve
 
@@ -148,7 +167,9 @@ Os testes automatizados locais utilizam o framework `unittest`:
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-O código é organizado em `ambidiff/` (comparação), `web/` (painel e API), `tests/` (regressão) e `scripts/` (benchmarks). Testes simulados **não substituem validação nos ambientes reais**.
+Pareamento, contadores auditáveis e comparação controlada com fixtures: [guia de eficiência da varredura](docs/pareamento-eficiencia.md).
+
+O código é organizado em `ambidiff/` (comparação), `web/` (painel e API), `tests/` (regressão) e `scripts/` (benchmarks). Para manter o projeto com o Codex, consulte também `AGENTS.md` e as Skills em `.agents/skills/`. Testes simulados **não substituem validação nos ambientes reais**.
 
 ---
 

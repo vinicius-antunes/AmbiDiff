@@ -173,9 +173,31 @@ function occurrences(card,d){
   }
   details.append(ul);card.append(details);
 }
-function normalizedDivSearch(query){
-  const m=/^(?:div[\s-]*)?(\d{1,9})$/i.exec(query.trim());
-  return m?'DIV-'+m[1].padStart(4,'0'):null;
+function parseDivSearch(query){
+  // Uma DIV, várias DIVs separadas por vírgula ou faixas inclusivas.
+  // Ex.: 179,180, 179-185, DIV-0179, DIV180-185.
+  const value=query.trim().replace(/,\s*$/,'').trim();
+  if(!value)return null;
+  const single=/^(?:div[\s-]*)?(\d{1,9})$/i;
+  const range=/^(?:div[\s-]*)?(\d{1,9})\s*-\s*(?:div[\s-]*)?(\d{1,9})$/i;
+  const intervals=[];
+  for(const part of value.split(',')){
+    const term=part.trim(),one=single.exec(term);
+    if(one){const id=Number(one[1]);intervals.push([id,id]);continue;}
+    const m=range.exec(term);
+    if(!m)return null;
+    const first=Number(m[1]),last=Number(m[2]);
+    if(first>last)return null;
+    intervals.push([first,last]);
+  }
+  return intervals.length?intervals:null;
+}
+function matchesDivSearch(d,intervals){
+  for(const id of [d.id,...(d.ids_agrupados||[])]){
+    const m=/^DIV-(\d{1,9})$/i.exec(id||'');
+    if(m&&intervals.some(([first,last])=>Number(m[1])>=first&&Number(m[1])<=last))return true;
+  }
+  return false;
 }
 async function copyId(id,button){
   try{
@@ -285,11 +307,11 @@ function renderNext(){
 function refilter(){
   if(!currentReport)return;
   const q=$('search-results').value.trim().toLocaleLowerCase('pt-BR'),side=$('filter-side').value,type=$('filter-type').value;
-  const searchedId=normalizedDivSearch(q);
+  const searchedIds=parseDivSearch(q);
   filtered=currentReport.divergencias.filter(d=>
     ($('filter-review').value==='todos'||($('filter-review').value==='pendentes'?!d.revisao_manual:!!d.revisao_manual))&&
     ($('show-all-differences').checked||!['baixa','editorial'].includes(d.classificacao))&&
-    (searchedId?(d.id===searchedId||(d.ids_agrupados||[]).includes(searchedId)):
+    (searchedIds?matchesDivSearch(d,searchedIds):
       (selectedCategory==='todas'||d.categoria===selectedCategory)&&
       (side==='todos'||d.presente_em===side)&&(type==='todos'||d.tipo===type)&&
       (!q||[JSON.stringify(d.itens_agrupados||[]),d.id,d.elemento,d.pagina,d.descricao,d.local,d.caminho,d.posicao,d.destino_a,d.destino_b,d.url_presente,d.url_comparada].some(v=>(v||'').toLocaleLowerCase('pt-BR').includes(q)))));
@@ -582,31 +604,34 @@ function updateExportFormat(){
 $('export-format').addEventListener('change',updateExportFormat);
 $('export-scope').addEventListener('change',()=>{$('export-format').value=$('export-scope').value==='selecionadas'?'csv':'html';updateExportFormat();});
 updateExportFormat();
-let lastSaveHandle=null;
-async function downloadExport(button){
-  if(!currentId){exportFeedback('Abra uma comparação para habilitar a exportação.');return;}if(exportBusy)return;const run=currentId;const ext=button.dataset.export,scope=$('export-scope').value,advanced=ext.startsWith('diagnostico-');
-  if(!advanced&&scope==='selecionadas'&&!(currentReport.ids_selecionados||[]).length){exportFeedback('Selecione ao menos uma DIV para exportar, ou escolha outro escopo.',true);return;}
-  const actualExt=ext.split('-').pop(),site=(currentReport.site_nome||'Portal').replace(/https?:\/\/\S+|\S+@\S+|\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g,'').replace(/\b\d{11,}\b/g,'identificador').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9_-]+/g,'_').slice(0,64)||'Portal';
-  const tipo=advanced?'Diagnostico':scope==='selecionadas'?'DIVs_Selecionadas':'Comparacao';
-  const date=currentId.slice(0,4)+'-'+currentId.slice(4,6)+'-'+currentId.slice(6,8),name=site+'_'+tipo+'_'+date+'_'+currentId.slice(-6)+'.'+actualExt;
-  const mime={csv:'text/csv',html:'text/html',pdf:'application/pdf',json:'application/json',txt:'text/plain'}[actualExt];
-  let handle=null;exportBusy=true;document.querySelectorAll('[data-export]').forEach(b=>b.disabled=true);button.setAttribute('aria-busy','true');exportFeedback('Preparando '+actualExt.toUpperCase()+'…');
-  try{
-    if(window.showSaveFilePicker){
-      try{handle=await window.showSaveFilePicker({id:'ambidiff-exportacoes',suggestedName:name,startIn:lastSaveHandle||'downloads',types:[{description:actualExt.toUpperCase(),accept:{[mime]:['.'+actualExt]}}]});}
-      catch(e){if(e.name==='AbortError'){exportFeedback('Exportação cancelada no seletor de arquivos.');return;}if(e.name!=='SecurityError'&&e.name!=='TypeError')throw e;}
+function downloadExport(button){
+  if(!currentId){exportFeedback('Abra uma comparação para habilitar a exportação.');return;}
+  if(exportBusy)return;
+  const run=currentId,ext=button.dataset.export,scope=$('export-scope').value,advanced=ext.startsWith('diagnostico-');
+  if(!advanced&&scope==='selecionadas'&&!(currentReport.ids_selecionados||[]).length){
+    exportFeedback('Selecione ao menos uma DIV para exportar, ou escolha outro escopo.',true);return;
+  }
+  const actualExt=ext.split('-').pop();
+  const args=advanced?'':scope==='selecionadas'?'?selecionadas=1':scope==='completo'?'?completo=1':scope==='relevantes'?'?relevantes=1':'';
+  const url='/download/'+encodeURIComponent(run)+'/'+ext+args;
+  // Arquivos grandes vão direto do servidor ao Chrome, sem Blob em memória.
+  // O iframe preserva o painel em caso de erro HTTP (JSON sem attachment).
+  let frame=$('ambidiff-download-frame');
+  if(!frame){
+    frame=element('iframe');frame.id='ambidiff-download-frame';
+    frame.name='ambidiff-download-frame';frame.hidden=true;document.body.append(frame);
+  }
+  frame.onload=()=>{
+    try{
+      if(frame.contentWindow?.location.href==='about:blank')return;
+      const raw=frame.contentDocument?.body?.textContent||'';
+      const erro=JSON.parse(raw).erro;
+      if(erro)exportFeedback('Não foi possível exportar: '+erro,true);
+    }catch(e){
+      // Uma resposta de download bem-sucedida não expõe um documento no iframe.
     }
-    const args=advanced?'':scope==='selecionadas'?'?selecionadas=1':scope==='completo'?'?completo=1':scope==='relevantes'?'?relevantes=1':'';
-    const response=await fetch('/download/'+encodeURIComponent(run)+'/'+ext+args);
-    if(!response.ok){const data=await response.json();throw Error(data.erro||'Falha na exportação');}
-    const blob=await response.blob();
-    if(handle){
-      const file=await handle.getFile();if(file.size>0&&!window.confirm('O arquivo já contém dados. Deseja substituí-lo?')){exportFeedback('Salvamento cancelado; arquivo existente preservado.');return;}
-      const writable=await handle.createWritable();try{await writable.write(blob);await writable.close();}catch(e){await writable.abort();throw e;}lastSaveHandle=handle;exportFeedback('Arquivo '+actualExt.toUpperCase()+' salvo no local escolhido.');
-    }else{
-      const header=response.headers.get('Content-Disposition')||'',suggested=/filename="([^"]+)"/.exec(header)?.[1]||name;
-      const url=URL.createObjectURL(blob),a=element('a');a.href=url;a.download=suggested;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
-      exportFeedback('Download '+actualExt.toUpperCase()+' enviado ao navegador. Para escolher a pasta sempre, habilite “Perguntar onde salvar” nas configurações do navegador.');
-    }
-  }catch(e){exportFeedback('Não foi possível exportar: '+e.message,true);}finally{exportBusy=false;button.removeAttribute('aria-busy');document.querySelectorAll('[data-export]').forEach(b=>b.disabled=!currentReport||!!(b.dataset.export.startsWith('diagnostico-')&&currentReport.versao!=='1.5'));}
+  };
+  const link=element('a');link.href=url;link.target=frame.name;
+  link.style.display='none';document.body.append(link);link.click();link.remove();
+  exportFeedback('Download solicitado ao navegador. O relatório pode ser grande: acompanhe em Ctrl+J. Se falhar, verifique o log do AmbiDiff. Para escolher a pasta, ative “Perguntar onde salvar” nas configurações do Chrome.');
 }

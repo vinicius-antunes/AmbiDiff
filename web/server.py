@@ -310,6 +310,11 @@ def comparar():
 
 @app.get('/api/checkpoints')
 def checkpoints_disponiveis():
+    # Validar checkpoints restaura estruturas e verifica SHA de arquivos grandes.
+    # Não disputar CPU/memória com a varredura e as capturas em andamento.
+    with LOCK:
+        if STATE.get('status')=='executando':
+            return jsonify(erro='A comparação ainda está em andamento. Consulte checkpoints após o encerramento; o status atual permanece disponível.'),409
     from ambidiff.checkpoints import validar
     rows=[]
     for path in sorted(PASTA.glob('checkpoint_*.json'),reverse=True):
@@ -492,17 +497,53 @@ def baixar(run_id,ext):
                 dados=somente_selecionadas(dados,set(dados.get('ids_selecionados',[])))
                 if not dados['divergencias']:return jsonify(erro='Selecione ao menos uma DIV visível para exportar.'),400
             else:dados['escopo_exportacao']='Relatório completo' if dados.get('exportacao_completa') else dados.get('escopo_exportacao','Relatório principal')
-        # Snapshot separado do lock da varredura; conversão lenta não bloqueia Interromper.
-        import tempfile,io
-        with tempfile.TemporaryDirectory(prefix='ambidiff_export_') as td:
-            pasta_export=Path(td)
-            paths=exportar(dados,pasta_export,'filtrado_'+run_id,evidencias_root=PASTA)
+        # Não carregue exportações grandes na memória: arquivos completos podem
+        # conter dezenas ou centenas de MB de detalhes e evidências.
+        import tempfile,mmap
+        from flask import Response
+        temporario=tempfile.TemporaryDirectory(prefix='ambidiff_export_')
+        try:
+            pasta_export=Path(temporario.name)
+            # Exportar apenas o formato solicitado. PDF usa somente o HTML
+            # intermediário; arquivos de centenas de MB não são duplicados.
+            formatos=('html',) if ext=='pdf' else (ext,)
+            paths=exportar(dados,pasta_export,'filtrado_'+run_id,
+                evidencias_root=PASTA,formatos=formatos,
+                preparado=(escopo!='selecionadas'))
             if ext=='pdf':
                 target=pasta_export/'relatorio.pdf';gerar_pdf(paths['html'],target)
             else:target=Path(paths[ext])
-            conteudo=target.read_bytes()
-        tipos={'pdf':'application/pdf','csv':'text/csv','json':'application/json','html':'text/html'}
-        return send_file(io.BytesIO(conteudo),mimetype=tipos[ext],as_attachment=True,download_name=nome_amigavel(dados.get('site_nome'),ext,escopo,run_id))
+            tamanho=target.stat().st_size
+            if not tamanho:
+                raise RuntimeError('Exportação vazia: arquivo original preservado. Consulte o diagnóstico.')
+            if ext=='json' and dados.get('divergencias'):
+                # Verificar a presença de registros com arquivo mapeado (sem
+                # json.loads de centenas de MB ou cópias extras em memória).
+                with target.open('rb') as arquivo:
+                    with mmap.mmap(arquivo.fileno(),0,access=mmap.ACCESS_READ) as conteudo:
+                        inicio=re.search(rb'"divergencias"\s*:\s*\[',conteudo)
+                        if not inicio or conteudo[inicio.end():inicio.end()+80].lstrip().startswith(b']'):
+                            raise RuntimeError('Exportação JSON sem divergências esperadas; arquivo original preservado.')
+            tipos={'pdf':'application/pdf','csv':'text/csv','json':'application/json','html':'text/html'}
+            nome=nome_amigavel(dados.get('site_nome'),ext,escopo,run_id)
+            def transmitir():
+                try:
+                    with target.open('rb') as arquivo:
+                        while True:
+                            bloco=arquivo.read(1024*1024)
+                            if not bloco:break
+                            yield bloco
+                finally:temporario.cleanup()
+            response=Response(transmitir(),mimetype=tipos[ext])
+            response.headers['Content-Disposition']=f'attachment; filename="{nome}"'
+            response.headers['Content-Length']=str(tamanho)
+            response.headers['Cache-Control']='no-store'
+            response.headers['X-Content-Type-Options']='nosniff'
+            response.call_on_close(temporario.cleanup)
+            return response
+        except BaseException:
+            temporario.cleanup()
+            raise
     except RuntimeError as exc:return jsonify(erro=str(exc)),500
     except FileNotFoundError:return jsonify(erro='Relatório não encontrado'),404
     except ValueError as exc:return jsonify(erro=str(exc)),400

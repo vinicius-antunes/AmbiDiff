@@ -34,7 +34,17 @@ def atomic_json(path:Path,data)->None:
     path.parent.mkdir(parents=True,exist_ok=True)
     temp=path.with_name(path.name+'.tmp')
     try:
-        temp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
+        # Escrever incrementalmente evita manter uma segunda cópia gigantesca
+        # do JSON na memória, especialmente durante exportações completas.
+        with temp.open('w',encoding='utf-8') as arquivo:
+            # Agrupar pequenos fragmentos do encoder evita milhões de write()
+            # em relatórios extensos sem montar o JSON inteiro na RAM.
+            partes=[];tamanho=0
+            for trecho in json.JSONEncoder(ensure_ascii=False,indent=2).iterencode(data):
+                partes.append(trecho);tamanho+=len(trecho)
+                if tamanho>=262144:
+                    arquivo.write(''.join(partes));partes.clear();tamanho=0
+            if partes:arquivo.write(''.join(partes))
         os.replace(temp,path)
     finally:
         temp.unlink(missing_ok=True)
@@ -175,8 +185,36 @@ def selecionar(root,run_id,div_id,marcada):
     return sorted(atuais-ler_exclusoes(root,run_id))
 
 
+def intervalos_busca_div(busca):
+    """IDs isolados, listas e intervalos inclusivos; texto comum usa a busca livre."""
+    busca=re.sub(r',\s*$', '', busca.strip().lower())
+    if not busca:return None
+    simples=r'(?:div[\s-]*)?(\d{1,9})'
+    faixas=[]
+    for parte in busca.split(','):
+        parte=parte.strip()
+        unico=re.fullmatch(simples,parte,re.I)
+        intervalo=re.fullmatch(simples+r'\s*-\s*'+simples,parte,re.I) if not unico else None
+        if unico:
+            n=int(unico[1]);faixas.append((n,n))
+        elif intervalo:
+            inicio,fim=int(intervalo[1]),int(intervalo[2])
+            if inicio>fim:return None
+            faixas.append((inicio,fim))
+        else:return None
+    return faixas or None
+
+
+def div_na_busca(d,faixas):
+    for identificador in [d.get('id',''),*(d.get('ids_agrupados') or [])]:
+        m=re.fullmatch(r'DIV-(\d{1,9})',identificador or '',re.I)
+        if m and any(inicio<=int(m[1])<=fim for inicio,fim in faixas):
+            return True
+    return False
+
+
 def filtrar_divergencias(rows,filtros):
-    """Mesma busca da tela, incluindo busca por ID que ignora categoria/lado/tipo."""
+    """Mesma busca da tela: IDs/listas/faixas ignoram categoria/lado/tipo."""
     if not isinstance(filtros,dict) or set(filtros)-{'busca','categoria','lado','tipo','revisao','mostrar_todas'}:raise ValueError('Filtros inválidos.')
     for k,v in filtros.items():
         if k=='mostrar_todas':
@@ -184,14 +222,14 @@ def filtrar_divergencias(rows,filtros):
         elif not isinstance(v,str) or len(v)>500:raise ValueError('Filtro textual inválido.')
     review=filtros.get('revisao','todos')
     if review not in ('todos','pendentes','confirmadas'):raise ValueError('Filtro de revisão inválido.')
-    q=filtros.get('busca','').strip().lower();m=re.fullmatch(r'(?:div[\s-]*)?(\d{1,9})',q,re.I)
-    busca_id='DIV-'+m[1].zfill(4) if m else None
+    q=filtros.get('busca','').strip().lower()
+    faixas_id=intervalos_busca_div(q)
     out=[]
     for d in rows:
         if review=='pendentes' and d.get('revisao_manual') or review=='confirmadas' and not d.get('revisao_manual'):continue
         if not filtros.get('mostrar_todas',False) and d.get('classificacao') in ('baixa','editorial'):continue
-        if busca_id:
-            if busca_id==d['id'] or busca_id in d.get('ids_agrupados',[]):out.append(d)
+        if faixas_id is not None:
+            if div_na_busca(d,faixas_id):out.append(d)
             continue
         if any(filtros.get(k,'todas' if k=='categoria' else 'todos') not in ('todas','todos',d.get(campo)) for k,campo in (('categoria','categoria'),('lado','presente_em'),('tipo','tipo'))):continue
         campos=[json.dumps(d.get('itens_agrupados',[]),ensure_ascii=False,separators=(',',':')),*[d.get(k,'') for k in ('id','elemento','pagina','descricao','local','caminho','posicao','destino_a','destino_b','url_presente','url_comparada')]]

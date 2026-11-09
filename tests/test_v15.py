@@ -31,8 +31,64 @@ class IntelligenceTests(unittest.TestCase):
         self.assertEqual([x['elemento'] for x in principal],['ÁUDIOS'])
         self.assertEqual(len(data),2)
         self.assertEqual(agrupar_variacoes(data,'DES')[0]['quantidade_itens'],2)
-        raw,_=separar_editoriais(comps,pa,pb,[menu,news],[news_des],('PRD','DES'),'')
-        self.assertEqual(len(raw),3)
+        raw,sem_declaracao=separar_editoriais(comps,pa,pb,[menu,news],[news_des],('PRD','DES'),'')
+        self.assertEqual([x['elemento'] for x in raw],['ÁUDIOS'])
+        self.assertEqual(len(sem_declaracao),2)
+        self.assertTrue(all('sem base declarada desatualizada' in x['motivo_editorial'] for x in sem_declaracao))
+
+    def test_sem_flag_secao_editorial_ausente_continua_divergencia(self):
+        pa=Pagina('https://prd.test/','@inicio','Portal',[],['Página inicial'])
+        pb=Pagina('https://des.test/','@inicio','Portal',[],['Página inicial'])
+        noticia=Item('Opção','Notícia única','Notícia única','Notícias',
+            destino='https://prd.test/w/unica',natureza='editorial')
+        comps=[{'tipo':'Opção','presente_em':'PRD','elemento':'Notícia única'}]
+        principal,dados=separar_editoriais(comps,pa,pb,[noticia],[],('PRD','DES'),'')
+        self.assertEqual(principal,comps)
+        self.assertEqual(dados,[])
+
+    def test_sem_flag_menus_e_documentos_nao_viram_editorial(self):
+        pa=Pagina('https://prd.test/','@inicio','Portal',[],['Página inicial'])
+        pb=Pagina('https://des.test/','@inicio','Portal',[],['Página inicial'])
+        menu=Item('Opção','ÁUDIOS','ÁUDIOS','Menu principal',
+            destino='https://prd.test/w/audios',natureza='estrutura')
+        documento=Item('Documento','Portaria','Portaria','Notícias',
+            destino='https://prd.test/documents/portaria.pdf',natureza='editorial')
+        referencia=Item('Opção','Veja mais','Veja mais','Notícias',
+            destino='https://prd.test/servicos',natureza='editorial')
+        noticia=Item('Opção','Notícia A','Notícia A','Notícias',
+            destino='https://prd.test/w/a',natureza='editorial')
+        noticia_b=Item('Opção','Notícia B','Notícia B','Notícias',
+            destino='https://des.test/w/b',natureza='editorial')
+        comps=[{'tipo':i.tipo,'presente_em':'PRD','elemento':i.nome}
+               for i in (menu,documento,referencia,noticia)]
+        principal,dados=separar_editoriais(comps,pa,pb,
+            [menu,documento,referencia,noticia],[noticia_b],('PRD','DES'),'')
+        self.assertEqual([x['elemento'] for x in principal],['ÁUDIOS','Portaria','Veja mais'])
+        self.assertEqual([x['elemento'] for x in dados],['Notícia A'])
+
+    def test_sem_flag_area_editorial_diferente_exige_revisao(self):
+        pa=Pagina('https://prd.test/','@inicio','Portal',[],['Página inicial'])
+        pb=Pagina('https://des.test/','@inicio','Portal',[],['Página inicial'])
+        a=Item('Opção','Notícia A','Notícia A','Avisos de serviço',
+            destino='https://prd.test/w/a',natureza='editorial')
+        b=Item('Opção','Notícia B','Notícia B','Notícias',
+            destino='https://des.test/w/b',natureza='editorial')
+        comps=[{'tipo':'Opção','presente_em':'PRD','elemento':'Notícia A'}]
+        principal,dados=separar_editoriais(comps,pa,pb,[a],[b],('PRD','DES'),'')
+        self.assertEqual(principal,comps)
+        self.assertFalse(dados)
+
+    def test_artigos_pareados_com_titulos_locais_diferentes_sao_editoriais(self):
+        pa=Pagina('https://prd.test/w/1','@artigo','Publicação A',[],['Página inicial'])
+        pb=Pagina('https://des.test/w/1','@artigo','Publicação B',[],['Página inicial'])
+        a=Item('Texto','Publicado em 28/10','Publicado em 28/10','Notícia A',
+            natureza='editorial')
+        b=Item('Texto','Publicado em 27/10','Publicado em 27/10','Notícia B',
+            natureza='editorial')
+        comps=[{'tipo':'Texto','presente_em':'PRD','elemento':a.nome,'local':a.local}]
+        principal,dados=separar_editoriais(comps,pa,pb,[a],[b],('PRD','DES'),'')
+        self.assertEqual(principal,[])
+        self.assertEqual([v['elemento'] for v in dados],[a.nome])
 
     def test_documentos_sem_extensao_e_logo_liferay(self):
         self.assertTrue(e_arquivo('https://prd.test/documents/d/cge/portaria-76'))
@@ -74,7 +130,7 @@ class IntelligenceTests(unittest.TestCase):
     def test_dom_mais_de_uma_estrutura_mas_mesmo_conteudo(self):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
-            try:browser=pw.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+            try:browser=pw.chromium.launch(headless=True,args=['--no-sandbox'])
             except Exception as ex:self.skipTest('Chromium indisponível: '+str(ex)[:100])
             try:
                 page=browser.new_page()
@@ -104,7 +160,7 @@ class IntelligenceTests(unittest.TestCase):
     def test_contempla_icones_svg_distintos(self):
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
-            try:browser=pw.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+            try:browser=pw.chromium.launch(headless=True,args=['--no-sandbox'])
             except Exception as ex:self.skipTest('Chromium indisponível: '+str(ex)[:100])
             try:
                 pages=[browser.new_page(),browser.new_page()]
