@@ -61,6 +61,10 @@ class Fila:
             _,n=heapq.heappop(self.heap)
             if n in self.ativos:return self.ativos.pop(n)
         raise IndexError('Fila vazia')
+    def promover(self,key):
+        if any(tuple(p[:2])==tuple(key) for p in self.ativos.values()):
+            self.heap=[(self.categorias.get(tuple(p[:2]),categoria(p)) if self.dinamica else prioridade(p),n) for n,p in self.ativos.items()]
+            heapq.heapify(self.heap)
     def adiar(self,par):self.adiados.append(par)
     def __len__(self):return len(self.ativos)+len(self.adiados)
     def __iter__(self):return iter([*self.ativos.values(),*self.adiados])

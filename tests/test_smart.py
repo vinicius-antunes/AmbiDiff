@@ -217,7 +217,7 @@ class SmartIntegrationTests(unittest.TestCase):
             return executar_pareado(*bases,'PRD','DES',threading.Event(),lambda _:None,lambda _:None,**kw)
 
     def test_noticias_dados_defasados_reuso_e_modo_atual(self):
-        with portais(4) as (bases,requisicoes):
+        with portais(4,noticias_no_menu=True) as (bases,requisicoes):
             atual=self.executar(bases,ambiente_desatualizado='DES',estrategia='profunda',orcamento_minutos=0)
             otimizado=self.executar(bases,ambiente_desatualizado='DES',varredura_inteligente=True,estrategia='profunda',orcamento_minutos=0)
         self.assertEqual(atual['paginas'],otimizado['paginas'])
@@ -234,7 +234,7 @@ class SmartIntegrationTests(unittest.TestCase):
         self.assertFalse(any(m=='GET' and p=='/manual.pdf' for _,m,p in requisicoes))
 
     def test_noticias_sem_base_declarada_tambem_sao_informativas(self):
-        with portais(2) as (bases,_):
+        with portais(2,noticias_no_menu=True) as (bases,_):
             r=self.executar(bases,varredura_inteligente=True)
         self.assertEqual(r['ambiente_desatualizado'],'')
         self.assertTrue(r['variacoes_dados'])
@@ -243,7 +243,7 @@ class SmartIntegrationTests(unittest.TestCase):
                              for d in r['divergencias']))
 
     def test_noticias_com_diferenca_estrutural_nao_reutilizam_template(self):
-        with portais(3,estrutura_diferente=True) as (bases,_):
+        with portais(3,estrutura_diferente=True,noticias_no_menu=True) as (bases,_):
             r=self.executar(bases,ambiente_desatualizado='DES',varredura_inteligente=True)
         self.assertTrue(any(d['tipo']=='Estrutura editorial' for d in r['divergencias']))
         self.assertFalse(any(x['categoria']=='Notícia de template repetido' for x in r['otimizacao']['inspecoes_profundas_omitidas']))

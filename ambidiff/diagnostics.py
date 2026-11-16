@@ -85,7 +85,7 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
     return {**{k:resultado.get(k) for k in ('iniciado_em','finalizado_em','duracao_segundos','andamento','media_segundos_por_par','requisicoes_por_par')},'grupos_relacionados':resultado.get('grupos_relacionados',[]),'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_classificados',resultado.get('editoriais_preservados',[])),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
       'site_nome':resultado.get('site_nome',''),'ambientes':resultado.get('ambientes',{}),
       'situacao_analise':resultado.get('situacao_analise','inconclusivo'),'fila_execucao':resultado.get('fila_execucao',{}),
-      'cobertura':resultado.get('cobertura',{}),'motivo_encerramento':resultado.get('motivo_encerramento',''),
+      'filtro_urls':resultado.get('filtro_urls',{}),'cobertura':resultado.get('cobertura',{}),'motivo_encerramento':resultado.get('motivo_encerramento',''),
       'estados_pares':resultado.get('estados_pares',[]),'diagnosticos_pares':resultado.get('diagnosticos_pares',[]),
       'equivalencias_compartilhamento':resultado.get('equivalencias_compartilhamento',[]),
       'modo_varredura':resultado.get('modo_varredura','atual'),

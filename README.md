@@ -179,3 +179,5 @@ O código é organizado em `ambidiff/` (comparação), `web/` (painel e API), `t
   <p>Use apenas em ambientes autorizados. Não compartilhe logs, capturas ou relatórios internos sem verificar e sanitizar o conteúdo.</p>
 
 </div>
+
+A varredura evita expansão editorial conhecida antes da admissão, mantendo referências e exceções estruturais: [política de URLs, cobertura e testes](docs/filtro-urls-varredura.md).

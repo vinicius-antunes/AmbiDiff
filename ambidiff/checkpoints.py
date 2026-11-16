@@ -168,6 +168,9 @@ def recuperar(snapshot):
         avisos_tecnicos=snap.get('avisos_tecnicos') or _avisos(snap.get('falhas',[]),snap.get('meta_varredura',{})))
     for registro in snap['divergencias']:
         registro.update(estado.get('evidencias_preservadas',{}).get(registro['id'],{}))
+    if estado.get('filtro_urls'):
+        from .urlfilter import PoliticaURLs
+        snap['filtro_urls']=PoliticaURLs(estado['filtro_urls']).resumo(True)
     snap['estados_pares']=estado.get('estados_pares',snap.get('estados_pares',[]))
     snap['diagnosticos_pares']=estado.get('diagnosticos_pares',snap.get('diagnosticos_pares',[]))
     from .execution import resumir
