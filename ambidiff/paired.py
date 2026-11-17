@@ -638,14 +638,34 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     def inconclusivos():return sum(n for v,n in contagens_estados.items() if v not in ('comparado','nao_html','falha'))
     def admitidos():return len(pares_enfileirados-nao_html)
     from .urlfilter import PoliticaURLs,identidade
+    from .pagination import primeira_equivalente,finalidade
     filtro=PoliticaURLs(estado.get('filtro_urls') if estado else None)
-    identidades={tuple(identidade(u) for u in par) for par in pares_enfileirados|candidatos_vistos}
+    def canonico(par,contexto=''):
+        return tuple(identidade(primeira_equivalente(u,par[2][-1] if len(par)>2 and par[2] else '',contexto)) if u else '' for u in par[:2])
+    conhecidos=pares_enfileirados|candidatos_vistos
+    canon_por_par={p:canonico(p) for p in conhecidos}
+    refs_identidade=Counter(canon_por_par.values())
+    refs_url=[Counter(p[lado] for p in conhecidos) for lado in (0,1)]
+    refs_representacao=[Counter(canonico(p)[lado] for p in conhecidos) for lado in (0,1)]
+    identidades=set(refs_identidade)
     def repor_fila():
         if not dinamica:return
         with metricas.medir('descoberta'):
             while candidatos.ativos and admitidos()<limite_html and len(fila)<8:
                 par=candidatos.popleft();key=tuple(par[:2])
                 if key in pares_enfileirados:continue
+                prova=filtro.registros.get(key,{})
+                contexto='Documentos' if prova.get('excecao_estrutural') and 'finalidade documental/legislativa' in prova.get('motivo','') else ''
+                if filtro.avaliar(par,contexto):
+                    diagnosticos_pares.pop(key,None)
+                    candidatos_vistos.discard(key)
+                    canon=canon_por_par.pop(key,canonico(par,contexto));refs_identidade[canon]-=1
+                    if refs_identidade[canon]<=0:identidades.discard(canon)
+                    for lado in (0,1):
+                        refs_url[lado][key[lado]]-=1;refs_representacao[lado][canon[lado]]-=1
+                        if refs_url[lado][key[lado]]<=0:urls_vistas[lado].discard(key[lado])
+                        if refs_representacao[lado][canon[lado]]<=0:representados[lado].discard(canon[lado])
+                    continue
                 pares_enfileirados.add(key);fila.append(par)
                 diagnosticar(par).update(estado='admitido',motivo='Aguardando processamento na fila admitida')
     representados=[{k[lado] for k in identidades if k[lado]} for lado in (0,1)]
@@ -663,17 +683,28 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     for key,st in estados_pares.items():
         if key not in diagnosticos_pares:diagnosticar((*key,[])).update(estado=st,motivo='Estado restaurado do checkpoint')
     def propor(par,contexto='',criterio='rotulo_contexto_e_url'):
+        filtro.eventos['propostas']+=1
+        if tuple(par[:2]) in pares_enfileirados or tuple(par[:2]) in candidatos_vistos or tuple(par[:2]) in filtro.registros:filtro.eventos['redescobertas']+=1
         diagnosticar(par,criterio,{'pagina_a':andamento.get('url_a',''),'pagina_b':andamento.get('url_b',''),'trilha':par[2],'contexto':contexto})
         with metricas.medir('descoberta'):_propor(par,contexto)
     def _propor(par,contexto=''):
         key=tuple(par[:2])
-        if key not in pares_enfileirados and key not in candidatos_vistos and filtro.avaliar(par,contexto,representados):
+        registro=diagnosticar(par)
+        if dinamica and (not key[0] or not key[1]):
+            lado=0 if key[0] else 1
+            # Mesma URL exata já observada neste ambiente: reaproveita a
+            # inspeção, sem dispensar a comparação dos rótulos nos menus.
+            if key[lado] in urls_vistas[lado]:
+                filtro.duplicacoes+=1;metricas.contagens['urls_duplicadas']+=1
+                if key not in candidatos_vistos and key not in pares_enfileirados:registro.update(estado='duplicado',motivo='URL já descoberta neste ambiente')
+                return
+        if key not in pares_enfileirados and filtro.avaliar(par,contexto,representados):
             if key not in pares_enfileirados and key not in candidatos_vistos:diagnosticos_pares.pop(key,None)
             return
-        canon=tuple(identidade(u) for u in key)
+        canon=canonico(par,contexto)
         if canon in identidades and key not in pares_enfileirados and key not in candidatos_vistos:
             filtro.duplicacoes+=1;metricas.contagens['urls_duplicadas']+=1
-            diagnosticar(par).update(estado='duplicado',motivo='Destino já descoberto; apenas parâmetros de rastreamento diferem')
+            diagnosticar(par).update(estado='duplicado',motivo='Destino já descoberto; rastreamento ou primeira página equivalente')
             return
         registro=diagnosticar(par)
         if key in candidatos_vistos or key in pares_enfileirados:
@@ -681,14 +712,6 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             if rank<categorias.get(key,rank):
                 categorias[key]=rank;candidatos.promover(key);fila.promover(key)
 
-        if dinamica and (not key[0] or not key[1]):
-            lado=0 if key[0] else 1
-            # Mesma URL exata já observada neste ambiente: reaproveita a
-            # inspeção, sem dispensar a comparação dos rótulos nos menus.
-            if key[lado] in urls_vistas[lado]:
-                metricas.contagens['urls_duplicadas']+=1
-                if key not in candidatos_vistos and key not in pares_enfileirados:registro.update(estado='duplicado',motivo='URL já descoberta neste ambiente')
-                return
         if key in pares_enfileirados or key in candidatos_vistos:
             filtro.duplicacoes+=1;metricas.contagens['urls_duplicadas']+=1;return
         if dinamica:
@@ -700,8 +723,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         else:
             if len(pares_enfileirados)>=MAX_URLS_SEGURANCA:return
             fila.append(par);pares_enfileirados.add(key)
-        identidades.add(canon)
+        identidades.add(canon);refs_identidade[canon]+=1;canon_por_par[key]=canon
         for lado in (0,1):
+            refs_url[lado][key[lado]]+=1;refs_representacao[lado][canon[lado]]+=1
             if canon[lado]:representados[lado].add(canon[lado])
             if key[lado]:urls_vistas[lado].add(key[lado])
     def terminar(ua,ub,estado_par):
@@ -730,7 +754,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         andamento.update(contadores(andamento))
         if observador:observador(dict(andamento))
     def resumo_cobertura():
-        return {'filtro_urls':filtro.resumo(),'estrategia':estrategia,'orcamento_minutos':orcamento_minutos,'motivo_encerramento':motivo_encerramento,
+        return {'filtro_urls':{**filtro.resumo(),'pares_efetivamente_comparados':comparados(),'falhas_coleta':len(pares_falhos),'exclusivas_inspecionadas':sum(map(len,exclusivas.values())), 'urls_unicas_admitidas':len({u for p in pares_enfileirados for u in p if u}), 'exclusivas_por_finalidade':dict(Counter(finalidade(p.url,p.trilha[-1] if p.trilha else '')['categoria'] for env in exclusivas.values() for p in env.values()))},'estrategia':estrategia,'orcamento_minutos':orcamento_minutos,'motivo_encerramento':motivo_encerramento,
                 'pares_dom_aprofundado':sum(p.coleta.get('inspecao_profunda',True) for p in paginas_a.values()),
                 'pares_dom_estrutural':sum(not p.coleta.get('inspecao_profunda',True) for p in paginas_a.values()),
                 'pares_nao_inspecionados':len(fila),'pares_adiados_editoriais':len(fila.adiados),
@@ -909,7 +933,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         validar_itens(pag);exclusivas[env][url]=pag
                         for item in pag.itens:
                             if item.destino and item.recurso=='navegacao' and not e_arquivo(item.destino) and permitido(item.destino,base):
-                                u=url_limpa(item.destino);propor((u,'',(trilha+[item.nome])[-12:]) if ua else ('',u,(trilha+[item.nome])[-12:]),item.posicao+' '+item.local+' '+item.natureza,'sem_correspondencia_univoca')
+                                u=url_limpa(item.destino);propor((u,'',(trilha+[item.nome])[-12:]) if ua else ('',u,(trilha+[item.nome])[-12:]),item.posicao+' '+item.local+' '+item.natureza+' origem_unilateral','sem_correspondencia_univoca')
                         pendencias.append({'ambiente':env,'url':url,'motivo':'Página exclusiva inspecionada; sem contraparte comprovada, conteúdo não comparado'})
                         terminar(ua,ub,'sem_contraparte')
                     except Exception as exc:
@@ -1133,7 +1157,13 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     matches=[ib for ib in pb.itens if ia.controle_alvo and ib.controle_alvo and normalizar(ia.nome)==normalizar(ib.nome) and normalizar(ia.local)==normalizar(ib.local)]
                     if len(matches)==1:controles.append((ia,matches[0]))
                 if verificar_cliques and cliques_testados<MAX_CLIQUES:
-                    for ca,cb in escolher_candidatos(pares_links+controles,base_a,base_b,limite=min(2,MAX_CLIQUES-cliques_testados)):
+                    pares_cliques=[]
+                    for ca,cb in pares_links+controles:
+                        if ca.destino and cb.destino and (ca.destino,cb.destino)!=(base_a,base_b) and filtro.avaliar((ca.destino,cb.destino,trilha+[ca.nome]),ca.local+' '+cb.local):
+                            resultados_funcionais.append({'elemento':ca.nome,'conclusivo':False,'teste_executado':False,
+                                'motivo':'Referência comparada na origem; clique não executado por política de escopo'})
+                        else:pares_cliques.append((ca,cb))
+                    for ca,cb in escolher_candidatos(pares_cliques,base_a,base_b,limite=min(2,MAX_CLIQUES-cliques_testados)):
                         # A inspeção só é executada quando o usuário opta por ela.
                         cliques_testados+=1
                         with metricas.medir('cliques'):candidato=verificar_par(browser,pa,pb,ca,cb,nome_a,nome_b,base_a,base_b,log,diagnosticos=resultados_funcionais)

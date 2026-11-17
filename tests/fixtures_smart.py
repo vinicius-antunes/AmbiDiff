@@ -25,7 +25,9 @@ def portais(artigos=8, estrutura_diferente=False, noticias_no_menu=False):
                         cards=''.join('<article class="card"><h3>Publicação '+str(n)+'</h3><a href="/w/'+str(n)+'">Ler publicação</a></article>' for n in range(artigos))
                         # Testes do motor podem fornecer referências estruturais
                         # explícitas; o filtro padrão continua ativo.
-                        if noticias_no_menu:cards='<nav aria-label="Menu institucional de publicações">'+cards+'</nav>'
+                        if noticias_no_menu:
+                            cards=cards.replace('/w/','/w/integridade-mt-').replace('Ler publicação','Campanha de integridade')
+                            cards='<nav aria-label="Materiais da campanha institucional">'+cards+'</nav>'
                         corpo='<section><h2>Notícias</h2>'+cards+'</section>'
                     else:
                         n=self.path.rsplit('/',1)[-1]

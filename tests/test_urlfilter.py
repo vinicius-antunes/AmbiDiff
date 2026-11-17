@@ -46,7 +46,7 @@ class URLFilterTests(unittest.TestCase):
     def test_excecao_posterior_revoga_exclusao_e_diagnostico_sanitizado(self):
         f=PoliticaURLs();par=self.par('w/conteudo?token=SEGREDO')
         self.assertTrue(f.avaliar(par,'Notícias'));self.assertNotIn('SEGREDO',str(f.resumo(True)))
-        self.assertFalse(f.avaliar(par,'Menu institucional'))
+        self.assertFalse(f.avaliar(par,'Legislação'))
         g=PoliticaURLs(f.estado());self.assertEqual(g.resumo()['pares_excluidos'],0)
         self.assertEqual(g.resumo()['exclusoes_reconsideradas'],1)
     def test_origem_audios_preservada_excluidas_sem_consumir_teto(self):

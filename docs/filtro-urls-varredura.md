@@ -1,5 +1,9 @@
 # Admissão de URLs com contexto
 
+**Regras atuais:** a [segunda etapa](filtro-urls-etapa2.md) refina esta versão;
+a presença em menus não é uma exceção automática e os diagnósticos são limitados
+a amostras sanitizadas. Os resultados abaixo descrevem a primeira etapa.
+
 Base: `main` remota em `52e8676`. Branch: `perf/filtro-urls-varredura`.
 A branch Next não foi usada como base e não recebe alterações desta tarefa.
 

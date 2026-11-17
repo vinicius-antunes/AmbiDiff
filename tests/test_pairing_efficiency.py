@@ -81,7 +81,9 @@ class PairingEfficiencyTests(unittest.TestCase):
             return [opcao('Voltar',A,recurso='navegacao')]
         r,abertas,_=executar(grafo,falhas=(A+'erro',))
         self.assertTrue(any(d['elemento']=='ÁUDIOS' for d in r['divergencias']))
-        self.assertEqual(r['andamento']['pares_exclusivamente_inspecionados'],2)
+        self.assertEqual(r['andamento']['pares_exclusivamente_inspecionados'],1)
+        self.assertNotIn(A+'noticias/1',abertas)
+        self.assertEqual(r['filtro_urls']['exclusivas_descartadas'],1)
         self.assertEqual(r['andamento']['pares_com_falha'],1)
         rec=r['cobertura']['reconciliacao']
         self.assertEqual(rec['total_admitido'],sum(rec['terminais'].values())+rec['pendentes']+rec['em_processamento'])
@@ -93,7 +95,7 @@ class PairingEfficiencyTests(unittest.TestCase):
             paths=exportar(copy.deepcopy(r),Path(pasta),'fixture',formatos=('html',))
             html=Path(paths['html']).read_text(encoding='utf-8')
         self.assertIn('Fila processada não significa conteúdo integralmente comparado',html)
-        self.assertIn('inspeções unilaterais sem contraparte: 2',html)
+        self.assertIn('inspeções unilaterais sem contraparte: 1',html)
 
 
     def test_inspecao_superficial_nao_prepara_nem_expande_abas(self):

@@ -166,7 +166,20 @@ JS_EXTRAIR = r'''() => {
     }
     return steps.join(' > ');
   };
+  const paginationControl = el => {
+    const container=el.closest('.pagination,.pagination-bar,.lfr-pagination,[aria-label*=pagina i],[aria-label*=página i],[aria-label*=pagination i]');
+    const name=clean(el.innerText||el.getAttribute('aria-label')||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    const control=/^(primeir[oa]|anterior|proxim[oa]|ultim[oa]|first|previous|next|last|\d+)$/.test(name);
+    let parameter=false;
+    try{parameter=[...new URL(el.href).searchParams.keys()].some(k=>/(^|_)(cur|page|pagina|start|offset)$/i.test(k));}catch(e){}
+    return !!(container || (control && parameter));
+  };
   const ctx = el => {
+    if(paginationControl(el)){
+      const owner=el.closest('nav,[role="navigation"],.pagination,.pagination-bar,.lfr-pagination');
+      const label=clean(owner?.getAttribute('aria-label'));
+      return label && !/^(pagina[cç][aã]o|pagination)$/i.test(label)?'Paginação: '+label:'Paginação';
+    }
     const local=el.closest('section,article,li,tr,[role="tabpanel"],[role="region"],[class*="card" i]');
     const header=local?.querySelector('h1,h2,h3,[role="heading"],strong');
     const row=el.closest('li,tr');
@@ -204,14 +217,14 @@ JS_EXTRAIR = r'''() => {
   const add=(tipo,nome,chave,el,destino='',textoVisivel=true)=>{
     nome=clean(nome);chave=clean(chave);
     const entidade=nome&&nome.length>=2?editorialRef(el):'';
-    if(nome&&nome.length>=2)out.push({tipo,nome,chave,local:ctx(el),destino,
+    if(nome&&(nome.length>=2||paginationControl(el)))out.push({tipo,nome,chave,local:ctx(el),destino,
       controle_alvo:el.getAttribute('aria-controls')||'',
       posicao:posicao(el),seletor:selector(el),visivel_texto:textoVisivel,
       componente_id:(()=>{const p=el.closest('[data-component],[role="group"],fieldset,[class*="widget" i]');return p?selector(p):'';})(),
       secao_id:(()=>{const p=el.closest('section,article,[role="region"]');return p?selector(p):'';})(),
       imagem_link:el.tagName==='A'&&!textoVisivel&&!!el.querySelector('img'),
       natureza:entidade?'editorial':'estrutura',entidade,
-      funcao:el.getAttribute('role')||(el.tagName==='A'?'link':el.tagName.toLowerCase()),
+      funcao:paginationControl(el)?'paginacao':el.getAttribute('role')||(el.tagName==='A'?'link':el.tagName.toLowerCase()),
       estrutura:[el.tagName,el.getAttribute('role')||'',el.getAttribute('type')||'',
         el.hasAttribute('disabled'),el.getAttribute('aria-haspopup')||'',el.getAttribute('target')||'',
         [...el.children].map(x=>x.tagName).join(','),el.hasAttribute('onclick')?'dinamico':'estatico'].join('|')});
