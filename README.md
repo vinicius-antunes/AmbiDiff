@@ -183,3 +183,5 @@ O código é organizado em `ambidiff/` (comparação), `web/` (painel e API), `t
 A varredura evita expansão editorial conhecida antes da admissão, mantendo referências e exceções estruturais: [política de URLs, cobertura e testes](docs/filtro-urls-varredura.md).
 
 Segunda etapa dos filtros: [paginação Liferay, exceções por finalidade, exclusivas e diagnóstico](docs/filtro-urls-etapa2.md). Menus/mapas não autorizam aprofundamento de paginação editorial.
+
+Terceira etapa: [escopo lógico dos portais Liferay, mídias editoriais e serviços compartilhados](docs/filtro-urls-etapa3.md). Links para outro portal são verificados sem explorar sua árvore; a finalidade do HTML complementa o filtro em rotas opacas, preservando legislação, serviços e opções ausentes como ÁUDIOS.

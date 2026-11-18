@@ -19,15 +19,15 @@ def opcao(nome,url,local='Conteúdo principal',**kw):
     return Item('Opção',nome,nome,destino=url,local=local,**kw)
 
 
-def executar(grafo,*,parar=None,retomada=None,checkpoint=None,falhas=(),mimes=None,ao_log=None):
+def executar(grafo,*,parar=None,retomada=None,checkpoint=None,falhas=(),mimes=None,ao_log=None,metadados=None,redirecionamentos=None):
     parar=parar or threading.Event();abertas=[];lancamentos=[]
     def abrir(page,url):
-        abertas.append(url);page.url=url
+        abertas.append(url);page.url=(redirecionamentos or {}).get(url,url)
         if url in falhas:raise RuntimeError('HTTP 503 simulado')
-        return NS(status=200,url=url,headers={'content-type':(mimes or {}).get(url,'text/html')})
+        return NS(status=200,url=page.url,headers={'content-type':(mimes or {}).get(url,'text/html')})
     def extrair(page,url,trilha,log,**kw):
         itens=grafo(url)
-        return Pagina(url,'','Portal sintético',itens,trilha,coleta={'estavel':True,'rolagem_limitada':False})
+        return Pagina(url,'','Portal sintético',itens,trilha,coleta={'estavel':True,'rolagem_limitada':False,**(metadados(url) if metadados else {})})
     pw=PW();original=pw.__enter__
     class Launcher:
         def __enter__(self):
@@ -43,6 +43,8 @@ def executar(grafo,*,parar=None,retomada=None,checkpoint=None,falhas=(),mimes=No
         stack.enter_context(patch('ambidiff.adaptive.decidir_releitura',return_value=[]))
         stack.enter_context(patch('ambidiff.paired.time.sleep'))
         stack.enter_context(patch('ambidiff.documents.Documentos.comparar',return_value={'classificacao':'Verificação inconclusiva','motivo':'Metadados simulados'}))
+        # O grafo usa .test; verificações HEAD também são inteiramente simuladas.
+        stack.enter_context(patch('ambidiff.destinations.Destinos.conferir',side_effect=lambda u:{'classificacao':'DESTINO_ACESSIVEL','url_final':(redirecionamentos or {}).get(u,u),'status':200,'bytes_lidos':0}))
         r=executar_pareado(A,B,'PRD','DES',parar,ao_log or (lambda _:None),lambda _:None,retomada=retomada,checkpoint=checkpoint)
     return r,abertas,lancamentos
 
