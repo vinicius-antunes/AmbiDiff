@@ -101,6 +101,10 @@ def _desempenho(resultado):
         'tempo_total_coleta_segundos': duracao,
         'etapas_coleta_segundos': {nome: round(sum(tempos.get(k, 0) for k in chaves), 6)
                                    for nome, chaves in etapas.items()},
+        'navegacao_operacoes_segundos': {
+            'lado_a': tempos.get('navegacao_lado_0_segundos'),
+            'lado_b': tempos.get('navegacao_lado_1_segundos'),
+        },
         'espera_explicita_na_preparacao_segundos': round(tempos.get('espera_carregamento', 0)
                                                          + tempos.get('espera_template', 0), 6),
         'exportacao_relatorios_segundos': resultado.get('exportacao_worker_segundos'),
@@ -118,6 +122,7 @@ def _desempenho(resultado):
             'coleta': 'Tempo acumulado no motor, sem intervalo entre retomadas. As etapas medidas são disjuntas e cobrem parte do total.',
             'checkpoint': 'Um diagnóstico recuperado mede a coleta até o snapshot. O snapshot não contém seu próprio custo de gravação.',
             'espera': 'Espera explícita da preparação adaptativa e do template, já incluída em preparacao_estabilizacao.',
+            'navegacao': 'A etapa registra tempo decorrido. Os tempos por lado podem se sobrepor e cobrem os segmentos que os mediram.',
             'visitas': 'Aberturas no fluxo HTML, incluindo falhas. Cada abertura pode executar mais de um goto.',
             'pares': 'Estados terminais do motor. Inconclusivos incluem inspeções unilaterais, redirecionamentos e saídas do escopo.',
             'media': 'Tempo total da coleta dividido pelos pares efetivamente comparados, incluindo o tempo gasto em outros resultados.',

@@ -387,6 +387,10 @@ def coletar_aba(page, itens: list[dict], links: list[dict], log,parar=None) -> N
         log(f'Aviso: algumas abas não puderam ser abertas: {str(e)[:110]}')
 
 
+JS_DOM_TIMEOUT = '() => ({url:location.href,n:document.body?.innerText?.trim().length||0})'
+JS_DOM_NAVEGACAO_ABORTADA = "() => document.readyState!=='loading' && (document.body?.innerText?.trim().length||0)>=80"
+
+
 def _abrir(page,url: str):
     """Tenta DOM carregado e recupera resposta quando o portal renderiza lentamente."""
     try:
@@ -395,7 +399,7 @@ def _abrir(page,url: str):
         # Somente timeout: se houver conteúdo aproveitável, a navegação pode ter funcionado.
         if 'Timeout' not in type(ex).__name__ and 'Timeout' not in str(ex):raise
         try:
-            dados=page.evaluate('() => ({url:location.href,n:document.body?.innerText?.trim().length||0})')
+            dados=page.evaluate(JS_DOM_TIMEOUT)
             if url_limpa(dados['url'])==url_limpa(url) and dados['n']>=80:
                 return None
         except Exception: pass
@@ -643,10 +647,14 @@ def inferir_site(pag_a:dict[str,Pagina],pag_b:dict[str,Pagina],base_a:str)->str:
     return urlsplit(base_a).hostname or 'Comparação de ambientes'
 
 
-def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,varredura_inteligente=True,observador=None,retomada=None,estrategia=None,orcamento_minutos=None):
+def executar(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='', evidencias_dir=None, auditar_externos=False, ambiente_desatualizado='',checkpoint=None,verificar_cliques=False,varredura_inteligente=True,observador=None,retomada=None,estrategia=None,orcamento_minutos=None,*,navegacao_assincrona=None):
     """v1.5: comparação pareada, com variações editoriais separadas."""
+    import os
     from .paired import executar_pareado
+    if navegacao_assincrona is None:
+        navegacao_assincrona=os.environ.get('AMBIDIFF_NAVEGACAO_ASSINCRONA')=='1'
     return executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,
                            site_nome=site_nome,evidencias_dir=evidencias_dir, auditar_externos=auditar_externos,
                            ambiente_desatualizado=ambiente_desatualizado,checkpoint=checkpoint,retomada=retomada,
-                           verificar_cliques=verificar_cliques,varredura_inteligente=varredura_inteligente,observador=observador,estrategia=estrategia,orcamento_minutos=orcamento_minutos)
+                           verificar_cliques=verificar_cliques,varredura_inteligente=varredura_inteligente,observador=observador,estrategia=estrategia,orcamento_minutos=orcamento_minutos,
+                           navegacao_assincrona=navegacao_assincrona)

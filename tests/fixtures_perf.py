@@ -2,16 +2,18 @@
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 import threading
+from time import sleep
 
 @contextmanager
-def portais_perf(paginas=3,dinamico=False,redirecionar_lab=False):
+def portais_perf(paginas=3,dinamico=False,redirecionar_lab=False,*,latencias=(0,0)):
     servers=[];threads=[];requests=[]
-    for env in ('PRD','LAB'):
-        def handler(ambiente):
+    for env,latencia in zip(('PRD','LAB'),latencias):
+        def handler(ambiente,atraso):
             class Handler(BaseHTTPRequestHandler):
                 def log_message(self,*args):pass
                 def do_GET(self):
                     requests.append((ambiente,self.path))
+                    if atraso:sleep(atraso)
                     if redirecionar_lab and ambiente=='LAB' and self.path=='/':
                         self.send_response(302);self.send_header('Location','/login');self.end_headers();return
                     if self.path=='/falha':self.send_response(503);self.end_headers();return
@@ -28,9 +30,11 @@ def portais_perf(paginas=3,dinamico=False,redirecionar_lab=False):
                           const p=document.createElement('p');p.id='rolagem';p.textContent='Informação ativada por rolagem';document.body.append(p);}});
                         </script>'''
                     html='<html><head><title>Portal local de teste</title><link rel="icon" href="data:,"></head><body>'+nav+'<main>'+main+'</main></body></html>'
-                    body=html.encode();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+                    body=html.encode();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.end_headers()
+                    try:self.wfile.write(body)
+                    except (BrokenPipeError,ConnectionResetError):pass
             return Handler
-        server=ThreadingHTTPServer(('127.0.0.1',0),handler(env));thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start();servers.append(server);threads.append(thread)
+        server=ThreadingHTTPServer(('127.0.0.1',0),handler(env,latencia));thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start();servers.append(server);threads.append(thread)
     try:yield [f'http://127.0.0.1:{s.server_port}/' for s in servers],requests
     finally:
         for s in servers:s.shutdown();s.server_close()

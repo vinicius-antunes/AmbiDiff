@@ -1,6 +1,6 @@
 """Recuperação conservadora de ERR_ABORTED; não ignora TLS nem muda destinos."""
 import time
-from .core import permitido,url_limpa
+from .core import JS_DOM_NAVEGACAO_ABORTADA,permitido,url_limpa
 from .security import url_diagnostica
 
 
@@ -18,7 +18,7 @@ def abrir(page,url,base,parar,metricas,eventos,ambiente,navegar):
             if page.url!=anterior and permitido(page.url,base):
                 try:
                     page.wait_for_load_state('domcontentloaded',timeout=5000)
-                    pronto=page.evaluate("() => document.readyState!=='loading' && (document.body?.innerText?.trim().length||0)>=80")
+                    pronto=page.evaluate(JS_DOM_NAVEGACAO_ABORTADA)
                     if pronto:
                         evento.update(recuperada=True,recuperacao='DOM de navegação observada; destino continua sujeito à comparação normal')
                         metricas.contagens['navegacoes_recuperadas']+=1;return None

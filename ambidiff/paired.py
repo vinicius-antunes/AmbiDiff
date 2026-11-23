@@ -551,8 +551,11 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
             try:context.close()
             except Exception:log('[Evidência] Limpeza do contexto já encerrado; demais recursos continuam sendo liberados.')
 
-def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False,observador=None,retomada=None,estrategia=None,orcamento_minutos=None):
-    from playwright.sync_api import sync_playwright
+def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False,observador=None,retomada=None,estrategia=None,orcamento_minutos=None,*,navegacao_assincrona=False):
+    if navegacao_assincrona:
+        from .playwright_async import playwright_assincrono as abrir_playwright
+    else:
+        from playwright.sync_api import sync_playwright as abrir_playwright
     metricas=Metricas();metricas.parar=parar;inteligencia=Inteligencia(metricas);documentos=Documentos(metricas,parar,permitir_range=False,observacao_por_execucao=True)
     from .destinations import Destinos
     destinos=Destinos(metricas,parar,(url_a,url_b),externos=auditar_externos)
@@ -884,7 +887,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             custo_checkpoint=time.perf_counter()-inicio_cp
             metricas.tempos['checkpoint']+=custo_checkpoint
             ultimo_checkpoint=time.monotonic()
-    def registrar_fatal(ua,ub,trilha,ex,lado=None):
+    def registrar_fatal(ua,ub,trilha,ex,lado=None,*,recuperar_ambos=False):
         key=ua+' | '+ub;tentativas_fatais[key]=tentativas_fatais.get(key,0)+1
         from .diagnostics import registrar_excecao
         registro=registrar_excecao({'falhas':falhas,'andamento':andamento},ex,
@@ -900,7 +903,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         emitir('recuperacao_navegador');salvar_checkpoint('falha_recurso',True)
         if not fila and (ua,ub) in estados_pares and not evidencias_dir:return
         try:
-            with metricas.medir('recuperacao_falhas'):recursos.recuperar(lado)
+            with metricas.medir('recuperacao_falhas'):recursos.recuperar(None if recuperar_ambos else lado)
             metricas.contagens['recuperacoes_navegador']+=1
         except Exception as falha_recuperacao:
             setattr(falha_recuperacao,'ambidiff_falha_id',registro['id_falha'])
@@ -910,7 +913,13 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         def tentativa(aba,destino):
             metricas.contagens['navegacoes_html_tentadas']+=1
             return _abrir(aba,destino)
-        return abrir(page,url,base,parar,metricas,eventos,env,tentativa)
+        inicio=time.perf_counter()
+        lado=0 if env==nome_a else 1
+        try:
+            with metricas.medir('navegacao'):
+                return abrir(page,url,base,parar,metricas,eventos,env,tentativa)
+        finally:
+            metricas.tempos[f'navegacao_lado_{lado}_segundos']+=time.perf_counter()-inicio
     def validar_itens(pag):
         for i in pag.itens:
             if not i.destino:continue
@@ -926,7 +935,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 pendencias.append({'ambiente':'Referência','url':pag.url,'referencia':url_diagnostica(i.destino),'elemento':i.nome,'motivo':'URL inválida: '+str(exc)[:160]})
                 pag.coleta.setdefault('referencias_invalidas',[]).append(i.nome);i.destino=''
     salvar_checkpoint('inicial',True)
-    with sync_playwright() as pw:
+    with abrir_playwright() as pw:
         def somente_leitura(route):
             req=route.request;p=urlsplit(req.url)
             from .documents import ACOES_ESCRITA
@@ -977,7 +986,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 if dinamica and (not ua or not ub):
                     env,page,url,base=(nome_a,page_a,ua,base_a) if ua else (nome_b,page_b,ub,base_b)
                     try:
-                        with metricas.medir('navegacao'):resp=navegar(page,url,base,env)
+                        resp=navegar(page,url,base,env)
                         if resp and resp.status>=400:raise RuntimeError('HTTP '+str(resp.status))
                         mime=getattr(resp,'headers',{}).get('content-type','').lower().split(';')[0].strip()
                         if mime and mime not in ('text/html','application/xhtml+xml'):
@@ -1010,12 +1019,27 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 emitir('navegacao')
                 log('[PARES] '+str(len(visitados))+': '+ ' → '.join(trilha[-3:]))
                 statuses=[];pares=[];houve_documento=False;nao_html_ambientes=set()
-                for env,page,url in ((nome_a,page_a,ua),(nome_b,page_b,ub)):
+                lote=None
+                if navegacao_assincrona:
+                    antes_nav=metricas.tempos['navegacao']
+                    lote=pw.navegar_par((page_a,page_b),(ua,ub),(base_a,base_b),(nome_a,nome_b),parar,metricas,eventos)
+                    if lote is None:
+                        visitados.discard((ua,ub));fila.append((ua,ub,trilha));break
+                    from .frontier import prioridade
+                    if prioridade((ua,ub,trilha))>=4:
+                        metricas.tempos['navegacao_editorial_paginacao_heuristica']+=metricas.tempos['navegacao']-antes_nav
+                for lado,(env,page,url) in enumerate(((nome_a,page_a,ua),(nome_b,page_b,ub))):
                     try:
-                        antes_nav=time.perf_counter()
-                        with metricas.medir('navegacao'):response=navegar(page,url,base_a if env==nome_a else base_b,env)
-                        from .frontier import prioridade
-                        if prioridade((ua,ub,trilha))>=4:metricas.tempos['navegacao_editorial_paginacao_heuristica']+=time.perf_counter()-antes_nav
+                        if lote is not None:
+                            if lote[lado] is None:continue  # Drenado após fechamento no outro lado.
+                            response,erro=lote[lado]
+                            if erro is not None:raise erro
+                        else:
+                            antes_nav=time.perf_counter()
+                            response=navegar(page,url,base_a if env==nome_a else base_b,env)
+                            from .frontier import prioridade
+                            if prioridade((ua,ub,trilha))>=4:
+                                metricas.tempos['navegacao_editorial_paginacao_heuristica']+=time.perf_counter()-antes_nav
                         if response and response.status>=400:raise RuntimeError('HTTP '+str(response.status))
                         headers=getattr(response,'headers',{})
                         mime=headers.get('content-type','').lower().split(';')[0].strip()
@@ -1024,7 +1048,10 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         statuses.append((getattr(response,'url',None) or page.url,None))
                     except Exception as ex:
                         if fechado(ex):
-                            registrar_fatal(ua,ub,trilha,ex,0 if env==nome_a else 1);break
+                            # Um goto cancelado no Python pode continuar no Chromium.
+                            # Recria a página irmã antes de ela voltar à fila.
+                            recuperar_ambos=lote is not None and lote[1-lado] is None
+                            registrar_fatal(ua,ub,trilha,ex,lado,recuperar_ambos=recuperar_ambos);break
                         msg=str(ex)[:300]
                         # Downloads não devem provocar 15 falhas consecutivas.
                         if 'Download is starting' in msg or 'download is starting' in msg.lower():
