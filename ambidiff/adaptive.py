@@ -1,4 +1,5 @@
 """Sondas locais de DOM e política de releitura; nenhuma prova de equivalência."""
+import math
 import time
 
 JS_SONDA=r'''() => {
@@ -51,26 +52,37 @@ def preparar(page,log,delay=160,limite_segundos=7.0,parar=None):
                 page.evaluate('() => window.scrollBy(0,Math.max(350,innerHeight*0.80))')
                 passos+=1;esperar(delay)
             else:
+                # O último passo já sondou o DOM. Só amostra de novo se houver
+                # reposicionamento ou se decorrer parte da janela de observação.
+                altura=s['scroll']
                 if s['y']:
                     page.evaluate('() => window.scrollTo(0,0)')
-                # Não rolar novamente do topo; a extensão é conferida abaixo.
-                altura=s['scroll']
+                    s=sondar(page)
                 while time.monotonic()-inicio<limite_segundos+2:
                     if parar and parar.is_set():limitado=True;break
-                    s=sondar(page)
                     if s['scroll']>altura+8:break
-                    if max(s.get('observacao_ms',0),(time.monotonic()-inicio)*1000)>=minimo and s['quieto_ms']>=350 and s['pronto'] and not s['carregando'] and not s['imagens_pendentes']:
+                    observado=max(s.get('observacao_ms',0),(time.monotonic()-inicio)*1000)
+                    restante=max(minimo-observado,350-s['quieto_ms'])
+                    pronto=s['pronto'] and not s['carregando'] and not s['imagens_pendentes']
+                    if restante<=0 and pronto:
                         estavel=True;break
-                    esperar(100)
+                    # Mantém a cadência máxima de 100 ms, sem arredondar a
+                    # última observação para cima quando falta pouco tempo.
+                    esperar(min(100, max(1,math.ceil(restante))) if pronto else 100)
+                    if parar and parar.is_set():limitado=True;break
+                    if time.monotonic()-inicio>=limite_segundos+2:limitado=True;break
+                    s=sondar(page)
                 if estavel or limitado:break
                 if s['scroll']<=altura+8:limitado=True;break
                 # Crescimento após rolagem: retoma do fim já percorrido.
                 page.evaluate('(h)=>window.scrollTo(0,Math.max(0,h-innerHeight))',altura)
             s=sondar(page)
-        page.evaluate('() => window.scrollTo(0,0)')
+        if not estavel or s['y']:
+            page.evaluate('() => window.scrollTo(0,0)')
+            s=sondar(page)
         return {'passos_rolagem':passos,'rolagem_limitada':limitado,'estavel':estavel,
                 'espera_carregamento_segundos':round(espera,6),
-                'sonda':sondar(page),'preparacao':'adaptativa completa','janela_minima_ms':minimo,
+                'sonda':s,'preparacao':'adaptativa completa','janela_minima_ms':minimo,
                 'verificacoes_omitidas':[],'espera_reduzida':not complexa,'motivo_preparacao':'Janela observada neste documento; quietude semântica de 350 ms, 1.300 ms com scripts/lazy/abas; rolagem mantida','duracao_segundos':round(time.monotonic()-inicio,6)}
     except Exception as ex:
         log('[Coleta] Preparação adaptativa parcial: '+str(ex)[:110])

@@ -119,7 +119,7 @@ class Recovery19Tests(unittest.TestCase):
         registros=[{'id':f'DIV-{n:04d}','presente_em':'PRD','nao_identificado_em':'HOMOL',
             'url_presente':A,'url_comparada':B} for n in (1,2)]
         logs=[]
-        with tempfile.TemporaryDirectory() as td,patch('ambidiff.adaptive.sondar',return_value={}):
+        with tempfile.TemporaryDirectory() as td,patch('ambidiff.evidencias.estado_visual',return_value={'pronto':True,'dinamico':False}):
             _salvar_evidencias(browser,registros,td,threading.Event(),logs.append,'PRD','HOMOL')
         self.assertTrue(any('Recriado contexto de PRD' in s for s in logs))
         self.assertEqual(set(registros[1]['evidencias']),{'PRD','HOMOL'})

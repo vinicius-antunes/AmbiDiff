@@ -430,6 +430,7 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
     if not evidencias_dir:return
     pasta=Path(evidencias_dir);pasta.mkdir(parents=True,exist_ok=True)
     from .browser import fechado
+    from .evidencias import JS_ENQUADRAR, aguardar_visual, estado_visual
     contexts={};pages={};atuais={};cache={};sondas={}
     recuperacoes_captura=0
     origens={(urlsplit(r.get(k,'')).scheme,urlsplit(r.get(k,'')).netloc) for r in registros for k in ('url_presente','url_comparada') if r.get(k)}
@@ -455,47 +456,57 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
             result={};mark={}
             selector=r.get('seletor') or ''
             referencia_y=None
+            encerrar=False
             for env in (r.get('presente_em'),r.get('nao_identificado_em')):
+                if parar.is_set():break
                 url=urls[env];page=pages[env]
                 try:
-                    from .adaptive import sondar
-                    atual=sondar(page) if atuais.get(env)==url else {}
-                    anterior=sondas.get(env,{})
-                    seguro=bool(atual and anterior and atual['versao']==anterior['versao'] and atual['pronto'] and not any(atual[k] for k in ('scripts','lazy','abas','carregando','imagens_pendentes')))
+                    atual=estado_visual(page) if atuais.get(env)==url else None
+                    seguro=bool(atual and atual==sondas.get(env) and atual['pronto'] and not atual['dinamico'])
                     key=(env,url,selector,referencia_y)
                     if seguro and key in cache:
                         result[env],mark[env],y=cache[key]
                         if referencia_y is None:referencia_y=y
                         if metricas:metricas.contagens['capturas_reutilizadas']+=1
                         continue
+                    loc=page.locator(selector).first if selector else None
                     if not seguro:
                         response=page.goto(url,wait_until='domcontentloaded',timeout=12000)
                         if response and response.status>=400:raise RuntimeError('HTTP '+str(response.status))
-                        page.wait_for_timeout(450);atuais[env]=url
-                        cache={k:v for k,v in cache.items() if k[0]!=env}
                         if metricas:metricas.contagens['navegacoes_evidencias']+=1
-                    page.evaluate('''() => {document.querySelectorAll('[data-ambidiff-outline]').forEach(x=>{x.style.outline=x.dataset.ambidiffOutline;x.style.outlineOffset=x.dataset.ambidiffOffset;delete x.dataset.ambidiffOutline;delete x.dataset.ambidiffOffset;});window.scrollTo(0,0);}''')
+                        cache={k:v for k,v in cache.items() if k[0]!=env}
+                        alvo=loc if env==r['presente_em'] else None
+                        atual=aguardar_visual(page,parar,alvo=alvo)
+                        if atual is None:break
+                        atuais[env]=url
+                    y_area=referencia_y if not selector and referencia_y is not None else 0
+                    page.evaluate(JS_ENQUADRAR,y_area)
+                    if y_area:
+                        atual=aguardar_visual(page,parar,janela_dinamica_ms=200)
+                        if atual is None:break
                     found=False
-                    if selector:
-                        loc=page.locator(selector).first
-                        if loc.count() and loc.is_visible(timeout=1300):
-                            loc.scroll_into_view_if_needed(timeout=1300)
-                            loc.evaluate('''x => {x.dataset.ambidiffOutline=x.style.outline;x.dataset.ambidiffOffset=x.style.outlineOffset;x.style.outline='4px solid #f4a646';
-                                x.style.outlineOffset='3px';}''')
-                            found=True
-                            if referencia_y is None:
-                                referencia_y=page.evaluate('() => window.scrollY')
-                    elif referencia_y is not None:
-                        page.evaluate('(y) => window.scrollTo(0,y)',referencia_y)
-                        page.wait_for_timeout(200)
+                    if loc is not None and loc.is_visible():
+                        loc.scroll_into_view_if_needed(timeout=1300)
+                        y=loc.evaluate('''x => {x.dataset.ambidiffOutline=x.style.outline;x.dataset.ambidiffOffset=x.style.outlineOffset;x.style.outline='4px solid #f4a646';
+                            x.style.outlineOffset='3px';return window.scrollY;}''')
+                        found=True
+                        if referencia_y is None:referencia_y=y
+                        if y and (atual['dinamico'] or not atual['pronto']):
+                            atual=aguardar_visual(page,parar,janela_dinamica_ms=0)
+                            if atual is None:break
+                    if parar.is_set():break
                     filename=f'{r["id"]}_{env}.png'
                     page.screenshot(path=str(pasta/filename),timeout=9000,
                                     animations='disabled',full_page=False)
-                    if metricas:metricas.contagens['capturas_geradas']+=1
+                    if metricas:
+                        metricas.contagens['capturas_geradas']+=1
+                        if not atual['pronto']:metricas.contagens['capturas_com_recursos_pendentes']+=1
                     result[env]=pasta.name+'/'+filename
                     mark[env]='Elemento localizado pelo seletor DOM' if found else 'Área da página; elemento não localizado nesta captura'
-                    sondas[env]=sondar(page)
-                    cache[key]=(result[env],mark[env],referencia_y)
+                    final=estado_visual(page)
+                    sondas[env]=final
+                    if atual['pronto'] and not atual['dinamico'] and final['pronto'] and not final['dinamico']:
+                        cache[key]=(result[env],mark[env],referencia_y)
                 except Exception as exc:
                     from .diagnostics import registrar_excecao
                     if diagnosticos is not None:
@@ -507,7 +518,8 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
                         # deve impedir o relatório nem repetir dezenas de erros.
                         if not browser.is_connected() or recuperacoes_captura>=2:
                             log('[Evidência] Navegador encerrado ou limite de recuperação atingido; capturas restantes ignoradas. DIVs preservadas.')
-                            return
+                            encerrar=True
+                            break
                         recuperacoes_captura+=1
                         try:
                             contexts[env].close()
@@ -518,13 +530,15 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
                             log('[Evidência] Recriado contexto de '+env+' para próximas capturas (tentativa '+str(recuperacoes_captura)+'/2).')
                         except Exception as falha:
                             log('[Evidência] Recuperação indisponível ('+type(falha).__name__+'); DIVs preservadas.')
-                            return
+                            encerrar=True
+                            break
             if result:
                 if metricas:metricas.contagens['referencias_evidencias']+=len(result)
-                r['evidencias']=result
-                r['marcacoes']=mark
+                r['evidencias']={**r.get('evidencias',{}),**result}
+                r['marcacoes']={**r.get('marcacoes',{}),**mark}
                 r['evidencia']=next(iter(result.values()))
                 qtd+=1
+            if encerrar:break
     except Exception as exc:
         if not fechado(exc):raise
         from .diagnostics import registrar_excecao
@@ -1364,7 +1378,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             emitir('processamento_final')
             divergencias=agrupar_registros(brutos)
             for registro in divergencias:registro.update(evidencias_preservadas.get(registro['id'],{}))
-            if paginas_a and paginas_b and not parar.is_set() and not escopo.expirou():
+            if divergencias and paginas_a and paginas_b and not parar.is_set() and not escopo.expirou():
                 emitir('capturas')
                 if evidencias_dir and recursos.browser is None:recursos.iniciar();browser=recursos.browser
                 with metricas.medir('capturas'):_salvar_evidencias(browser,divergencias,evidencias_dir,parar,log,nome_a,nome_b,metricas=metricas,diagnosticos=falhas)

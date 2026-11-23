@@ -123,18 +123,19 @@ class BrowserTests(unittest.TestCase):
     def test_par_de_capturas_identifica_ambiente(self):
         # As políticas locais bloqueiam navegação até para URLs simuladas;
         # validamos os dois arquivos e os metadados sem requisições de rede.
+        from ambidiff.evidencias import JS_ESTADO_VISUAL
         class Loc:
-            def count(self):return 1
-            def is_visible(self,timeout):return True
+            def is_visible(self):return True
             def scroll_into_view_if_needed(self,timeout):pass
-            def evaluate(self,script):pass
+            def evaluate(self,script):return 40
         class Page:
             def goto(self,url,wait_until,timeout):return None
             def wait_for_timeout(self,t):pass
             def locator(self,selector):return self
             @property
             def first(self):return Loc()
-            def evaluate(self,code):return 40
+            def evaluate(self,code,*args):
+                if code==JS_ESTADO_VISUAL:return {'pronto':True,'dinamico':False}
             def screenshot(self,path,timeout,animations,full_page):Path(path).write_bytes(b'fake-image')
         class Context:
             def route(self,pattern,handler):self.navigation_policy=handler
