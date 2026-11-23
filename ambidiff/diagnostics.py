@@ -69,6 +69,64 @@ def falhas_diagnosticas(resultado):
     return out
 
 
+def _desempenho(resultado):
+    metricas = resultado.get('metricas', {})
+    if not metricas.get('versao_desempenho'):
+        return {}
+
+    tempos = metricas['tempos_segundos']
+    contagens = metricas['contagens']
+    andamento = resultado.get('andamento', {})
+    comparados = andamento.get('pares_comparados', 0)
+    duracao = metricas['tempo_total_segundos']
+    filtro = resultado.get('filtro_urls', {})
+
+    etapas = {
+        'navegacao_html': ('navegacao',),
+        'preparacao_estabilizacao': ('preparacao', 'observacao_inicial', 'sonda_releitura',
+                                     'verificacao_template', 'espera_template'),
+        'extracao_dom': ('extracao',),
+        'pareamento_comparacao': ('comparacao', 'comparacao_complementar', 'comparacao_releitura', 'links'),
+        'fila_descoberta': ('descoberta_exclusiva', 'selecao_fila'),
+        'evidencias': ('capturas',),
+        'checkpoints': ('checkpoint',),
+        'verificacao_destinos': ('destinos',),
+        'verificacao_documentos': ('documentos',),
+        'verificacao_cliques': ('cliques',),
+    }
+    return {
+        'versao': metricas['versao_desempenho'],
+        'origem_coleta': 'motor' if metricas['finalizado_em'] else 'checkpoint',
+        'historico_metricas_legado': metricas['historico_metricas_legado'],
+        'tempo_total_coleta_segundos': duracao,
+        'etapas_coleta_segundos': {nome: round(sum(tempos.get(k, 0) for k in chaves), 6)
+                                   for nome, chaves in etapas.items()},
+        'espera_explicita_na_preparacao_segundos': round(tempos.get('espera_carregamento', 0)
+                                                         + tempos.get('espera_template', 0), 6),
+        'exportacao_relatorios_segundos': resultado.get('exportacao_worker_segundos'),
+        'contagens': {
+            'visitas_html_tentadas': contagens.get('operacoes_navegacao', 0),
+            'paginas_com_dom_preservado': sum(resultado.get('paginas', {}).values())
+                + resultado.get('cobertura', {}).get('paginas_exclusivas_inspecionadas', 0),
+            'pares_comparados': comparados,
+            'pares_inconclusivos': andamento.get('pares_inconclusivos', 0),
+            'pares_falhos': andamento.get('pares_com_falha', 0),
+            'urls_excluidas_intencionalmente': filtro.get('urls_excluidas', 0),
+        },
+        'tempo_medio_por_par_comparado_segundos': round(duracao / comparados, 6) if comparados else None,
+        'escopo': {
+            'coleta': 'Tempo acumulado no motor, sem intervalo entre retomadas. As etapas medidas são disjuntas e cobrem parte do total.',
+            'checkpoint': 'Um diagnóstico recuperado mede a coleta até o snapshot. O snapshot não contém seu próprio custo de gravação.',
+            'espera': 'Espera explícita da preparação adaptativa e do template, já incluída em preparacao_estabilizacao.',
+            'visitas': 'Aberturas no fluxo HTML, incluindo falhas. Cada abertura pode executar mais de um goto.',
+            'pares': 'Estados terminais do motor. Inconclusivos incluem inspeções unilaterais, redirecionamentos e saídas do escopo.',
+            'media': 'Tempo total da coleta dividido pelos pares efetivamente comparados, incluindo o tempo gasto em outros resultados.',
+            'exportacao': 'Geração e gravação dos relatórios desta invocação, antes da gravação do diagnóstico.',
+            'historico': 'Na retomada de um checkpoint legado, as lacunas da instrumentação anterior permanecem.',
+        },
+    }
+
+
 def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
     from .relevance import preparar
     resultado=preparar(resultado)
@@ -82,7 +140,9 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
         if e.get('tipo')=='DOWNLOAD_DE_DOCUMENTO':erros_por_tipo['DOWNLOAD_DE_DOCUMENTO']+=1
     metas=resultado.get('meta_varredura',{})
     motivos={env:d.get('motivo_parada','') for env,d in metas.items() if d.get('motivo_parada')}
-    return {**{k:resultado.get(k) for k in ('iniciado_em','finalizado_em','duracao_segundos','andamento','media_segundos_por_par','requisicoes_por_par')},'grupos_relacionados':resultado.get('grupos_relacionados',[]),'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_classificados',resultado.get('editoriais_preservados',[])),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
+    desempenho = _desempenho(resultado)
+    return {**({'desempenho': desempenho} if desempenho else {}),
+      **{k:resultado.get(k) for k in ('iniciado_em','finalizado_em','duracao_segundos','andamento','media_segundos_por_par','requisicoes_por_par')},'grupos_relacionados':resultado.get('grupos_relacionados',[]),'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_classificados',resultado.get('editoriais_preservados',[])),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
       'site_nome':resultado.get('site_nome',''),'ambientes':resultado.get('ambientes',{}),
       'situacao_analise':resultado.get('situacao_analise','inconclusivo'),'fila_execucao':resultado.get('fila_execucao',{}),
       'filtro_urls':resultado.get('filtro_urls',{}),'cobertura':resultado.get('cobertura',{}),'motivo_encerramento':resultado.get('motivo_encerramento',''),

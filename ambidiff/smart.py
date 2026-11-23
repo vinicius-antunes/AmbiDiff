@@ -12,17 +12,22 @@ from .core import normalizar, comparacao
 class Metricas:
     def __init__(self):
         self.inicio=time.perf_counter()
+        self.historico_metricas_legado=False
         self.iniciado_em=datetime.now().astimezone().isoformat()
         self.finalizado_em=None;self.duracao=None;self.releituras=[];self.parar=None
         self.tempos=Counter({k:0 for k in ('navegacao','preparacao','extracao','comparacao','segunda_leitura','links','cliques','documentos','verificacao_template','capturas','auditoria')});self.contagens=Counter({k:0 for k in ('requisicoes_navegador','requisicoes_documentos','requisicoes_api_externa','bytes_documentos_lidos','verificacoes_reaproveitadas','documentos_reaproveitados','documentos_nao_verificados','preparacoes_profundas_evitadas')})
 
     @contextmanager
-    def medir(self, etapa):
+    def medir(self, etapa, *, descontar=None):
+        anterior=self.tempos[descontar] if descontar else 0
         inicio=time.perf_counter()
         try:yield
         finally:
-            self.tempos[etapa]+=time.perf_counter()-inicio
+            duracao=time.perf_counter()-inicio
+            self.tempos[etapa]+=duracao
             self.contagens['operacoes_'+etapa]+=1
+            if descontar:
+                self.tempos[etapa+'_exclusiva']+=max(0,duracao-(self.tempos[descontar]-anterior))
 
     def temporal(self):
         return {'iniciado_em':self.iniciado_em,'finalizado_em':self.finalizado_em,
@@ -35,6 +40,7 @@ class Metricas:
     def resultado(self):
         self.contagens['requisicoes_total']=sum(self.contagens[k] for k in ('requisicoes_navegador','requisicoes_documentos','requisicoes_api_externa','requisicoes_destinos'))
         return {**self.temporal(),'tempo_total_segundos':self.temporal()['duracao_segundos'],
+                'versao_desempenho':1,'historico_metricas_legado':self.historico_metricas_legado,
                 'releituras':self.releituras,'nota_tempos':'Releitura inclui preparação/extração; espera_carregamento é parte da preparação (inclui esperas após rolagem); checkpoint inclui construção/assinatura/I/O. Operações aninhadas não devem ser somadas.',
                 'tempos_segundos':{k:round(v,6) for k,v in self.tempos.items()},
                 'contagens':dict(self.contagens),
@@ -182,7 +188,8 @@ class Inteligencia:
         chave=self.chave_template(dados_a,dados_b)
         if defasado and chave and self.templates[chave]>=2 and not parar.is_set():
             # Confirma estabilidade local; não elimina navegação nem prova runtime.
-            page_a.wait_for_timeout(250);page_b.wait_for_timeout(250)
+            with self.metricas.medir('espera_template'):
+                page_a.wait_for_timeout(250);page_b.wait_for_timeout(250)
             if self.sondar(page_a,page_b,base_a,base_b)==chave:
                 pa=extrair(page_a,ua,trilha,log,metricas=self.metricas,profunda=False)
                 pb=extrair(page_b,ub,trilha,log,metricas=self.metricas,profunda=False)

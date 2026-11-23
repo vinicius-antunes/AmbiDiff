@@ -123,42 +123,40 @@ def _extrair_page(page,url:str,trilha:list[str],log,metricas=None,profunda=True)
     else:resumo={'estavel':True,'rolagem_limitada':False,'inspecao_profunda':False}
     metricas.tempos['espera_carregamento']+=resumo.get('espera_carregamento_segundos',0)
     if resumo.get('espera_reduzida'):metricas.contagens['preparacoes_com_espera_reduzida']+=1
-    inicio_extracao=time.perf_counter()
-    if not resumo['estavel'] or resumo['rolagem_limitada']:
-        log('[Coleta] Página com estabilidade limitada: '+url[:100])
-    for tentativa in range(2):
-        try:
-            dados=page.evaluate(JS_EXTRAIR)
-            if not isinstance(dados,dict) or not dados.get('itens'):raise RuntimeError('DOM vazio ou extração incompleta')
-            break
-        except Exception:
-            if tentativa or (metricas.parar and metricas.parar.is_set()):raise
-            metricas.contagens['tentativas_extracao_adicionais']+=1
-            log('[Coleta] Nova tentativa controlada de extração: '+url[:100])
-            page.wait_for_timeout(200)
-    if not isinstance(dados,dict) or not isinstance(dados.get('itens'),list):
-        raise RuntimeError('A página não retornou conteúdo HTML analisável.')
-    its=list(dados['itens']);links=list(dados['links'])
-    if profunda:
-        avisos_abas=[]
-        with metricas.medir('abas'):coletar_aba(page,its,links,avisos_abas.append,parar=metricas.parar)
-        if avisos_abas:
-            resumo['avisos_componentes']=avisos_abas;log('[Coleta] '+str(len(avisos_abas))+' componentes com inspeção inconclusiva.')
-    itens=[]
-    for raw in its:
-        try:itens.append(Item(**raw))
-        except (TypeError,ValueError):continue
-    from .adaptive import sondar
-    resumo['sonda']=sondar(page)
-    resumo['componentes_restritos']=dados.get('componentes_restritos',[])
-    resumo['nome_site']=dados.get('nome_site','')
-    resumo['avisos_ambiente']=dados.get('avisos_ambiente',[])
-    resumo['portal']=dados.get('portal',{})
-    resumo['referencias_finalidade']=dados.get('referencias_finalidade',[])
-    resumo['finalidade_pagina']=dados.get('finalidade_pagina','')
-    metricas.tempos['extracao']+=time.perf_counter()-inicio_extracao
-    metricas.contagens['operacoes_extracao']+=1
-    return Pagina(url, '',dados.get('title') or 'Página',refiltro(itens),trilha[:12],links, dados.get('menus',[]),resumo)
+    with metricas.medir('extracao'):
+        if not resumo['estavel'] or resumo['rolagem_limitada']:
+            log('[Coleta] Página com estabilidade limitada: '+url[:100])
+        for tentativa in range(2):
+            try:
+                dados=page.evaluate(JS_EXTRAIR)
+                if not isinstance(dados,dict) or not dados.get('itens'):raise RuntimeError('DOM vazio ou extração incompleta')
+                break
+            except Exception:
+                if tentativa or (metricas.parar and metricas.parar.is_set()):raise
+                metricas.contagens['tentativas_extracao_adicionais']+=1
+                log('[Coleta] Nova tentativa controlada de extração: '+url[:100])
+                page.wait_for_timeout(200)
+        if not isinstance(dados,dict) or not isinstance(dados.get('itens'),list):
+            raise RuntimeError('A página não retornou conteúdo HTML analisável.')
+        its=list(dados['itens']);links=list(dados['links'])
+        if profunda:
+            avisos_abas=[]
+            with metricas.medir('abas'):coletar_aba(page,its,links,avisos_abas.append,parar=metricas.parar)
+            if avisos_abas:
+                resumo['avisos_componentes']=avisos_abas;log('[Coleta] '+str(len(avisos_abas))+' componentes com inspeção inconclusiva.')
+        itens=[]
+        for raw in its:
+            try:itens.append(Item(**raw))
+            except (TypeError,ValueError):continue
+        from .adaptive import sondar
+        resumo['sonda']=sondar(page)
+        resumo['componentes_restritos']=dados.get('componentes_restritos',[])
+        resumo['nome_site']=dados.get('nome_site','')
+        resumo['avisos_ambiente']=dados.get('avisos_ambiente',[])
+        resumo['portal']=dados.get('portal',{})
+        resumo['referencias_finalidade']=dados.get('referencias_finalidade',[])
+        resumo['finalidade_pagina']=dados.get('finalidade_pagina','')
+        return Pagina(url, '',dados.get('title') or 'Página',refiltro(itens),trilha[:12],links, dados.get('menus',[]),resumo)
 
 def _alinhamento_de_componentes(pa:Pagina,pb:Pagina,base_a:str,base_b:str,nome_a="PRD",nome_b="DES"):
     """Combina controles sem texto visível e imagens por região/posição DOM.
@@ -613,6 +611,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         resultados_funcionais=estado['resultados_funcionais'];diferencas_esteticas=estado['diferencas_esteticas']
         excluded.update(estado['excluded']);cliques_testados=estado['cliques_testados']
         validacao_atual=metricas.tempos.get('checkpoint_recuperacao_validacao',0)
+        metricas.historico_metricas_legado=not estado['metricas'].get('versao_desempenho') or estado['metricas'].get('historico_metricas_legado',False)
         metricas.tempos.update(estado['metricas']['tempos_segundos'])
         metricas.tempos['checkpoint_recuperacao_validacao']+=validacao_atual
         escopo.editoriais_observados=set(map(tuple,estado.get('editoriais_observados',[])))
@@ -684,7 +683,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     identidades=set(refs_identidade)
     def repor_fila():
         if not dinamica:return
-        with metricas.medir('descoberta'):
+        with metricas.medir('descoberta',descontar='destinos'):
             while candidatos.ativos and admitidos()<limite_html and len(fila)<8:
                 par=candidatos.popleft();key=tuple(par[:2])
                 if key in pares_enfileirados:continue
@@ -721,7 +720,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         filtro.eventos['propostas']+=1
         if tuple(par[:2]) in pares_enfileirados or tuple(par[:2]) in candidatos_vistos or tuple(par[:2]) in filtro.registros:filtro.eventos['redescobertas']+=1
         diagnosticar(par,criterio,{'pagina_a':andamento.get('url_a',''),'pagina_b':andamento.get('url_b',''),'trilha':par[2],'contexto':contexto})
-        with metricas.medir('descoberta'):_propor(par,contexto)
+        with metricas.medir('descoberta',descontar='destinos'):_propor(par,contexto)
     def _propor(par,contexto=''):
         key=tuple(par[:2])
         registro=diagnosticar(par)
@@ -948,10 +947,13 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 if not dinamica and consecutivos>=MAX_FALHAS_CONSECUTIVAS:
                     parada='Muitas falhas consecutivas';break
                 salvar_checkpoint('periodico')
-                ua,ub,trilha=fila.popleft()
-                if (ua,ub) in visitados:continue
-                if escopo.adiar((ua,ub,trilha)):
-                    fila.adiar((ua,ub,trilha));emitir('adiamento_editorial');continue
+                with metricas.medir('selecao_fila'):
+                    ua,ub,trilha=fila.popleft()
+                    if (ua,ub) in visitados:continue
+                    adiado=escopo.adiar((ua,ub,trilha))
+                    if adiado:fila.adiar((ua,ub,trilha))
+                if adiado:
+                    emitir('adiamento_editorial');continue
                 diagnosticar((ua,ub,trilha)).update(estado='em_processamento',motivo='Operação atual em andamento')
                 atual_par=(ua,ub,trilha)
                 transacao=[(lista,len(lista)) for lista in (brutos,editoriais,pendencias,refs,documentos_relatorio,verificacoes_destinos,resultados_funcionais,diferencas_esteticas,inteligencia.equivalencias,inteligencia.inconclusivos,inteligencia.omissoes,inteligencia.estruturas)]
@@ -1053,7 +1055,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         with metricas.medir('sondagem_equivalencia'):
                             sa=_extrair_page(page_a,ua,trilha,log,metricas=metricas,profunda=False)
                             sb=_extrair_page(page_b,ub,trilha,log,metricas=metricas,profunda=False)
-                            semantico=_evidencia_semantica(sa,sb,base_a,base_b,diagnosticos_pares[(ua,ub)].get('titulos_origem',[]))
+                            with metricas.medir('comparacao_complementar'):
+                                semantico=_evidencia_semantica(sa,sb,base_a,base_b,diagnosticos_pares[(ua,ub)].get('titulos_origem',[]))
                         diagnosticos_pares[(ua,ub)]['evidencia_semantica']={'aceita':semantico,'titulo_a':sa.titulo,'titulo_b':sb.titulo,
                             'regra':'Opção estrutural única na origem, título específico e duas referências locais nomeadas equivalentes; query preservada'}
                     except Exception as exc:
@@ -1119,12 +1122,13 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 paginas_a[ua]=pa;paginas_b[ub]=pb
                 emitir('comparacao')
                 # 1. Compara texto/imagens/opções SEM navegar nas diferenças.
-                itens_a,itens_b,pendencias_imgs=_alinhamento_de_componentes(pa,pb,base_a,base_b,nome_a,nome_b)
-                for v in pendencias_imgs:
-                    if v.get('natureza')=='editorial' and any(item_editorial(i,pb) for i in pb.itens):
-                        editoriais.append({'tipo':'Imagem','presente_em':nome_a,'elemento':v.get('elemento',''),
-                            'url_presente':pa.url,'url_comparada':pb.url})
-                    else:refs.append(v)
+                with metricas.medir('comparacao_complementar'):
+                    itens_a,itens_b,pendencias_imgs=_alinhamento_de_componentes(pa,pb,base_a,base_b,nome_a,nome_b)
+                    for v in pendencias_imgs:
+                        if v.get('natureza')=='editorial' and any(item_editorial(i,pb) for i in pb.itens):
+                            editoriais.append({'tipo':'Imagem','presente_em':nome_a,'elemento':v.get('elemento',''),
+                                'url_presente':pa.url,'url_comparada':pb.url})
+                        else:refs.append(v)
                 with metricas.medir('comparacao'):
                     comps=(inteligencia.comparar(itens_a,itens_b,pa,pb,nome_a,nome_b,base_a,base_b) if varredura_inteligente else
                            comparacao(itens_a,itens_b,pa,pb,nome_a,nome_b))
@@ -1142,8 +1146,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         pa2=_extrair_page(page_a,ua,trilha,log,metricas=metricas)
                         pb2=_extrair_page(page_b,ub,trilha,log,metricas=metricas)
                         validar_itens(pa2);validar_itens(pb2)
-                        ai,bi,pend2=_alinhamento_de_componentes(pa2,pb2,base_a,base_b,nome_a,nome_b)
-                        comps2=(inteligencia.comparar(ai,bi,pa2,pb2,nome_a,nome_b,base_a,base_b) if varredura_inteligente else comparacao(ai,bi,pa2,pb2,nome_a,nome_b))
+                        with metricas.medir('comparacao_releitura'):
+                            ai,bi,pend2=_alinhamento_de_componentes(pa2,pb2,base_a,base_b,nome_a,nome_b)
+                            comps2=(inteligencia.comparar(ai,bi,pa2,pb2,nome_a,nome_b,base_a,base_b) if varredura_inteligente else comparacao(ai,bi,pa2,pb2,nome_a,nome_b))
                         registro['diferencas_depois']=len(comps2)
                         registro['segunda_coleta']={'a':asdict(pa2),'b':asdict(pb2),'divergencias':comps2}
                         if cobertura_nao_piorou(pa,pa2) and cobertura_nao_piorou(pb,pb2):
@@ -1166,55 +1171,57 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         metricas.contagens['operacoes_segunda_leitura']+=1
                         metricas.contagens['releituras_com_diagnostico_modificado']+=int(registro['diagnostico_modificado'])
                 else:metricas.contagens['releituras_dispensadas_dom_estavel' if not motivos else 'releituras_nao_executadas_cancelamento']+=1
-                if varredura_inteligente:
-                    for pag in (pa,pb):
-                        for item in pag.itens:
-                            if item.posicao in ('Menu de navegação','Menu lateral','Cabeçalho','Rodapé'):item.natureza='estrutura'
-                itens_a,itens_b,_=_alinhamento_de_componentes(pa,pb,base_a,base_b,nome_a,nome_b)
-                from .sections import comparar_secoes
-                comps=comparar_secoes(comps,pa,pb,nome_a,nome_b)
-                if any(g.get('categoria') in ('reCAPTCHA','Consentimento') for g in bloqueios.values()):
-                    for row in comps:
-                        pag=pa if row.get('presente_em')==nome_a else pb
-                        if any(row.get('seletor','').startswith(sel) for sel in pag.coleta.get('componentes_restritos',[])):
-                            row.update(verificacao_limitada=True,situacao='Avaliação inconclusiva por restrição da automação')
-                            row['descricao']+=' O componente depende de recurso bloqueado; não foi comprovado defeito funcional.'
-                comps,editoriais_atuais=separar_editoriais(comps,pa,pb,itens_a,itens_b,(nome_a,nome_b),modo_defasado)
-                editoriais.extend(editoriais_atuais)
-                brutos.extend(comps)
-                if varredura_inteligente:
-                    for estrutura in inteligencia.estruturas:
-                        if (estrutura['url_a'],estrutura['url_b'])==(ua,ub):
-                            brutos.append({'tipo':'Estrutura editorial','categoria':'Estrutura de Notícias',
-                                'elemento':'Seção editorial','presente_em':nome_a,'nao_identificado_em':nome_b,
-                                'url_presente':ua,'url_comparada':ub,'caminho':' → '.join(trilha),
-                                'descricao':estrutura['motivo'],'situacao':'Estrutura para revisão'})
-                novos_icones,novos_layouts=comparar_visuais(page_a,page_b,pa,pb,nome_a,nome_b,bool(modo_defasado))
-                for reg in novos_icones:
-                    encontrados=[i for i in pa.itens if i.tipo=='Opção' and normalizar(i.nome)==normalizar(reg['elemento'])]
-                    if len(encontrados)==1:
-                        reg['seletor']=encontrados[0].seletor
-                        reg['posicao']=encontrados[0].posicao
-                        reg['visivel_texto']=encontrados[0].visivel_texto
-                        reg['componente_id']=encontrados[0].componente_id
-                        reg['secao_id']=encontrados[0].secao_id
-                tecnicos=[r for r in novos_icones if r.get('situacao')=='Código do ícone diferente — revisão visual' or r.get('decorativo')]
-                diferencas_esteticas.extend(tecnicos)
-                brutos.extend(r for r in novos_icones if r not in tecnicos)
-                refs.extend(novos_layouts)
-                ordens=diferencas_de_ordem(pa,pb,nome_a,nome_b)
-                if modo_defasado:
-                    # Ordem de notícias pode variar naturalmente entre bases antigas.
-                    # Menus e listas institucionais continuam no relatório principal.
-                    ordens=[d for d in ordens if d.get('natureza')!='editorial' and not any(t in normalizar(d.get('local','')) for t in ('noticia','notícia','publicaç'))]
-                brutos.extend(ordens)
+                with metricas.medir('comparacao_complementar'):
+                    if varredura_inteligente:
+                        for pag in (pa,pb):
+                            for item in pag.itens:
+                                if item.posicao in ('Menu de navegação','Menu lateral','Cabeçalho','Rodapé'):item.natureza='estrutura'
+                    itens_a,itens_b,_=_alinhamento_de_componentes(pa,pb,base_a,base_b,nome_a,nome_b)
+                    from .sections import comparar_secoes
+                    comps=comparar_secoes(comps,pa,pb,nome_a,nome_b)
+                    if any(g.get('categoria') in ('reCAPTCHA','Consentimento') for g in bloqueios.values()):
+                        for row in comps:
+                            pag=pa if row.get('presente_em')==nome_a else pb
+                            if any(row.get('seletor','').startswith(sel) for sel in pag.coleta.get('componentes_restritos',[])):
+                                row.update(verificacao_limitada=True,situacao='Avaliação inconclusiva por restrição da automação')
+                                row['descricao']+=' O componente depende de recurso bloqueado; não foi comprovado defeito funcional.'
+                    comps,editoriais_atuais=separar_editoriais(comps,pa,pb,itens_a,itens_b,(nome_a,nome_b),modo_defasado)
+                    editoriais.extend(editoriais_atuais)
+                    brutos.extend(comps)
+                    if varredura_inteligente:
+                        for estrutura in inteligencia.estruturas:
+                            if (estrutura['url_a'],estrutura['url_b'])==(ua,ub):
+                                brutos.append({'tipo':'Estrutura editorial','categoria':'Estrutura de Notícias',
+                                    'elemento':'Seção editorial','presente_em':nome_a,'nao_identificado_em':nome_b,
+                                    'url_presente':ua,'url_comparada':ub,'caminho':' → '.join(trilha),
+                                    'descricao':estrutura['motivo'],'situacao':'Estrutura para revisão'})
+                    novos_icones,novos_layouts=comparar_visuais(page_a,page_b,pa,pb,nome_a,nome_b,bool(modo_defasado))
+                    for reg in novos_icones:
+                        encontrados=[i for i in pa.itens if i.tipo=='Opção' and normalizar(i.nome)==normalizar(reg['elemento'])]
+                        if len(encontrados)==1:
+                            reg['seletor']=encontrados[0].seletor
+                            reg['posicao']=encontrados[0].posicao
+                            reg['visivel_texto']=encontrados[0].visivel_texto
+                            reg['componente_id']=encontrados[0].componente_id
+                            reg['secao_id']=encontrados[0].secao_id
+                    tecnicos=[r for r in novos_icones if r.get('situacao')=='Código do ícone diferente — revisão visual' or r.get('decorativo')]
+                    diferencas_esteticas.extend(tecnicos)
+                    brutos.extend(r for r in novos_icones if r not in tecnicos)
+                    refs.extend(novos_layouts)
+                    ordens=diferencas_de_ordem(pa,pb,nome_a,nome_b)
+                    if modo_defasado:
+                        # Ordem de notícias pode variar naturalmente entre bases antigas.
+                        # Menus e listas institucionais continuam no relatório principal.
+                        ordens=[d for d in ordens if d.get('natureza')!='editorial' and not any(t in normalizar(d.get('local','')) for t in ('noticia','notícia','publicaç'))]
+                    brutos.extend(ordens)
                 emitir('links_documentos')
                 # 2. Compara links pareados por nome/contexto.
                 with metricas.medir('links'):pares_links=_link_pairs(pa,pb,aceitar_rotulos=varredura_inteligente,base_a=base_a,base_b=base_b)
-                controles=[]
-                for ia in pa.itens:
-                    matches=[ib for ib in pb.itens if ia.controle_alvo and ib.controle_alvo and normalizar(ia.nome)==normalizar(ib.nome) and normalizar(ia.local)==normalizar(ib.local)]
-                    if len(matches)==1:controles.append((ia,matches[0]))
+                with metricas.medir('comparacao_complementar'):
+                    controles=[]
+                    for ia in pa.itens:
+                        matches=[ib for ib in pb.itens if ia.controle_alvo and ib.controle_alvo and normalizar(ia.nome)==normalizar(ib.nome) and normalizar(ia.local)==normalizar(ib.local)]
+                        if len(matches)==1:controles.append((ia,matches[0]))
                 if verificar_cliques and cliques_testados<MAX_CLIQUES:
                     pares_cliques=[]
                     for ca,cb in pares_links+controles:

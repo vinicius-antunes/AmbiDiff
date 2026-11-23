@@ -37,7 +37,9 @@ def preparar(page,log,delay=160,limite_segundos=7.0,parar=None):
     inicio=time.monotonic();passos=0;estavel=False;limitado=False;espera=0
     def esperar(ms):
         nonlocal espera
-        antes=time.perf_counter();page.wait_for_timeout(ms);espera+=time.perf_counter()-antes
+        antes=time.perf_counter()
+        try:page.wait_for_timeout(ms)
+        finally:espera+=time.perf_counter()-antes
     try:
         s=sondar(page);complexa=bool(s['scripts'] or s['lazy'] or s['abas'])
         minimo=1300 if complexa else 350

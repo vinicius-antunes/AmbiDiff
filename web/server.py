@@ -151,6 +151,13 @@ def percentual_final(resultado,status):
 
 def worker(params,run_id):
     inicio_worker=time.monotonic();inicio_iso=datetime.now().astimezone().isoformat()
+
+    def salvar_diagnostico(diag):
+        desempenho=diag.setdefault('desempenho',{'versao':1})
+        desempenho['tempo_worker_ate_gravacao_diagnostico_segundos']=round(time.monotonic()-inicio_worker,6)
+        desempenho.setdefault('escopo',{})['worker']='Tempo desta invocação, da entrada do worker à preparação do diagnóstico em memória.'
+        exportar_diagnostico(diag,PASTA,run_id)
+
     try:
         resultado=executar(params['url_a'],params['url_b'],params['nome_a'],params['nome_b'],
                            PARAR,log,atualizar_progresso,observador=andamento,
@@ -175,7 +182,7 @@ def worker(params,run_id):
         inicio_exportacao=time.monotonic()
         exportar(resultado,PASTA,run_id)
         resultado['exportacao_worker_segundos']=time.monotonic()-inicio_exportacao
-        exportar_diagnostico(montar_diagnostico(resultado,list(STATE.get('logs',[]))),PASTA,run_id)
+        salvar_diagnostico(montar_diagnostico(resultado,list(STATE.get('logs',[]))))
         cobertura=resultado.get('cobertura',{})
         if not PARAR.is_set() and not resultado.get('andamento',{}).get('pares_pendentes') and not (cobertura.get('teto_atingido') or cobertura.get('referencias_nao_admitidas')):
             (PASTA/f'checkpoint_{run_id}.json').unlink(missing_ok=True)
@@ -227,11 +234,13 @@ def worker(params,run_id):
                 parcial['site_nome']=parcial.get('site_nome') or urlsplit(params['url_a']).hostname or 'Portal'
                 chave=params['url_a'].split('//',1)[-1].split('/',1)[0].lower()+'/'+urlsplit(params['url_a']).path.strip('/')
                 parcial['site_id']=hashlib.sha256(chave.encode()).hexdigest()[:16]
+                inicio_exportacao=time.monotonic()
                 if (PASTA/f'comparacao_{run_id}.json').exists():atomic_json(PASTA/f'recuperacao_{run_id}.json',parcial)
                 else:exportar(parcial,PASTA,run_id)
+                parcial['exportacao_worker_segundos']=time.monotonic()-inicio_exportacao
                 diag=montar_diagnostico(parcial,list(STATE.get('logs',[])))
                 diag['erro_critico']=str(ex)[:600]
-                exportar_diagnostico(diag,PASTA,run_id)
+                salvar_diagnostico(diag)
                 with LOCK:
                     h=_hist();h.insert(0,{'id':run_id,'data':parcial['gerado_em'],'site_nome':parcial['site_nome'],
                        'site_id':parcial['site_id'],'ambientes':parcial['ambientes'],'situacao':'parcial',
@@ -251,7 +260,7 @@ def worker(params,run_id):
             registro=registrar_excecao(diag,ex,fatal=True)
             diag=montar_diagnostico(diag,list(STATE.get('logs',[])))
             diag['grau_confianca']='falha_automacao'
-            exportar_diagnostico(diag,PASTA,run_id)
+            salvar_diagnostico(diag)
         except Exception as falha_diag:log('Falha ao gravar diagnóstico: '+str(falha_diag)[:120])
         atualizar(status='erro',progresso=percentual_final({'andamento':STATE.get('andamento',{})},'erro'),erro=mensagem_segura(ex),falha_principal=locals().get('registro'),ultimo_id=run_id,relatorio_disponivel=(PASTA/f'comparacao_{run_id}.json').exists())
 
