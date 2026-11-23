@@ -13,6 +13,41 @@ from .portal import EscopoPortal
 TRACKING={'utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid','gclid'}
 
 
+def chave_evidencia(url):
+    try:return url_limpa(url)
+    except (TypeError,ValueError):return url
+
+
+def mesma_paginacao_editorial(ua,ub):
+    """Mesma rota, índice único e query funcional; não prova equivalência."""
+    try:
+        a,b=urlsplit(url_limpa(ua)),urlsplit(url_limpa(ub))
+        if a.path!=b.path or urlsplit(ua).fragment!=urlsplit(ub).fragment:return False
+        def assinatura(p):
+            indices=[];funcionais=[]
+            for k,v in parse_qsl(p.query,keep_blank_values=True):
+                m=re.search(r'(?:^|_)(cur|page|pagina|start|offset)$',k,re.I)
+                if m:
+                    if not v.isdecimal():return None
+                    indices.append((m[1].casefold(),int(v)))
+                else:funcionais.append((k,v))
+            # Mais de um controle/portlet é ambíguo, mesmo que um índice coincida.
+            if len(indices)!=1:return None
+            tipo,valor=indices[0]
+            if valor<=(0 if tipo in ('start','offset') else 1):return None
+            return indices[0],sorted(funcionais)
+        sa,sb=assinatura(a),assinatura(b)
+        return sa is not None and sa==sb
+    except (TypeError,ValueError):
+        return False
+
+
+def guardar_evidencia(mapa,url,finalidade):
+    chave=chave_evidencia(url)
+    if mapa.get(chave) not in ('documental','servico'):
+        mapa[chave]=finalidade
+
+
 def identidade(url):
     if not url:return ''
     p=urlsplit(url)
@@ -47,28 +82,30 @@ class PoliticaURLs:
         self.preservadas=set((estado or {}).get('preservadas',[])) if (estado or {}).get('versao')==2 else set()
         self.eventos=Counter((estado or {}).get('eventos',{}))
         self.escopos=[EscopoPortal(b,((estado or {}).get('portais',[])+[{},{}])[i]) for i,b in enumerate(bases)]
-        self.evidencias=[dict(x) for x in (estado or {}).get('finalidades_observadas',[{},{}])]
+        self.evidencias=[{},{}]
+        for lado,mapa in enumerate((estado or {}).get('finalidades_observadas',[{},{}])[:2]):
+            for url,prova in mapa.items():guardar_evidencia(self.evidencias[lado],url,prova)
     def observar(self,lado,pagina,destino,raiz=False):
         if lado<len(self.escopos):self.escopos[lado].observar(destino,pagina.coleta.get('portal',{}),raiz)
-        if pagina.coleta.get('finalidade_pagina')=='listagem_editorial':self.evidencias[lado][destino]='listagem_editorial'
+        if pagina.coleta.get('finalidade_pagina')=='listagem_editorial':guardar_evidencia(self.evidencias[lado],destino,'listagem_editorial')
         for item in pagina.itens:
             if item.destino and finalidade(item.destino,item.nome,item.local)['categoria']=='servico':
-                self.evidencias[lado][item.destino]='servico'
+                guardar_evidencia(self.evidencias[lado],item.destino,'servico')
                 if lado<len(self.escopos) and self.escopos[lado].outro(item.destino):
                     self.escopos[lado].compartilhados.add(item.destino)
         for ref in pagina.coleta.get('referencias_finalidade',[]):
             if ref.get('finalidade') in ('listagem_editorial','editorial_individual','documental','servico'):
-                if self.evidencias[lado].get(ref['url']) not in ('documental','servico'):
-                    self.evidencias[lado][ref['url']]=ref['finalidade']
+                guardar_evidencia(self.evidencias[lado],ref['url'],ref['finalidade'])
     def avaliar(self,par,contexto='',representados=(),fase='admissao'):
         urls=tuple(par[:2]);label=normalizar(par[2][-1] if par[2] else '')
         self.eventos['tentativas_admissao']+=1
-        context=normalizar(contexto);motivos=[];finalidades=[];excecao=False;justificativas=[]
+        context=normalizar(contexto);motivos=[];finalidades=[];excecao=False;justificativas=[];provas=[]
         for side,url in enumerate(urls):
             if not url:continue
             try:
                 p=urlsplit(url)
-                prova=self.evidencias[side].get(url,'')
+                prova=self.evidencias[side].get(chave_evidencia(url),'')
+                provas.append(prova)
                 uso=finalidade(url,label,context if not prova else ('Documentos' if prova=='documental' else 'Serviços' if prova=='servico' else context+' editorial'))
                 pg=paginacao(url)
                 importante=uso['estrutural'];editorial=uso['editorial']
@@ -103,9 +140,23 @@ class PoliticaURLs:
                 if not categoria and not importante and 'origem_unilateral' in context:categoria='ramificacao_unilateral_nao_expandida'
                 motivos.append(categoria)
             except (TypeError,ValueError):
-                motivos.append('');finalidades.append('indeterminada') # Dúvida não exclui.
+                motivos.append('');finalidades.append('indeterminada');provas.append('') # Dúvida não exclui.
         excluir=bool(motivos) and (all(motivos) or 'outro_portal' in motivos)
-        categoria=('outro_portal' if 'outro_portal' in motivos else motivos[0]) if excluir else ''
+        inferencia_unilateral=False
+        if (not excluir and not excecao and len(motivos)==2 and len(provas)==2
+                and set(motivos)=={'paginacao_editorial',''}
+                and all(c!='outro_portal' for c in finalidades)
+                and 'listagem_editorial' in provas
+                and len(self.escopos)==2
+                and mesma_paginacao_editorial(*urls)
+                and all((urlsplit(chave_evidencia(u)).scheme,urlsplit(chave_evidencia(u)).netloc)==(urlsplit(e.base).scheme,urlsplit(e.base).netloc) for u,e in zip(urls,self.escopos))):
+            # A coleta de um ambiente reconheceu a listagem; o outro não
+            # provou que seja documental/serviço. Não cria equivalência de
+            # conteúdo: somente evita visitar página editorial posterior.
+            excluir=True;inferencia_unilateral=True
+            self.eventos['paginacoes_inferidas_por_um_ambiente']+=1
+        categoria=('outro_portal' if 'outro_portal' in motivos else
+                   'paginacao_editorial' if inferencia_unilateral else motivos[0]) if excluir else ''
         self.eventos['exclusoes' if excluir else 'preservacoes']+=1
         anterior=self.registros.get(urls,{})
         if not excluir and excecao:
@@ -117,8 +168,11 @@ class PoliticaURLs:
         self.registros[urls]={'versao_politica':2,'par':list(urls),'categoria':categoria,'excluido':excluir,
                 'fases':sorted(set(anterior.get('fases',[]))|{fase}),
                 'finalidades':finalidades,
+                'evidencia_unilateral':inferencia_unilateral,
                 'excecao_estrutural':excecao and not excluir,'reconsiderado':bool(anterior.get('excluido') and not excluir) or anterior.get('reconsiderado',False),
-                'motivo':categoria.replace('_',' ') if excluir else '; '.join(sorted(set(justificativas))) or 'Natureza ambígua; análise preservada sem presumir finalidade estrutural'}
+                'motivo':('Paginação posterior de mesma rota/índice, com evidência editorial observada em apenas um ambiente; sem comparação profunda'
+                          if inferencia_unilateral else categoria.replace('_',' ') if excluir else
+                          '; '.join(sorted(set(justificativas))) or 'Natureza ambígua; análise preservada sem presumir finalidade estrutural')}
         return excluir
     def estado(self):return {'versao':2,'registros':list(self.registros.values()),'duplicacoes':self.duplicacoes,'preservadas':sorted(self.preservadas),'eventos':dict(self.eventos),'portais':[e.estado() for e in self.escopos],'finalidades_observadas':self.evidencias}
     def resumo(self,detalhado=False):
@@ -139,8 +193,11 @@ class PoliticaURLs:
         result['navegacoes_planejadas_evitadas']=sum(bool(u) for r in excluded if 'admissao' in r.get('fases',[]) for u in r['par'])
         result['pares_contidos_apos_redirecionamento']=sum('pos_navegacao' in r.get('fases',[]) for r in excluded)
         result['escopos_portais']=[{'origem':url_diagnostica(e.base),'site_identificado':e.site,
+            'fonte_identidade':e.fonte_site,'identidade_inferida':e.fonte_site=='subdominio_heuristico',
+            'identidade_inconclusiva':e.fonte_site=='metadados_conflitantes',
             'grupo_identificado':bool(e.grupo),'referencias_compartilhadas':len(e.compartilhados)} for e in self.escopos]
         result['nota_navegacoes']='Oportunidades de abertura HTML excluídas por referência única; não são requisições HTTP medidas nem ganho de tempo comprovado.'
+        result['paginacoes_assimetricas_com_evidencia']=sum(r['excluido'] and r.get('evidencia_unilateral',False) for r in rows)
         result['paginacoes_relevantes_preservadas']=sum(not r['excluido'] and 'paginação relevante' in r['motivo'] for r in rows)
         result['paginacoes_documentais_preservadas']=sum(not r['excluido'] and 'paginação relevante' in r['motivo'] and 'finalidade documental/legislativa' in r['motivo'] for r in rows)
         result['rotas_w_excluidas']=len({u for r in excluded for u in r['par'] if '/w/' in u})

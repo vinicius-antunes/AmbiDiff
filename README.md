@@ -185,3 +185,5 @@ A varredura evita expansão editorial conhecida antes da admissão, mantendo ref
 Segunda etapa dos filtros: [paginação Liferay, exceções por finalidade, exclusivas e diagnóstico](docs/filtro-urls-etapa2.md). Menus/mapas não autorizam aprofundamento de paginação editorial.
 
 Terceira etapa: [escopo lógico dos portais Liferay, mídias editoriais e serviços compartilhados](docs/filtro-urls-etapa3.md). Links para outro portal são verificados sem explorar sua árvore; a finalidade do HTML complementa o filtro em rotas opacas, preservando legislação, serviços e opções ausentes como ÁUDIOS.
+
+Etapa 4: [correção de Rádio/TV, prioridade dos metadados do portal e evidência editorial entre ambientes](docs/filtro-urls-etapa4.md). A inferência unilateral exige correspondência conservadora de rota, índice e parâmetros funcionais, sem afirmar equivalência de conteúdo.
