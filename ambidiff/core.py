@@ -5,7 +5,7 @@ preventivos de memória e requisições e sinaliza quando não cobre todo o port
 """
 from __future__ import annotations
 
-from collections import Counter, deque
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from functools import lru_cache
@@ -13,6 +13,9 @@ import re
 import time
 import unicodedata
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit, unquote
+
+from rapidfuzz import process
+from rapidfuzz.distance import Indel
 
 # Limites de segurança internos (não opções de navegação do usuário).
 MAX_URLS_SEGURANCA = 100000  # Teto de memória, não meta de cobertura.
@@ -508,10 +511,55 @@ def _registro(item:Item,pa:Pagina,pb:Pagina,presente:str,ausente:str,*,referenci
             'descricao':descricao,'situacao':'Divergência para revisão', 'posicao':item.posicao, 'seletor':item.seletor, 'visivel_texto':item.visivel_texto}
 
 
-def _texto_parecido(a:Item,b:Item)->float:
-    if len(a.nome)<24 or len(b.nome)<24:return 0
-    if a.local and b.local and titulo_normalizado(a.local)!=titulo_normalizado(b.local):return 0
-    return SequenceMatcher(None,normalizar(a.nome),normalizar(b.nome)).ratio()
+def _parear_textos(itens_a: list[Item], itens_b: list[Item]):
+    """Localiza candidatos e mantém a seleção e o desempate históricos."""
+    if not any(a.tipo == 'Texto' and len(a.nome) >= 24 for a in itens_a):
+        return
+    corte = .82
+    # Os blocos de SequenceMatcher formam uma subsequência comum, logo a
+    # similaridade Indel é um teto para a nota final. A folga cobre arredondamento.
+    tolerancia = 1e-12
+    por_contexto = defaultdict(dict)
+    for ib in range(len(itens_b) - 1, -1, -1):
+        b = itens_b[ib]
+        if b.tipo == 'Texto' and len(b.nome) >= 24:
+            contexto = titulo_normalizado(b.local) if b.local else None
+            por_contexto[contexto].setdefault(normalizar(b.nome), []).append(ib)
+    if not por_contexto:
+        return
+
+    @lru_cache(maxsize=256)
+    def confirmar(nome_a, nome_b):
+        return SequenceMatcher(None, nome_a, nome_b).ratio()
+
+    for ia, a in enumerate(itens_a):
+        if a.tipo != 'Texto' or len(a.nome) < 24:
+            continue
+        nome_a = normalizar(a.nome)
+        contextos = (titulo_normalizado(a.local), None) if a.local else por_contexto
+        melhor = None
+        melhor_nota = corte
+        for contexto in contextos:
+            nomes = por_contexto.get(contexto)
+            if not nomes:
+                continue
+            for nome_b, teto, _ in process.extract_iter(
+                    nome_a, nomes.keys(), scorer=Indel.normalized_similarity,
+                    score_cutoff=corte - tolerancia):
+                if teto + tolerancia < melhor_nota:
+                    continue
+                nota = confirmar(nome_a, nome_b)
+                ib = nomes[nome_b][-1]
+                if nota > melhor_nota or (nota == melhor_nota and (melhor is None or ib < melhor[0])):
+                    melhor = ib, nomes, nome_b
+                    melhor_nota = nota
+        if melhor is not None:
+            ib, nomes, nome_b = melhor
+            indices = nomes[nome_b]
+            indices.pop()
+            if not indices:
+                del nomes[nome_b]
+            yield ia, ib
 
 
 def comparacao(itens_a:list[Item],itens_b:list[Item],pagina_a:Pagina,pagina_b:Pagina,
@@ -523,24 +571,19 @@ def comparacao(itens_a:list[Item],itens_b:list[Item],pagina_a:Pagina,pagina_b:Pa
     unicos_b=[i for i in itens_b if (i.tipo,chave_item(i)) not in ids_a]
     # Textos semelhantes são apresentados como UMA substituição, não como duas ausências.
     usados_b=set();pares_a=set()
-    for ia,a in enumerate(unicos_a):
-        if a.tipo!='Texto':continue
-        alternativas=[( _texto_parecido(a,b),ib,b ) for ib,b in enumerate(unicos_b)
-                      if b.tipo=='Texto' and ib not in usados_b]
-        if not alternativas:continue
-        ratio,ib,b=max(alternativas,key=lambda x:x[0])
-        if ratio>=.82:
-            usados_b.add(ib);pares_a.add(ia)
-            caminho=_localizador(pagina_a,a)
-            saida.append({'tipo':'Texto','presente_em':ambiente_a,'nao_identificado_em':ambiente_b,
-                'pagina':pagina_a.titulo,'url_presente':pagina_a.url,'url_comparada':pagina_b.url,
-                'local':a.local,'caminho':caminho,'elemento':a.nome[:240],
-                'componente_id':a.componente_id,'secao_id':a.secao_id,
-                'texto_a':a.nome,'texto_b':b.nome,
-                'descricao':f'Caminho identificado: {caminho}. O trecho de texto é diferente nas duas páginas correspondentes. '
-                            f'Em {ambiente_a}: "{a.nome[:210]}". Em {ambiente_b}: "{b.nome[:210]}". '
-                            f'Confira a seção nos dois endereços; não é possível determinar qual está atualizado.',
-                'situacao':'Texto diferente','posicao':a.posicao,'seletor':a.seletor,'visivel_texto':a.visivel_texto})
+    for ia,ib in _parear_textos(unicos_a,unicos_b):
+        a,b=unicos_a[ia],unicos_b[ib]
+        usados_b.add(ib);pares_a.add(ia)
+        caminho=_localizador(pagina_a,a)
+        saida.append({'tipo':'Texto','presente_em':ambiente_a,'nao_identificado_em':ambiente_b,
+            'pagina':pagina_a.titulo,'url_presente':pagina_a.url,'url_comparada':pagina_b.url,
+            'local':a.local,'caminho':caminho,'elemento':a.nome[:240],
+            'componente_id':a.componente_id,'secao_id':a.secao_id,
+            'texto_a':a.nome,'texto_b':b.nome,
+            'descricao':f'Caminho identificado: {caminho}. O trecho de texto é diferente nas duas páginas correspondentes. '
+                        f'Em {ambiente_a}: "{a.nome[:210]}". Em {ambiente_b}: "{b.nome[:210]}". '
+                        f'Confira a seção nos dois endereços; não é possível determinar qual está atualizado.',
+            'situacao':'Texto diferente','posicao':a.posicao,'seletor':a.seletor,'visivel_texto':a.visivel_texto})
     ja=set()
     for ia,item in enumerate(unicos_a):
         k=(item.tipo,chave_item(item))
