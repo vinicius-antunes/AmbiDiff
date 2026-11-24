@@ -16,6 +16,7 @@ import unicodedata
 from urllib.parse import urlsplit, urljoin, unquote
 
 from .smart import Metricas, Inteligencia,estrutura_funcional
+from .semantics import papeis_de_link_compativeis
 from .documents import Documentos
 from .intelligence import separar_editoriais,agrupar_variacoes,sinais_extraidos,item_editorial
 from .diagnostics import classificar_erro
@@ -106,6 +107,8 @@ def refiltro(itens:list[Item])->list[Item]:
         if i.tipo=='Opção' and normalizar(i.nome) in COOKIES_TERMS:continue
         # Não omita duas opções com mesmo texto que apontam para destinos distintos.
         k=(i.tipo,normalizar(i.chave),normalizar(i.local),i.destino)
+        if i.semantica and i.seletor:
+            k+=(i.seletor,)
         if k not in seen:
             saida.append(i);seen.add(k)
     return saida
@@ -140,10 +143,12 @@ def _extrair_page(page,url:str,trilha:list[str],log,metricas=None,profunda=True)
             raise RuntimeError('A página não retornou conteúdo HTML analisável.')
         its=list(dados['itens']);links=list(dados['links'])
         if profunda:
-            avisos_abas=[]
-            with metricas.medir('abas'):coletar_aba(page,its,links,avisos_abas.append,parar=metricas.parar)
+            avisos_abas=[];limitacoes=[]
+            with metricas.medir('abas'):
+                coletar_aba(page,its,links,avisos_abas.append,parar=metricas.parar,limitacoes=limitacoes)
             if avisos_abas:
                 resumo['avisos_componentes']=avisos_abas;log('[Coleta] '+str(len(avisos_abas))+' componentes com inspeção inconclusiva.')
+            if limitacoes:resumo['componentes_nao_inspecionados']=limitacoes
         itens=[]
         for raw in its:
             try:itens.append(Item(**raw))
@@ -176,7 +181,7 @@ def _alinhamento_de_componentes(pa:Pagina,pb:Pagina,base_a:str,base_b:str,nome_a
             if len(mapa_a[k])!=1 or len(mapa_b[k])!=1:continue
             ia,ib=mapa_a[k][0],mapa_b[k][0]
             # Componente nomeado pelo texto visível: mudança real de rótulo importa.
-            if tipo=='Opção' and ia.visivel_texto and ib.visivel_texto:continue
+            if tipo=='Opção' and ((ia.visivel_texto and ib.visivel_texto) or ia.semantica or ib.semantica):continue
             # Não parear controles sem texto que apontam para destinos distintos:
             # só os links com MESMO destino devem ser ignorados como duplicação.
             if tipo=='Opção' and ia.destino and ib.destino and not link_equivalente(ia.destino,ib.destino,base_a,base_b):continue
@@ -256,21 +261,28 @@ def _link_pairs(pa:Pagina,pb:Pagina,aceitar_rotulos=False,base_a=None,base_b=Non
     base_a=base_a or pa.url;base_b=base_b or pb.url
     list_a=[i for i in pa.itens if i.tipo in ('Opção','Documento') and i.destino]
     list_b=[i for i in pb.itens if i.tipo in ('Opção','Documento') and i.destino]
-    by_b=defaultdict(list)
+    by_a=defaultdict(list);by_b=defaultdict(list)
+    for i in list_a:by_a[_link_chave(i)].append(i)
     for i in list_b:by_b[_link_chave(i)].append(i)
     matched=[];used=set()
     for i in list_a:
         key=_link_chave(i)
-        candidates=[(j,x) for j,x in enumerate(by_b.get(key,[])) if id(x) not in used]
+        mesmo_a=by_a[key];mesmo_b=by_b.get(key,())
+        if i.semantica and max(len(mesmo_a),len(mesmo_b))>8:continue
+        candidates=[x for x in mesmo_b if id(x) not in used and papeis_de_link_compativeis(i,x)]
         if not candidates:continue
         # Quando o rótulo se repete na mesma região, a posição pode ser ambígua.
         # Para evitar redirecionamento falso, só faz o par se houver um candidato
         # ou se dois destinos correspondentes tiverem a mesma rota.
-        if len(candidates)>1:
-            same=[(j,x) for j,x in candidates if link_equivalente(i.destino,x.destino,pa.url,pb.url)]
+        if len(candidates)>1 or (i.semantica and (len(mesmo_a)>1 or len(mesmo_b)>1)):
+            same=[x for x in mesmo_b if papeis_de_link_compativeis(i,x) and
+                  link_equivalente(i.destino,x.destino,pa.url,pb.url)]
             if len(same)!=1:continue
-            x=same[0][1]
-        else:x=candidates[0][1]
+            x=same[0]
+            if id(x) in used:continue
+            if i.semantica and sum(papeis_de_link_compativeis(a,x) and
+                    link_equivalente(a.destino,x.destino,pa.url,pb.url) for a in mesmo_a)!=1:continue
+        else:x=candidates[0]
         used.add(id(x));matched.append((i,x))
     # Ícones em <a><img></a> podem ter ALT/ARIA diferentes entre ambientes.
     # Compara seus destinos apenas se o seletor estável identifica um único par.
@@ -283,19 +295,24 @@ def _link_pairs(pa:Pagina,pb:Pagina,aceitar_rotulos=False,base_a=None,base_b=Non
     for sel in a_seletores.keys() & b_seletores.keys():
         if len(a_seletores[sel])==len(b_seletores[sel])==1:
             ia,ib=a_seletores[sel][0],b_seletores[sel][0]
-            if id(ia) not in paired_a and id(ib) not in used:
+            if id(ia) not in paired_a and id(ib) not in used and papeis_de_link_compativeis(ia,ib):
                 matched.append((ia,ib));used.add(id(ib))
     if aceitar_rotulos:
         paired_a={id(x) for x,_ in matched}
+        def chave_estrutura(i):
+            return i.tipo,i.funcao,estrutura_funcional(i.estrutura),normalizar(i.local)
+        por_estrutura_a=defaultdict(list);por_estrutura_b=defaultdict(list)
+        for item in list_a:por_estrutura_a[chave_estrutura(item)].append(item)
+        for item in list_b:por_estrutura_b[chave_estrutura(item)].append(item)
         for ia in list_a:
             if id(ia) in paired_a or not ia.funcao or not ia.estrutura:continue
-            candidates=[ib for ib in list_b if id(ib) not in used and ib.tipo==ia.tipo and
-                ib.funcao==ia.funcao and estrutura_funcional(ib.estrutura)==estrutura_funcional(ia.estrutura) and normalizar(ib.local)==normalizar(ia.local) and
+            chave=chave_estrutura(ia)
+            candidates=[ib for ib in por_estrutura_b.get(chave,()) if id(ib) not in used and
+                papeis_de_link_compativeis(ia,ib) and
                 link_equivalente(ia.destino,ib.destino,base_a,base_b)]
             if len(candidates)!=1:continue
             ib=candidates[0]
-            reverse=[i for i in list_a if id(i) not in paired_a and i.tipo==ib.tipo and i.funcao==ib.funcao and
-                estrutura_funcional(i.estrutura)==estrutura_funcional(ib.estrutura) and normalizar(i.local)==normalizar(ib.local) and
+            reverse=[i for i in por_estrutura_a[chave] if id(i) not in paired_a and papeis_de_link_compativeis(i,ib) and
                 link_equivalente(i.destino,ib.destino,base_a,base_b)]
             if len(reverse)==1:matched.append((ia,ib));paired_a.add(id(ia));used.add(id(ib))
     return _pares_por_rota(pa,pb,base_a,base_b,matched)
@@ -306,12 +323,18 @@ def _pares_por_rota(pa,pb,base_a,base_b,matched):
     usados_a={id(a) for a,_ in matched};usados_b={id(b) for _,b in matched}
     aa=[i for i in pa.itens if i.tipo in ('Opção','Documento') and i.destino and id(i) not in usados_a]
     bb=[i for i in pb.itens if i.tipo in ('Opção','Documento') and i.destino and id(i) not in usados_b]
+    por_nome_a=defaultdict(list);por_nome_b=defaultdict(list)
+    def chave(i):return i.tipo,normalizar(i.nome)
+    for item in aa:por_nome_a[chave(item)].append(item)
+    for item in bb:por_nome_b[chave(item)].append(item)
     def compativel(a,b):
-        return (a.tipo==b.tipo and normalizar(a.nome)==normalizar(b.nome)
-                and link_equivalente(a.destino,b.destino,base_a,base_b))
+        return papeis_de_link_compativeis(a,b) and link_equivalente(a.destino,b.destino,base_a,base_b)
     for a in aa:
-        candidatos=[b for b in bb if compativel(a,b)]
-        if len(candidatos)==1 and sum(compativel(x,candidatos[0]) for x in aa)==1:
+        chave_a=chave(a)
+        outros_a=por_nome_a[chave_a];outros_b=por_nome_b.get(chave_a,())
+        if a.semantica and max(len(outros_a),len(outros_b))>8:continue
+        candidatos=[b for b in outros_b if compativel(a,b)]
+        if len(candidatos)==1 and sum(compativel(x,candidatos[0]) for x in outros_a)==1:
             matched.append((a,candidatos[0]))
     return matched
 
@@ -1258,14 +1281,18 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 emitir('links_documentos')
                 # 2. Compara links pareados por nome/contexto.
                 with metricas.medir('links'):pares_links=_link_pairs(pa,pb,aceitar_rotulos=varredura_inteligente,base_a=base_a,base_b=base_b)
-                with metricas.medir('comparacao_complementar'):
-                    controles=[]
-                    for ia in pa.itens:
-                        matches=[ib for ib in pb.itens if ia.controle_alvo and ib.controle_alvo and normalizar(ia.nome)==normalizar(ib.nome) and normalizar(ia.local)==normalizar(ib.local)]
-                        if len(matches)==1:controles.append((ia,matches[0]))
                 if verificar_cliques and cliques_testados<MAX_CLIQUES:
+                    controles_a=defaultdict(list);controles_b=defaultdict(list)
+                    for itens, grupos in ((pa.itens,controles_a),(pb.itens,controles_b)):
+                        for i in itens:
+                            if i.controle_alvo and not i.semantica.get('invalidos') and i.semantica.get('estados',{}).get('disabled')!='true':
+                                grupos[(normalizar(i.nome),normalizar(i.local))].append(i)
+                    controles=[(aa[0],controles_b[k][0]) for k,aa in controles_a.items()
+                               if len(aa)==len(controles_b.get(k,()))==1 and papeis_de_link_compativeis(aa[0],controles_b[k][0])]
                     pares_cliques=[]
                     for ca,cb in pares_links+controles:
+                        if any(i.semantica.get('invalidos') or i.semantica.get('estados',{}).get('disabled')=='true' for i in (ca,cb)):
+                            continue
                         if ca.destino and cb.destino and (ca.destino,cb.destino)!=(base_a,base_b) and filtro.avaliar((ca.destino,cb.destino,trilha+[ca.nome]),ca.local+' '+cb.local):
                             resultados_funcionais.append({'elemento':ca.nome,'conclusivo':False,'teste_executado':False,
                                 'motivo':'Referência comparada na origem; clique não executado por política de escopo'})

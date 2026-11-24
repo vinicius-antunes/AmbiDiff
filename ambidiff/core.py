@@ -17,6 +17,8 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit, un
 from rapidfuzz import process
 from rapidfuzz.distance import Indel
 
+from .semantics import JS_SEMANTICA
+
 # Limites de segurança internos (não opções de navegação do usuário).
 MAX_URLS_SEGURANCA = 100000  # Teto de memória, não meta de cobertura.
 TEMPO_PAGINA_MS = 30000
@@ -123,6 +125,7 @@ class Item:
     secao_id: str = ''
     controle_alvo: str = ''
     recurso: str = ''
+    semantica: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -137,9 +140,12 @@ class Pagina:
     coleta: dict = field(default_factory=dict)
 
 
-JS_EXTRAIR = r'''() => {
+JS_EXTRAIR = r'''(painel) => {
   if(!document.body) throw new Error('DOM indisponível: document.body ausente');
   const clean = s => String(s || '').replace(/\s+/g,' ').trim().slice(0,450);
+''' + JS_SEMANTICA + r'''
+  const escopo = painel ? document.querySelector(painel) : document;
+  if(!escopo) return {itens: [], links: []};
   const visivel = el => {
     if (!el || ['SCRIPT','STYLE','NOSCRIPT','TEMPLATE','SVG'].includes(el.tagName)) return false;
     if (el.closest('[aria-hidden="true"],[hidden],[inert]')) return false;
@@ -157,6 +163,22 @@ JS_EXTRAIR = r'''() => {
     if (b.top+scrollY<window.innerHeight*0.6) return x>=vw*.66?'Topo direito':x<vw*.34?'Topo esquerdo':'Parte superior';
     return x<vw*.30?'Área lateral esquerda':x>=vw*.7?'Área lateral direita':'Conteúdo central';
   };
+  const indicesIrmaos = new WeakMap();
+  const indiceDoTipo = el => {
+    const pai=el.parentElement;
+    if(!pai)return '';
+    if(!indicesIrmaos.has(pai)){
+      const totais=new Map(), posicoes=new Map();
+      for(const filho of pai.children){
+        const tag=filho.tagName, indice=(totais.get(tag) || 0)+1;
+        totais.set(tag,indice);
+        posicoes.set(filho,indice);
+      }
+      indicesIrmaos.set(pai,{totais,posicoes});
+    }
+    const {totais,posicoes}=indicesIrmaos.get(pai);
+    return totais.get(el.tagName)>1 ? ':nth-of-type('+posicoes.get(el)+')' : '';
+  };
   const selector = el => {
     const steps=[];let curr=el;
     for(let i=0;curr&&curr.nodeType===1&&i<7;i++,curr=curr.parentElement){
@@ -164,18 +186,21 @@ JS_EXTRAIR = r'''() => {
         steps.unshift('#'+CSS.escape(curr.id));break;
       }
       const tag=curr.tagName.toLowerCase();
-      const sib=curr.parentElement?Array.from(curr.parentElement.children).filter(x=>x.tagName===curr.tagName):[curr];
-      steps.unshift(tag+(sib.length>1?':nth-of-type('+(sib.indexOf(curr)+1)+')':''));
+      steps.unshift(tag+indiceDoTipo(curr));
     }
     return steps.join(' > ');
   };
+  const paginacao = new WeakMap();
   const paginationControl = el => {
+    if(paginacao.has(el))return paginacao.get(el);
     const container=el.closest('.pagination,.pagination-bar,.lfr-pagination,[aria-label*=pagina i],[aria-label*=página i],[aria-label*=pagination i]');
     const name=clean(el.innerText||el.getAttribute('aria-label')||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
     const control=/^(primeir[oa]|anterior|proxim[oa]|ultim[oa]|first|previous|next|last|\d+)$/.test(name);
     let parameter=false;
-    try{parameter=[...new URL(el.href).searchParams.keys()].some(k=>/(^|_)(cur|page|pagina|start|offset)$/i.test(k));}catch(e){}
-    return !!(container || (control && parameter));
+    if(el.href)try{parameter=[...new URL(el.href).searchParams.keys()].some(k=>/(^|_)(cur|page|pagina|start|offset)$/i.test(k));}catch(e){}
+    const resultado=!!(container || (control && parameter));
+    paginacao.set(el,resultado);
+    return resultado;
   };
   const ctx = el => {
     if(paginationControl(el)){
@@ -191,7 +216,7 @@ JS_EXTRAIR = r'''() => {
     const rowContext=rowText&&rowText!==own?clean(rowText.replace(own,'')):'';
     const group=el.closest('nav,header,footer,aside') || el.closest('main,article,section');
     const base=clean(header?.textContent)||rowContext||clean(group?.getAttribute('aria-label'))||clean(group?.querySelector('h1,h2,h3')?.textContent);
-    return base || (el.closest('footer')?'Rodapé':el.closest('header')?'Cabeçalho':'Conteúdo principal');
+    return base || hierarquia(el).grupo_nome || (el.closest('footer')?'Rodapé':el.closest('header')?'Cabeçalho':'Conteúdo principal');
   };
   const editorialRef=el=>{
     // Não inferir que qualquer item dentro de um <main> é notícia.
@@ -217,75 +242,86 @@ JS_EXTRAIR = r'''() => {
     return '';
   };
   const out=[],links=[];
-  const add=(tipo,nome,chave,el,destino='',textoVisivel=true)=>{
+  const add=(tipo,nome,chave,el,destino='',textoVisivel=true,semantica=null)=>{
     nome=clean(nome);chave=clean(chave);
     const entidade=nome&&nome.length>=2?editorialRef(el):'';
     if(nome&&(nome.length>=2||paginationControl(el)))out.push({tipo,nome,chave,local:ctx(el),destino,
+      ...(semantica ? {semantica} : {}),
       controle_alvo:el.getAttribute('aria-controls')||'',
       posicao:posicao(el),seletor:selector(el),visivel_texto:textoVisivel,
       componente_id:(()=>{const p=el.closest('[data-component],[role="group"],fieldset,[class*="widget" i]');return p?selector(p):'';})(),
       secao_id:(()=>{const p=el.closest('section,article,[role="region"]');return p?selector(p):'';})(),
-      imagem_link:el.tagName==='A'&&!textoVisivel&&!!el.querySelector('img'),
+      imagem_link:el.tagName==='A'&&!textoVisivel&&!!el.querySelector('img')&&!semantica?.origem,
       natureza:entidade?'editorial':'estrutura',entidade,
       funcao:paginationControl(el)?'paginacao':el.getAttribute('role')||(el.tagName==='A'?'link':el.tagName.toLowerCase()),
       estrutura:[el.tagName,el.getAttribute('role')||'',el.getAttribute('type')||'',
         el.hasAttribute('disabled'),el.getAttribute('aria-haspopup')||'',el.getAttribute('target')||'',
         [...el.children].map(x=>x.tagName).join(','),el.hasAttribute('onclick')?'dinamico':'estatico'].join('|')});
   };
-  for(const el of document.querySelectorAll('h1,h2,h3,h4,p,dt,dd,time[datetime],[role="heading"],[data-field],[itemprop]')){
+  for(const el of escopo.querySelectorAll('h1,h2,h3,h4,p,dt,dd,time[datetime],[role="heading"],[data-field],[itemprop]')){
     if(!visivel(el)||isCookie(el)||el.closest('header,footer,nav,[role="navigation"]'))continue;
     const val=clean(el.innerText||el.textContent);
     if(val.length>=4&&val.length<=420)add('Texto',val,val,el);
   }
-  for(const el of document.querySelectorAll('img')){
+  for(const el of escopo.querySelectorAll('img')){
     if(!visivel(el)||isCookie(el))continue;
     const url=el.currentSrc||el.src||el.getAttribute('data-src')||'';
     if(!url)continue;
     const alt=clean(el.alt||el.getAttribute('aria-label')||'');
     add('Imagem',alt||url.split('/').pop().split('?')[0]||'Imagem',alt||url,el,url,!!alt&&clean(el.innerText).includes(alt));
   }
-  for(const el of document.querySelectorAll('a[href]')){
-    if(!visivel(el)||isCookie(el))continue;
+  for(const el of escopo.querySelectorAll('a[href]')){
+    if(!visivel(el)||!visivelControle(el)||isCookie(el))continue;
     const href=el.href; if(!href||!/^https?:/i.test(href))continue;
-    const name=clean(el.innerText||el.getAttribute('aria-label')||el.title||el.querySelector('img')?.alt||'');
+    const acessivel=rotuloAcessivel(el);
+    const name=nomeControle(el,acessivel,el.title||el.querySelector('img')?.alt);
     if(!name)continue;
     const pathname=(()=>{try{return new URL(href).pathname.toLowerCase()}catch(e){return ''}})();
     const preview=!!el.querySelector('img')&&!!el.closest('article,[class*="news" i],[class*="noticia" i],[class*="card" i]')&&!el.hasAttribute('download')&&!/pdf|portaria|legisla|requerimento|formul[aá]rio/i.test(name);
     const isDoc=/\.(pdf|docx?|xlsx?|csv|pptx?|zip|odt|ods)(\/|$)/i.test(pathname) || (!/\.(svg|png|jpe?g|gif|ico|webp)(\/|$)/i.test(pathname)&&!preview&&/^\/documents\/d\//i.test(pathname)) || el.hasAttribute('download');
     const tipo=isDoc?'Documento':'Opção';
-    add(tipo,name,name,el,href,!!clean(el.innerText));
+    add(tipo,name,name,el,href,!!textoControle(el),paginationControl(el)?null:descreverControle(el,acessivel,href));
     links.push({url:href,label:name,local:ctx(el),tipo,selector:selector(el)});
   }
-  for(const el of document.querySelectorAll('button,[role="tab"],[role="menuitem"]')){
-    if(!visivel(el)||isCookie(el))continue;
+  for(const el of escopo.querySelectorAll(controles)){
+    if(!visivel(el)||!visivelControle(el)||isCookie(el))continue;
+    if(el.matches('a[href]') && /^https?:/i.test(el.href))continue;
     if(el.closest('form')&&el.type==='submit')continue;
-    const name=clean(el.innerText||el.getAttribute('aria-label')||'');
-    if(name)add('Opção',name,name,el);
+    const acessivel=rotuloAcessivel(el);
+    const name=nomeControle(el,acessivel,el.matches('input[type="button"]')?el.value:'');
+    if(name)add('Opção',name,name,el,'',!!textoControle(el),
+      descreverControle(el,acessivel));
   }
-  for(const el of document.querySelectorAll('select')){
-    if(!visivel(el)||isCookie(el))continue;
-    const label=clean(el.getAttribute('aria-label')||el.labels?.[0]?.textContent||el.name||'Seleção');
+  for(const el of escopo.querySelectorAll('select')){
+    if(!visivel(el)||!visivelControle(el)||isCookie(el))continue;
+    const acessivel=rotuloAcessivel(el);
+    const label=acessivel.nome||clean(el.name)||'Seleção';
+    const semantica=descreverControle(el,acessivel);
     for(const opt of el.options){
       const name=clean(opt.textContent);
-      if(name&&!opt.disabled&&opt.value!=='')add('Opção',label+': '+name,label+': '+name,el);
+      if(name&&!opt.disabled&&opt.value!=='')add('Opção',label+': '+name,label+': '+name,el,'',true,semantica);
     }
   }
+  if(painel)return {itens:out,links};
   // Conjuntos ordenados de opções visíveis, para comparar posição entre PRD/DES.
   // Apenas grupos com rótulos distinguíveis, sem inferir quando itens são ambíguos.
   const menus=[];
-  const areas=[...document.querySelectorAll('nav,aside,[role="navigation"],[role="tablist"],ul,ol,[class*="menu" i],[class*="tabs" i],[class*="cards" i],[class*="grid" i],[class*="list" i]')];
+  const areas=document.querySelectorAll(areasMenu);
   const seenMenus=new Set();
+  const porArea=new Map();
+  for(const el of document.querySelectorAll('a[href],'+controles)){
+    const area=el.closest(areasMenu);
+    if(!area || area===el)continue;
+    if(!porArea.has(area))porArea.set(area,[]);
+    porArea.get(area).push(el);
+  }
   for(const area of areas){
     if(!visivel(area)||isCookie(area))continue;
-    const els=[...area.querySelectorAll('a[href],button,[role="tab"]')].filter(visivel);
     // Coletar somente opções imediatamente agrupadas, não sublistas inteiras.
-    const relevant=els.filter(x=>{
-      const candidate=x.closest('nav,aside,[role="navigation"],[role="tablist"],ul,ol,[class*="menu" i],[class*="tabs" i],[class*="cards" i],[class*="grid" i],[class*="list" i]');
-      return candidate===area;
-    });
+    const relevant=(porArea.get(area) || []).filter(x=>visivel(x) && visivelControle(x));
     if(relevant.length<2||relevant.length>45)continue;
     const labels=relevant.map(x=>{
-      let label=clean(x.innerText||x.getAttribute('aria-label')||x.title||x.querySelector('img')?.alt);
+      let label=nomeControle(x,rotuloAcessivel(x),x.title||x.querySelector('img')?.alt);
       if(/^(consultar|visualizar|acessar|saiba mais|ver mais)$/i.test(label)){
         const card=x.closest('li,article,[class*="card" i],[class*="item" i]');
         const heading=clean(card?.querySelector('h1,h2,h3,h4,h5,strong')?.innerText);
@@ -298,7 +334,7 @@ JS_EXTRAIR = r'''() => {
     const unique=posicao(area)+'|'+names;
     if(seenMenus.has(unique))continue;
     seenMenus.add(unique);
-    const title=clean(area.getAttribute('aria-label')||area.querySelector(':scope > h2,:scope > h3,:scope > h4')?.innerText||area.closest('section,article')?.querySelector('h2,h3')?.innerText||'');
+    const title=rotuloAcessivel(area).nome||clean(area.querySelector(':scope > h2,:scope > h3,:scope > h4')?.innerText||area.closest('section,article')?.querySelector('h2,h3')?.innerText);
     menus.push({nome:title||'Grupo de opções',posicao:posicao(area),seletor:selector(area),opcoes:labels,
       editorial:relevant.length>0&&relevant.every(x=>!!editorialRef(x))});
   }
@@ -351,8 +387,65 @@ JS_EXTRAIR = r'''() => {
 }'''
 
 
-def coletar_aba(page, itens: list[dict], links: list[dict], log,parar=None) -> None:
-    """Interage apenas com abas detectadas, sem clicar formulários ou executar ações."""
+JS_INSPECAO_CONTROLE = r'''el => {
+  const clean = s => String(s || '').replace(/\s+/g, ' ').trim().slice(0,450);
+''' + JS_SEMANTICA + r'''
+  const acessivel = rotuloAcessivel(el);
+  const alvo = alvoControle(el);
+  const href = el.getAttribute('href') || '';
+  return {
+    visivel: visivelControle(el),
+    desabilitado: !disponivel(el),
+    permitido: disponivel(el) && !el.closest('form') && !el.hasAttribute('download') &&
+      !el.hasAttribute('target') && (!href || href.startsWith('#')),
+    rotulo: clean(el.innerText),
+    nome: nomeControle(el, acessivel),
+    texto_seguranca: [el.innerText, acessivel.nome, el.title, href].join(' '),
+    alvo: alvo && alvo!==el && !alvo.contains(el) && alvo.id ? '#'+CSS.escape(alvo.id) : '',
+  };
+}'''
+
+
+def coletar_aba(page, itens: list[dict], links: list[dict], log, parar=None, *, limitacoes=None) -> None:
+    """Preserva os limites de inspeção e registra painéis cuja coleta falhou."""
+    from .functional import PROIBIDOS
+
+    def limitar(tipo, rotulo, alvo, motivo):
+        log(f'{tipo} não inspecionado: {motivo}')
+        if limitacoes is not None and alvo and rotulo:
+            limitacoes.append(f'{tipo} "{rotulo}"')
+
+    def inspecionar(controle, tipo, timeout, espera):
+        if not controle.is_visible():
+            return
+        meta = controle.evaluate(JS_INSPECAO_CONTROLE)
+        if not meta['visivel']:
+            return
+        rotulo = meta['nome'][:80]
+        alvo = meta['alvo']
+        if meta['desabilitado']:
+            limitar(tipo, rotulo, alvo, 'controle desabilitado')
+            return
+        if not meta['permitido'] or PROIBIDOS.search(meta['texto_seguranca']):
+            return
+        # Abas sem texto são reconhecidas no DOM. A inspeção automática mantém
+        # o conjunto anterior de abas elegíveis a clique.
+        if tipo == 'Aba' and not meta['rotulo']:
+            return
+        try:
+            controle.click(timeout=timeout)
+            page.wait_for_timeout(espera)
+            if alvo and not page.locator(alvo).is_visible():
+                raise ValueError('Painel não observado após a inspeção')
+            dados = page.evaluate(JS_EXTRAIR, alvo) if alvo else page.evaluate(JS_EXTRAIR)
+            if tipo == 'Aba' or alvo:
+                for item in dados['itens']:
+                    item['local'] = f'{tipo} "{rotulo}" → {item["local"]}'
+            itens.extend(dados['itens'])
+            links.extend(dados['links'])
+        except Exception as exc:
+            limitar(tipo, rotulo, alvo, type(exc).__name__)
+
     try:
         disclosures=page.locator('details:not([open]) > summary,button[aria-expanded="false"][aria-controls],nav button[aria-expanded="false"][aria-haspopup],header button[aria-expanded="false"][aria-haspopup],[role="navigation"] button[aria-expanded="false"][aria-haspopup],[role="button"][aria-expanded="false"][aria-controls]')
         controls=disclosures.element_handles()
@@ -360,31 +453,14 @@ def coletar_aba(page, itens: list[dict], links: list[dict], log,parar=None) -> N
         for control in controls[:20]:
             if parar and parar.is_set():break
             try:
-                if not control.is_visible() or control.evaluate('e=>!!e.closest("form")'):continue
-                from .functional import PROIBIDOS
-                label=control.evaluate('e=>(e.innerText||"")+" "+(e.getAttribute("aria-label")||"")+" "+(e.getAttribute("title")||"")')
-                if PROIBIDOS.search(label):continue
-                control.click(timeout=1200);page.wait_for_timeout(150)
-                expanded=page.evaluate(JS_EXTRAIR);itens.extend(expanded['itens']);links.extend(expanded['links'])
+                inspecionar(control, 'Expansível', 1200, 150)
             except Exception as ex:log('Componente não inspecionado: '+type(ex).__name__)
         tabs=page.locator('[role="tab"],button[data-bs-toggle="tab"],a[data-bs-toggle="tab"]')
         for i in range(min(tabs.count(),35)):
             if parar and parar.is_set():break
             tab=tabs.nth(i)
-            if not tab.is_visible() or tab.evaluate('e=>!!e.closest("form")'):continue
-            rotulo=(tab.inner_text(timeout=1500) or '').strip()[:80]
-            if not rotulo:continue
-            from .functional import PROIBIDOS
-            if PROIBIDOS.search(rotulo):continue
-            href=tab.get_attribute('href') or ''
-            if href and not href.startswith('#'):continue
             try:
-                tab.click(timeout=3000)
-                page.wait_for_timeout(350)
-                dados=page.evaluate(JS_EXTRAIR)
-                for item in dados['itens']:
-                    item['local']=f'Aba "{rotulo}" → {item["local"]}'
-                itens.extend(dados['itens']);links.extend(dados['links'])
+                inspecionar(tab, 'Aba', 3000, 350)
             except Exception as ex:log('Aba não inspecionada: '+type(ex).__name__)
     except Exception as e:
         log(f'Aviso: algumas abas não puderam ser abertas: {str(e)[:110]}')
@@ -504,11 +580,17 @@ def _registro(item:Item,pa:Pagina,pb:Pagina,presente:str,ausente:str,*,referenci
                f'mas não foi identificado na página correspondente em {ausente}. '
                f'Abra os links dos dois ambientes e confira essa seção. '
                f'A diferença não determina qual ambiente está atualizado.')
+    situacao='Divergência para revisão'
+    painel=item.local.split(' → ',1)[0]
+    if painel in pb.coleta.get('componentes_nao_inspecionados', ()):
+        situacao='inconclusivo'
+        descricao=(f'O item "{item.nome[:200]}" foi observado em {presente}. '
+                   f'A inspeção de {painel} em {ausente} ficou incompleta. A presença requer revisão.')
     return {'tipo':item.tipo,'presente_em':presente,'nao_identificado_em':ausente,
             'pagina':pa.titulo,'url_presente':pa.url,'url_comparada':pb.url,
             'local':item.local,'caminho':caminho,'elemento':item.nome[:250],
             'componente_id':item.componente_id,'secao_id':item.secao_id,'referencia':item.destino,
-            'descricao':descricao,'situacao':'Divergência para revisão', 'posicao':item.posicao, 'seletor':item.seletor, 'visivel_texto':item.visivel_texto}
+            'descricao':descricao,'situacao':situacao, 'posicao':item.posicao, 'seletor':item.seletor, 'visivel_texto':item.visivel_texto}
 
 
 def _parear_textos(itens_a: list[Item], itens_b: list[Item]):
