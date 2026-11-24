@@ -12,13 +12,14 @@ import time
 import uuid
 import webbrowser
 from urllib.parse import urlsplit
-from flask import Flask,jsonify,render_template,request,send_from_directory,send_file
+from flask import Flask,Response,jsonify,render_template,request,send_from_directory,send_file
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from ambidiff.core import executar,validacao_inicial
 from ambidiff.reports import exportar
 from ambidiff.checkpoints import gravar as gravar_checkpoint
+from ambidiff.coverage_audit import AuditoriaCobertura,caminho_auditoria,csv_auditoria
 from ambidiff.diagnostics import montar_diagnostico,exportar_diagnostico
 from ambidiff.storage import (preparar_relatorio,excluir_div,excluir_execucoes,registrar_revisao,
     atomic_json,valid_run,ler_exclusoes)
@@ -152,6 +153,7 @@ def percentual_final(resultado,status):
 def worker(params,run_id):
     inicio_worker=time.monotonic();inicio_iso=datetime.now().astimezone().isoformat()
     try:
+        auditoria=AuditoriaCobertura(PASTA,run_id,retomada_de=params.get('retomada_de'),retomada=params.get('retomada'))
         resultado=executar(params['url_a'],params['url_b'],params['nome_a'],params['nome_b'],
                            PARAR,log,atualizar_progresso,observador=andamento,
                            site_nome=params['site_nome'], evidencias_dir=PASTA/f'evidencias_{run_id}',
@@ -161,6 +163,7 @@ def worker(params,run_id):
                            ambiente_desatualizado=params.get('ambiente_desatualizado',''),
                            checkpoint=lambda d:gravar_checkpoint(PASTA/f'checkpoint_{run_id}.json',dict(d,id=run_id)),
                            estrategia=params.get('estrategia'),orcamento_minutos=params.get('orcamento_minutos'),
+                           auditoria_cobertura=auditoria,
                            **({'retomada':params['retomada']} if params.get('retomada') else {}))
         if resultado is None:
             raise RuntimeError('A varredura não produziu relatório; consulte o diagnóstico.')
@@ -378,7 +381,30 @@ def logs_completos(run_id):
 
 
 @app.get('/api/historico')
-def historico():return jsonify(_hist())
+def historico():
+    return jsonify([dict(h,auditoria_cobertura=bool(valid_run(h.get('id'))
+        and caminho_auditoria(PASTA,h['id']).is_file())) for h in _hist()])
+
+
+@app.get('/api/auditoria-cobertura/<run_id>/<formato>')
+def baixar_auditoria_cobertura(run_id,formato):
+    if not valid_run(run_id) or formato not in ('json','csv'):
+        return jsonify(erro='Arquivo inválido.'),400
+    caminho=caminho_auditoria(PASTA,run_id)
+    nome=f'auditoria_cobertura_{run_id}.{formato}'
+    try:
+        if formato=='json':
+            resposta=send_file(caminho,mimetype='application/json',as_attachment=True,download_name=nome)
+        else:
+            doc=json.loads(caminho.read_bytes())
+            resposta=Response(csv_auditoria(doc),content_type='text/csv; charset=utf-8',
+                headers={'Content-Disposition':f'attachment; filename="{nome}"'})
+    except FileNotFoundError:
+        return jsonify(erro='Auditoria detalhada indisponível para esta execução.'),404
+    except (ValueError,OSError):
+        return jsonify(erro='Auditoria de cobertura temporariamente indisponível.'),500
+    resposta.headers['Cache-Control']='no-store'
+    return resposta
 
 
 @app.get('/api/relatorio/<run_id>')

@@ -137,6 +137,7 @@ def excluir_execucoes(root:Path,hist_path:Path,run_ids:list[str],lock:threading.
                 for ext in ('json','csv','html'):
                     (root/f'{prefix}{rid}.{ext}').unlink(missing_ok=True)
             (root/f'detalhes_filtrado_{rid}.json').unlink(missing_ok=True)
+            (root/f'auditoria_cobertura_{rid}.json').unlink(missing_ok=True)
             _overlay(root,rid).unlink(missing_ok=True)
             for name in ('selecoes_', 'recuperacao_', 'detalhes_', 'execucao_', 'relevancia_', 'revisoes_', 'diagnostico_', 'log_', 'checkpoint_'):
                 for ext in ('json','txt','log'):

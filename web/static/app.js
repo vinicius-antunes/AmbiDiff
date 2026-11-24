@@ -530,6 +530,19 @@ function folder(group,forHistory=false){
       });item.append(check);
     }
     const meta=element('div');meta.append(element('strong',h.data),element('small',h.total+' divergência(s) · '+(h.fila_execucao?({concluida:'Fila concluída',concluida_com_falhas:'Concluída com falhas',parcial:'Parcial',interrompida:'Interrompida'})[h.fila_execucao.estado]:(h.situacao||'Execução anterior'))+' · '+Object.entries(h.paginas||{}).map(([k,v])=>k+': '+v+' pág.').join(' / ')));
+    if(forHistory){
+      if(h.auditoria_cobertura){
+        const audit=element('details');
+        audit.append(element('summary','Exportar auditoria de cobertura'));
+        for(const formato of ['JSON','CSV']){
+          const link=element('a',formato,'outline-button');
+          link.href='/api/auditoria-cobertura/'+encodeURIComponent(h.id)+'/'+formato.toLowerCase();
+          link.setAttribute('aria-label','Baixar auditoria de cobertura em '+formato);
+          audit.append(link);
+        }
+        meta.append(audit);
+      }else meta.append(element('small','Auditoria detalhada indisponível para esta execução.'));
+    }
     const actions=element('div',null,'run-actions');
     const btn=element('button','Abrir relatório →','outline-button');btn.addEventListener('click',()=>openReport(h.id));
     const trash=element('button','🗑','trash-button');trash.type='button';trash.title='Excluir esta execução';

@@ -539,7 +539,7 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
             try:context.close()
             except Exception:log('[Evidência] Limpeza do contexto já encerrado; demais recursos continuam sendo liberados.')
 
-def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False,observador=None,retomada=None,estrategia=None,orcamento_minutos=None):
+def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False,observador=None,retomada=None,estrategia=None,orcamento_minutos=None,*,auditoria_cobertura=None):
     from playwright.sync_api import sync_playwright
     metricas=Metricas();metricas.parar=parar;inteligencia=Inteligencia(metricas);documentos=Documentos(metricas,parar,permitir_range=False,observacao_por_execucao=True)
     from .destinations import Destinos
@@ -642,7 +642,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     def admitidos():return len(pares_enfileirados-nao_html)
     from .urlfilter import PoliticaURLs,identidade
     from .pagination import primeira_equivalente,finalidade
-    filtro=PoliticaURLs(estado.get('filtro_urls') if estado else None,(base_a,base_b))
+    filtro=PoliticaURLs(estado.get('filtro_urls') if estado else None,(base_a,base_b),
+        observar_decisao=auditoria_cobertura.observar_politica if auditoria_cobertura else None)
     def navegavel(url,base,lado):
         if permitido(url,base):return True
         if url not in filtro.escopos[lado].compartilhados:return False
@@ -682,6 +683,11 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     refs_url=[Counter(p[lado] for p in conhecidos) for lado in (0,1)]
     refs_representacao=[Counter(canonico(p)[lado] for p in conhecidos) for lado in (0,1)]
     identidades=set(refs_identidade)
+    def remover_diagnostico(key):
+        registro=diagnosticos_pares.pop(key,None)
+        if auditoria_cobertura and registro:
+            auditoria_cobertura.observar(key,registro.get('origem'))
+
     def repor_fila():
         if not dinamica:return
         with metricas.medir('descoberta'):
@@ -692,7 +698,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 contexto='Documentos' if prova.get('excecao_estrutural') and 'finalidade documental/legislativa' in prova.get('motivo','') else ''
                 if filtro.avaliar(par,contexto):
                     if filtro.registros[key]['categoria'] in ('outro_portal','conteudo_editorial_individual','editorial_sem_contraparte'):conferir_referencia(par)
-                    diagnosticos_pares.pop(key,None)
+                    remover_diagnostico(key)
                     candidatos_vistos.discard(key)
                     canon=canon_por_par.pop(key,canonico(par,contexto));refs_identidade[canon]-=1
                     if refs_identidade[canon]<=0:identidades.discard(canon)
@@ -736,7 +742,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         if key not in pares_enfileirados and filtro.avaliar(par,contexto,representados):
             if filtro.registros[key]['categoria'] in ('outro_portal','conteudo_editorial_individual','editorial_sem_contraparte'):
                 conferir_referencia(par)
-            if key not in pares_enfileirados and key not in candidatos_vistos:diagnosticos_pares.pop(key,None)
+            if key not in pares_enfileirados and key not in candidatos_vistos:remover_diagnostico(key)
             return
         canon=canonico(par,contexto)
         if canon in identidades and key not in pares_enfileirados and key not in candidatos_vistos:
@@ -856,6 +862,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         # Um único agendamento: evita disparos de tempo e de contagem no mesmo par.
         if not forcar and time.monotonic()-ultimo_checkpoint<max(30,min(120,custo_checkpoint*20)):return
         inicio_cp=time.perf_counter()
+        dados_confirmados=None
         try:
             metricas.contagens['operacoes_checkpoint']+=1
             dados=snapshot();dados['motivo_checkpoint']=motivo
@@ -864,6 +871,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 for k in ('serializacao_json','gravacao'):metricas.tempos['checkpoint_'+k]+=io.get(k,0)
                 metricas.contagens['checkpoint_bytes_gravados']+=io.get('bytes',0)
             metricas.contagens['checkpoints_salvos']+=1
+            dados_confirmados=dados
         except Exception as exc:
             metricas.contagens['checkpoint_falhas']+=1
             log('[Diagnóstico] Checkpoint não salvo; último arquivo válido preservado: '+str(exc)[:110])
@@ -871,6 +879,12 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             custo_checkpoint=time.perf_counter()-inicio_cp
             metricas.tempos['checkpoint']+=custo_checkpoint
             ultimo_checkpoint=time.monotonic()
+        if auditoria_cobertura and dados_confirmados is not None:
+            try:
+                with metricas.medir('auditoria_cobertura'):
+                    auditoria_cobertura.salvar(dados_confirmados)
+            except Exception:
+                log('[Cobertura] Auditoria não atualizada. O último arquivo válido foi preservado.')
     def registrar_fatal(ua,ub,trilha,ex,lado=None):
         key=ua+' | '+ub;tentativas_fatais[key]=tentativas_fatais.get(key,0)+1
         from .diagnostics import registrar_excecao
@@ -976,9 +990,14 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                             visitados.discard((ua,ub));fila.append((ua,ub,trilha));break
                         validar_itens(pag);exclusivas[env][url]=pag
                         filtro.observar(lado,pag,page.url)
+                        if auditoria_cobertura:
+                            auditoria_cobertura.observar_coleta(pag if ua else None,pag if ub else None,(),trilha)
                         for item in pag.itens:
-                            if item.destino and item.recurso=='navegacao' and not e_arquivo(item.destino) and (navegavel(item.destino,base,lado) or filtro.escopos[lado].outro(item.destino)):
-                                u=url_limpa(item.destino);propor((u,'',(trilha+[item.nome])[-12:]) if ua else ('',u,(trilha+[item.nome])[-12:]),item.posicao+' '+item.local+' '+item.natureza+' origem_unilateral','sem_correspondencia_univoca')
+                            if item.destino and item.recurso=='navegacao' and not e_arquivo(item.destino):
+                                if navegavel(item.destino,base,lado) or filtro.escopos[lado].outro(item.destino):
+                                    u=url_limpa(item.destino);propor((u,'',(trilha+[item.nome])[-12:]) if ua else ('',u,(trilha+[item.nome])[-12:]),item.posicao+' '+item.local+' '+item.natureza+' origem_unilateral','sem_correspondencia_univoca')
+                                elif auditoria_cobertura:
+                                    auditoria_cobertura.fora_escopo(item.destino,lado)
                         pendencias.append({'ambiente':env,'url':url,'motivo':'Página exclusiva inspecionada; sem contraparte comprovada, conteúdo não comparado'})
                         terminar(ua,ub,'sem_contraparte')
                     except Exception as exc:
@@ -1211,6 +1230,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 emitir('links_documentos')
                 # 2. Compara links pareados por nome/contexto.
                 with metricas.medir('links'):pares_links=_link_pairs(pa,pb,aceitar_rotulos=varredura_inteligente,base_a=base_a,base_b=base_b)
+                if auditoria_cobertura:
+                    auditoria_cobertura.observar_coleta(pa,pb,pares_links,trilha)
                 controles=[]
                 for ia in pa.itens:
                     matches=[ib for ib in pb.itens if ia.controle_alvo and ib.controle_alvo and normalizar(ia.nome)==normalizar(ib.nome) and normalizar(ia.local)==normalizar(ib.local)]
@@ -1251,10 +1272,13 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     for env,pag,base in ((nome_a,pa,base_a),(nome_b,pb,base_b)):
                         for item in pag.itens:
                             lado=0 if env==nome_a else 1
-                            if id(item) not in pareados and item.destino and item.recurso=='navegacao' and not e_arquivo(item.destino) and (navegavel(item.destino,base,lado) or filtro.escopos[lado].outro(item.destino)):
-                                u=url_limpa(item.destino)
-                                # Não inventa URL no ambiente oposto para referências sem par.
-                                propor((u,'',(trilha+[item.nome])[-12:]) if env==nome_a else ('',u,(trilha+[item.nome])[-12:]),item.posicao+' '+item.local+' '+item.natureza,'sem_correspondencia_univoca')
+                            if id(item) not in pareados and item.destino and item.recurso=='navegacao' and not e_arquivo(item.destino):
+                                if navegavel(item.destino,base,lado) or filtro.escopos[lado].outro(item.destino):
+                                    u=url_limpa(item.destino)
+                                    # Não inventa URL no ambiente oposto para referências sem par.
+                                    propor((u,'',(trilha+[item.nome])[-12:]) if env==nome_a else ('',u,(trilha+[item.nome])[-12:]),item.posicao+' '+item.local+' '+item.natureza,'sem_correspondencia_univoca')
+                                elif auditoria_cobertura:
+                                    auditoria_cobertura.fora_escopo(item.destino,lado)
                 pares_links.sort(key=lambda par: (0 if re.search(r'portaria|legisla|requerimento|normativ|servi',normalizar(par[0].nome)) else 2 if par[0].imagem_link else 1))
                 for ia,ib in pares_links:
                     from .urlpolicy import fragmento
@@ -1271,8 +1295,14 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     try:da,db=url_limpa(ia.destino),url_limpa(ib.destino)
                     except (TypeError,ValueError):continue
                     if referencia_invalida(da) or referencia_invalida(db):
+                        if auditoria_cobertura:
+                            auditoria_cobertura.observar((da,db),status='fora_escopo',
+                                motivo='Referência codificada não navegável.')
                         excluded['Referências codificadas não navegáveis']+=1;continue
                     if ia.recurso in ('midia','auxiliar') or ib.recurso in ('midia','auxiliar'):
+                        if auditoria_cobertura:
+                            auditoria_cobertura.observar((da,db),status='nao_html',
+                                motivo='Referência tratada como mídia ou recurso auxiliar.')
                         refs.append({'tipo':'Recurso de mídia/auxiliar','elemento':ia.nome,'destino_a':da,'destino_b':db,'ambiente_a':nome_a,'ambiente_b':nome_b,'caminho':' → '.join(trilha),'motivo':'Referência classificada por caminho e contexto; sem inspeção binária'})
                         # Evitar leitura/crawl de mídia não dispensa comparar o
                         # destino da opção, especialmente nos menus estruturais.
@@ -1284,6 +1314,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     documental=ia.tipo=='Documento' or ib.tipo=='Documento' or e_arquivo(da) or e_arquivo(db)
                     if documental:
                         resultado_doc=documentos.comparar(ia,ib,base_a,base_b)
+                        if auditoria_cobertura:
+                            auditoria_cobertura.observar((da,db),status='nao_html',categoria='documental',
+                                motivo='Referência tratada pelo fluxo documental, sem comparação como página HTML.')
                         documentos_relatorio.append({**resultado_doc,'pagina_a':pa.url,'pagina_b':pb.url})
                         ma=resultado_doc.get('a',{});mb=resultado_doc.get('b',{})
                         diferentes=bool(ma.get('url') and mb.get('url') and not link_equivalente(ma['url'],mb['url'],base_a,base_b))
@@ -1300,6 +1333,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         propor((da,db,(trilha+[ia.nome])[-12:]),ia.local+' '+ib.local)
                         continue
                     if externo:
+                        if auditoria_cobertura and not documental:
+                            auditoria_cobertura.observar((da,db),status='fora_escopo',
+                                motivo='Destino fora da expansão HTML no escopo autorizado.')
                         if auditar_externos:
                             with metricas.medir('destinos'):verificacao=destinos.comparar(da,db,base_a,base_b)
                         else:verificacao={'classificacao':'VERIFICACAO_INCONCLUSIVA','destino_a':da,'destino_b':db,'motivo':'Destino externo não acessado: autorização de conferência desmarcada'}
@@ -1311,6 +1347,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                             brutos.append(registro)
                         if link_equivalente(da,db,base_a,base_b):continue
                     if not link_equivalente(da,db,base_a,base_b):
+                        if auditoria_cobertura and not (documental or externo):
+                            auditoria_cobertura.observar((da,db),status='inconclusiva',
+                                motivo='Destinos distintos na origem, sem comparação HTML confirmada.')
                         if modo_defasado and item_editorial(ia,pa) and item_editorial(ib,pb):
                             editoriais.append({'tipo':'Link editorial','elemento':ia.nome,
                                'presente_em':nome_a,'url_presente':pa.url,'url_comparada':pb.url})

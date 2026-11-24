@@ -76,7 +76,8 @@ def _indices_seguros(url):
 
 
 class PoliticaURLs:
-    def __init__(self,estado=None,bases=()):
+    def __init__(self,estado=None,bases=(),*,observar_decisao=None):
+        self.observar_decisao=observar_decisao
         self.registros={tuple(r['par']):dict(r) for r in (estado or {}).get('registros',[])}
         self.duplicacoes=(estado or {}).get('duplicacoes',0)
         self.preservadas=set((estado or {}).get('preservadas',[])) if (estado or {}).get('versao')==2 else set()
@@ -173,6 +174,10 @@ class PoliticaURLs:
                 'motivo':('Paginação posterior de mesma rota/índice, com evidência editorial observada em apenas um ambiente; sem comparação profunda'
                           if inferencia_unilateral else categoria.replace('_',' ') if excluir else
                           '; '.join(sorted(set(justificativas))) or 'Natureza ambígua; análise preservada sem presumir finalidade estrutural')}
+        if self.observar_decisao:
+            self.observar_decisao(urls,par[2],provas,
+                [self.escopos[i].fonte_site for i,u in enumerate(urls) if u and i<len(self.escopos)],
+                self.registros[urls])
         return excluir
     def estado(self):return {'versao':2,'registros':list(self.registros.values()),'duplicacoes':self.duplicacoes,'preservadas':sorted(self.preservadas),'eventos':dict(self.eventos),'portais':[e.estado() for e in self.escopos],'finalidades_observadas':self.evidencias}
     def resumo(self,detalhado=False):
