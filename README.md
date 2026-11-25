@@ -124,13 +124,13 @@ Ele **não confirma sozinho** a integridade de bancos de dados, a configuração
 | Varredura interrompida ou parcial | Consulte o diagnóstico, as falhas e a possibilidade de retomada pelo histórico. |
 | Download não aparece | Confira os downloads do navegador (`Ctrl + J`), o terminal e a pasta de relatórios. |
 
-Consulte o [guia de uso e solução de problemas](docs/guia-de-uso.md) para instruções adicionais.
+Para começar uma nova verificação, consulte também [Primeira comparação](#primeira-comparação).
 
 ## Documentação
 
 | Assunto | Referência |
 | --- | --- |
-| Instalação, uso e atualização | [Guia de uso](docs/guia-de-uso.md) |
+| Instalação, uso e solução de problemas | [Instalação](#instalação) · [Primeira comparação](#primeira-comparação) · [Solução de problemas](#solução-de-problemas) |
 | Navegação, estabilidade e recuperação | [Estabilização da varredura](docs/estabilizacao-varredura.md) |
 | Prioridades e limite de páginas | [Fila dinâmica](docs/otimizacao-fila-dinamica.md) · [Portais extensos](docs/atualizacao-portais-extensos.md) |
 | Política de URLs e exclusões | [Visão geral](docs/filtro-urls-varredura.md) · [Etapa 2](docs/filtro-urls-etapa2.md) · [Etapa 3](docs/filtro-urls-etapa3.md) · [Etapa 4](docs/filtro-urls-etapa4.md) |
