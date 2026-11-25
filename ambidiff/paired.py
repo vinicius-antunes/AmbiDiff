@@ -153,6 +153,9 @@ def _extrair_page(page,url:str,trilha:list[str],log,metricas=None,profunda=True)
     resumo['componentes_restritos']=dados.get('componentes_restritos',[])
     resumo['nome_site']=dados.get('nome_site','')
     resumo['avisos_ambiente']=dados.get('avisos_ambiente',[])
+    resumo['portal']=dados.get('portal',{})
+    resumo['referencias_finalidade']=dados.get('referencias_finalidade',[])
+    resumo['finalidade_pagina']=dados.get('finalidade_pagina','')
     metricas.tempos['extracao']+=time.perf_counter()-inicio_extracao
     metricas.contagens['operacoes_extracao']+=1
     return Pagina(url, '',dados.get('title') or 'Página',refiltro(itens),trilha[:12],links, dados.get('menus',[]),resumo)
@@ -637,14 +640,70 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     def comparados():return contagens_estados['comparado']
     def inconclusivos():return sum(n for v,n in contagens_estados.items() if v not in ('comparado','nao_html','falha'))
     def admitidos():return len(pares_enfileirados-nao_html)
+    from .urlfilter import PoliticaURLs,identidade
+    from .pagination import primeira_equivalente,finalidade
+    filtro=PoliticaURLs(estado.get('filtro_urls') if estado else None,(base_a,base_b))
+    def navegavel(url,base,lado):
+        if permitido(url,base):return True
+        if url not in filtro.escopos[lado].compartilhados:return False
+        try:
+            url_limpa(url)
+            return Destinos.origem(url)==Destinos.origem(base)
+        except (TypeError,ValueError):return False
+    referencias_conferidas={(v.get('destino_a',''),v.get('destino_b','')) for v in verificacoes_destinos if v.get('escopo')=='Referência sem expansão HTML'}
+    def conferir_referencia(par):
+        key=tuple(par[:2])
+        if key in referencias_conferidas:return
+        referencias_conferidas.add(key)
+        urls=[u for u in key if u]
+        if not all(Destinos.origem(u) in destinos.origens for u in urls):return
+        with metricas.medir('destinos'):
+            if all(key):verificacao=destinos.comparar(*key,base_a,base_b)
+            else:
+                observado=destinos.conferir(urls[0])
+                verificacao={'classificacao':observado['classificacao'],'observacao':observado,
+                    'motivo':'Referência unilateral; sem contraparte comprovada'}
+        verificacoes_destinos.append(dict(verificacao,elemento=par[2][-1] if par[2] else '',
+            destino_a=key[0],destino_b=key[1],escopo='Referência sem expansão HTML'))
+        if all(key) and verificacao['classificacao'] in ('DESTINO_DIVERGENTE','LINK_INACESSIVEL'):
+            brutos.append({'tipo':'Destino verificado','categoria':'Links e redirecionamentos',
+                'elemento':par[2][-1] if par[2] else '', 'destino_a':key[0],'destino_b':key[1],
+                'presente_em':nome_a,'nao_identificado_em':nome_b,'pagina':'Referência entre portais',
+                'caminho':' → '.join(par[2]),'url_presente':andamento.get('url_a',base_a),
+                'url_comparada':andamento.get('url_b',base_b),'situacao':verificacao['classificacao'],
+                'descricao':'Diferença observada por HEAD; conteúdo do portal de destino não explorado.',
+                'verificacao_destino':verificacao})
+    def canonico(par,contexto=''):
+        return tuple(identidade(primeira_equivalente(u,par[2][-1] if len(par)>2 and par[2] else '',
+            contexto+(' editorial' if filtro.evidencias[lado].get(u)=='listagem_editorial' else ''))) if u else '' for lado,u in enumerate(par[:2]))
+    conhecidos=pares_enfileirados|candidatos_vistos
+    canon_por_par={p:canonico(p) for p in conhecidos}
+    refs_identidade=Counter(canon_por_par.values())
+    refs_url=[Counter(p[lado] for p in conhecidos) for lado in (0,1)]
+    refs_representacao=[Counter(canonico(p)[lado] for p in conhecidos) for lado in (0,1)]
+    identidades=set(refs_identidade)
     def repor_fila():
         if not dinamica:return
         with metricas.medir('descoberta'):
             while candidatos.ativos and admitidos()<limite_html and len(fila)<8:
                 par=candidatos.popleft();key=tuple(par[:2])
                 if key in pares_enfileirados:continue
+                prova=filtro.registros.get(key,{})
+                contexto='Documentos' if prova.get('excecao_estrutural') and 'finalidade documental/legislativa' in prova.get('motivo','') else ''
+                if filtro.avaliar(par,contexto):
+                    if filtro.registros[key]['categoria'] in ('outro_portal','conteudo_editorial_individual','editorial_sem_contraparte'):conferir_referencia(par)
+                    diagnosticos_pares.pop(key,None)
+                    candidatos_vistos.discard(key)
+                    canon=canon_por_par.pop(key,canonico(par,contexto));refs_identidade[canon]-=1
+                    if refs_identidade[canon]<=0:identidades.discard(canon)
+                    for lado in (0,1):
+                        refs_url[lado][key[lado]]-=1;refs_representacao[lado][canon[lado]]-=1
+                        if refs_url[lado][key[lado]]<=0:urls_vistas[lado].discard(key[lado])
+                        if refs_representacao[lado][canon[lado]]<=0:representados[lado].discard(canon[lado])
+                    continue
                 pares_enfileirados.add(key);fila.append(par)
                 diagnosticar(par).update(estado='admitido',motivo='Aguardando processamento na fila admitida')
+    representados=[{k[lado] for k in identidades if k[lado]} for lado in (0,1)]
     urls_vistas=[{p[lado] for p in pares_enfileirados|candidatos_vistos if p[lado]} for lado in (0,1)]
     def diagnosticar(par,criterio='legado_sem_criterio',origem=None):
         import hashlib,json
@@ -659,6 +718,8 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
     for key,st in estados_pares.items():
         if key not in diagnosticos_pares:diagnosticar((*key,[])).update(estado=st,motivo='Estado restaurado do checkpoint')
     def propor(par,contexto='',criterio='rotulo_contexto_e_url'):
+        filtro.eventos['propostas']+=1
+        if tuple(par[:2]) in pares_enfileirados or tuple(par[:2]) in candidatos_vistos or tuple(par[:2]) in filtro.registros:filtro.eventos['redescobertas']+=1
         diagnosticar(par,criterio,{'pagina_a':andamento.get('url_a',''),'pagina_b':andamento.get('url_b',''),'trilha':par[2],'contexto':contexto})
         with metricas.medir('descoberta'):_propor(par,contexto)
     def _propor(par,contexto=''):
@@ -669,11 +730,27 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             # Mesma URL exata já observada neste ambiente: reaproveita a
             # inspeção, sem dispensar a comparação dos rótulos nos menus.
             if key[lado] in urls_vistas[lado]:
-                metricas.contagens['urls_duplicadas']+=1
+                filtro.duplicacoes+=1;metricas.contagens['urls_duplicadas']+=1
                 if key not in candidatos_vistos and key not in pares_enfileirados:registro.update(estado='duplicado',motivo='URL já descoberta neste ambiente')
                 return
+        if key not in pares_enfileirados and filtro.avaliar(par,contexto,representados):
+            if filtro.registros[key]['categoria'] in ('outro_portal','conteudo_editorial_individual','editorial_sem_contraparte'):
+                conferir_referencia(par)
+            if key not in pares_enfileirados and key not in candidatos_vistos:diagnosticos_pares.pop(key,None)
+            return
+        canon=canonico(par,contexto)
+        if canon in identidades and key not in pares_enfileirados and key not in candidatos_vistos:
+            filtro.duplicacoes+=1;metricas.contagens['urls_duplicadas']+=1
+            diagnosticar(par).update(estado='duplicado',motivo='Destino já descoberto; rastreamento ou primeira página equivalente')
+            return
+        registro=diagnosticar(par)
+        if key in candidatos_vistos or key in pares_enfileirados:
+            rank=categoria(par,contexto)
+            if rank<categorias.get(key,rank):
+                categorias[key]=rank;candidatos.promover(key);fila.promover(key)
+
         if key in pares_enfileirados or key in candidatos_vistos:
-            metricas.contagens['urls_duplicadas']+=1;return
+            filtro.duplicacoes+=1;metricas.contagens['urls_duplicadas']+=1;return
         if dinamica:
             if admitidos()>=limite_html:
                 metricas.contagens['referencias_apos_teto']+=1;registro.update(estado='nao_admitido',motivo='Limite de pares HTML atingido');return
@@ -683,7 +760,10 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         else:
             if len(pares_enfileirados)>=MAX_URLS_SEGURANCA:return
             fila.append(par);pares_enfileirados.add(key)
+        identidades.add(canon);refs_identidade[canon]+=1;canon_por_par[key]=canon
         for lado in (0,1):
+            refs_url[lado][key[lado]]+=1;refs_representacao[lado][canon[lado]]+=1
+            if canon[lado]:representados[lado].add(canon[lado])
             if key[lado]:urls_vistas[lado].add(key[lado])
     def terminar(ua,ub,estado_par):
         anterior=estados_pares.get((ua,ub))
@@ -711,7 +791,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         andamento.update(contadores(andamento))
         if observador:observador(dict(andamento))
     def resumo_cobertura():
-        return {'estrategia':estrategia,'orcamento_minutos':orcamento_minutos,'motivo_encerramento':motivo_encerramento,
+        return {'filtro_urls':{**filtro.resumo(),'pares_efetivamente_comparados':comparados(),'falhas_coleta':len(pares_falhos),'exclusivas_inspecionadas':sum(map(len,exclusivas.values())), 'urls_unicas_admitidas':len({u for p in pares_enfileirados for u in p if u}), 'exclusivas_por_finalidade':dict(Counter(finalidade(p.url,p.trilha[-1] if p.trilha else '')['categoria'] for env in exclusivas.values() for p in env.values()))},'estrategia':estrategia,'orcamento_minutos':orcamento_minutos,'motivo_encerramento':motivo_encerramento,
                 'pares_dom_aprofundado':sum(p.coleta.get('inspecao_profunda',True) for p in paginas_a.values()),
                 'pares_dom_estrutural':sum(not p.coleta.get('inspecao_profunda',True) for p in paginas_a.values()),
                 'pares_nao_inspecionados':len(fila),'pares_adiados_editoriais':len(fila.adiados),
@@ -740,7 +820,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
         metricas.tempos['checkpoint_conversao_paginas']+=conversao
         metricas.contagens['checkpoint_paginas_convertidas']=cache_paginas.convertidas
         metricas.contagens['checkpoint_paginas_reutilizadas']=cache_paginas.reutilizadas
-        estado=dict(diagnosticos_pares=lista_diagnosticos(),evidencias_preservadas=evidencias_preservadas,politica_html=1,limite_html=limite_html,categorias_html=[{'par':list(k),'categoria':v} for k,v in categorias.items()],
+        estado=dict(filtro_urls=filtro.estado(),diagnosticos_pares=lista_diagnosticos(),evidencias_preservadas=evidencias_preservadas,politica_html=1,limite_html=limite_html,categorias_html=[{'par':list(k),'categoria':v} for k,v in categorias.items()],
             candidatos_html=[list(p) for p in candidatos],candidatos_saidas=candidatos.saidas,candidatos_rodada=candidatos.rodada,fila_rodada=fila.rodada,
             candidatos_vistos=[list(p) for p in sorted(candidatos_vistos)],pares_nao_html=[list(p) for p in sorted(nao_html)],
             estados_pares=[{'par':list(k),'estado':v} for k,v in estados_pares.items()],
@@ -757,7 +837,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 'componentes':list(inteligencia.componentes),'templates':dict(inteligencia.templates),'nao_pareadas':list(inteligencia.nao_pareadas)})
         assinatura_antes=metricas.tempos['checkpoint_assinatura_json']
         pacote=empacotar(estado,metricas)
-        resultado={'retomada':pacote,'diagnosticos_pares':lista_diagnosticos(),'evidencias_preservadas':evidencias_preservadas,'cobertura':resumo_cobertura(),'motivo_encerramento':motivo_encerramento,**metricas.temporal(),'site_nome':site_nome,'ambientes':{nome_a:base_a,nome_b:base_b},
+        resultado={'retomada':pacote,'filtro_urls':filtro.resumo(True),'diagnosticos_pares':lista_diagnosticos(),'evidencias_preservadas':evidencias_preservadas,'cobertura':resumo_cobertura(),'motivo_encerramento':motivo_encerramento,**metricas.temporal(),'site_nome':site_nome,'ambientes':{nome_a:base_a,nome_b:base_b},
             'paginas':{nome_a:len(paginas_a),nome_b:len(paginas_b)},
             'bloqueios_seguranca':list(bloqueios.values()),'andamento':dict(andamento),'brutos':brutos,'variacoes_editoriais':editoriais,'falhas':falhas,
             'modo_varredura':'inteligente' if varredura_inteligente else 'atual',
@@ -814,7 +894,10 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             registro['recuperacao_falhou']=True;salvar_checkpoint('falha_fatal',True);raise
     def navegar(page,url,base,env):
         from .navigation import abrir
-        return abrir(page,url,base,parar,metricas,eventos,env,_abrir)
+        def tentativa(aba,destino):
+            metricas.contagens['navegacoes_html_tentadas']+=1
+            return _abrir(aba,destino)
+        return abrir(page,url,base,parar,metricas,eventos,env,tentativa)
     def validar_itens(pag):
         for i in pag.itens:
             if not i.destino:continue
@@ -835,7 +918,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             req=route.request;p=urlsplit(req.url)
             from .documents import ACOES_ESCRITA
             inseguro=req.method not in ('GET','HEAD','OPTIONS') or bool(ACOES_ESCRITA.search(unquote(req.url)))
-            if req.is_navigation_request() and not any(permitido(req.url,base) for base in (base_a,base_b)):inseguro=True
+            if req.is_navigation_request() and not any(navegavel(req.url,base,lado) for lado,base in enumerate((base_a,base_b))):inseguro=True
             if inseguro:
                 try:origem=req.frame.page.url
                 except Exception:origem=''
@@ -883,14 +966,19 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                         mime=getattr(resp,'headers',{}).get('content-type','').lower().split(';')[0].strip()
                         if mime and mime not in ('text/html','application/xhtml+xml'):
                             nao_html.add((ua,ub));terminar(ua,ub,'nao_html');continue
-                        if not permitido(page.url,base):raise RuntimeError('Destino fora do escopo da página exclusiva')
+                        lado=0 if ua else 1
+                        if not navegavel(page.url,base,lado):raise RuntimeError('Destino fora do escopo da página exclusiva')
+                        if page.url!=url and filtro.avaliar((page.url,'',trilha) if ua else ('',page.url,trilha),fase='pos_navegacao'):
+                            pendencias.append({'ambiente':env,'url':url,'destino_final':page.url,'motivo':'Redirecionamento para referência fora da expansão: '+filtro.registros[(page.url,'') if ua else ('',page.url)]['categoria']})
+                            terminar(ua,ub,'fora_escopo');continue
                         with metricas.medir('inspecao_exclusiva'):pag=_extrair_page(page,url,trilha,log,metricas=metricas,profunda=False)
                         if parar.is_set():
                             visitados.discard((ua,ub));fila.append((ua,ub,trilha));break
                         validar_itens(pag);exclusivas[env][url]=pag
+                        filtro.observar(lado,pag,page.url)
                         for item in pag.itens:
-                            if item.destino and item.recurso=='navegacao' and not e_arquivo(item.destino) and permitido(item.destino,base):
-                                u=url_limpa(item.destino);propor((u,'',(trilha+[item.nome])[-12:]) if ua else ('',u,(trilha+[item.nome])[-12:]),item.posicao+' '+item.local,'sem_correspondencia_univoca')
+                            if item.destino and item.recurso=='navegacao' and not e_arquivo(item.destino) and (navegavel(item.destino,base,lado) or filtro.escopos[lado].outro(item.destino)):
+                                u=url_limpa(item.destino);propor((u,'',(trilha+[item.nome])[-12:]) if ua else ('',u,(trilha+[item.nome])[-12:]),item.posicao+' '+item.local+' '+item.natureza+' origem_unilateral','sem_correspondencia_univoca')
                         pendencias.append({'ambiente':env,'url':url,'motivo':'Página exclusiva inspecionada; sem contraparte comprovada, conteúdo não comparado'})
                         terminar(ua,ub,'sem_contraparte')
                     except Exception as exc:
@@ -948,6 +1036,15 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 try:url_limpa(final_a);url_limpa(final_b)
                 except (ValueError,TypeError) as exc:
                     pendencias.append({'ambiente':nome_a+' / '+nome_b,'url':ua,'url_b':ub,'motivo':'Destino final inválido: '+str(exc)[:160]});pares_falhos.add((ua,ub));terminar(ua,ub,'falha');continue
+                raiz=(ua,ub)==(base_a,base_b)
+                if raiz:
+                    for lado,final in enumerate((final_a,final_b)):filtro.escopos[lado].observar(final,{},True)
+                if (not raiz or any(e.outro(u) for e,u in zip(filtro.escopos,(final_a,final_b)))) and (final_a!=ua or final_b!=ub) and filtro.avaliar((final_a,final_b,trilha),fase='pos_navegacao'):
+                    motivo=filtro.registros[(final_a,final_b)]['categoria']
+                    pendencias.append({'ambiente':nome_a+' / '+nome_b,'url':ua,'url_b':ub,'destino_final_a':final_a,'destino_final_b':final_b,
+                        'motivo':'Redirecionamento observado; conteúdo não expandido pela política: '+motivo})
+                    if not link_equivalente(final_a,final_b,base_a,base_b):brutos.append(_diff_redir_page(ua,ub,final_a,final_b,trilha,nome_a,nome_b))
+                    terminar(ua,ub,'fora_escopo');continue
                 semantico=False
                 if (diagnosticar((ua,ub,trilha))['criterio']=='candidato_semantico'
                         and permitido(final_a,base_a) and permitido(final_b,base_b)
@@ -970,7 +1067,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     brutos.append(_diff_redir_page(ua,ub,final_a,final_b,trilha,nome_a,nome_b))
                     terminar(ua,ub,'redirecionamento');consecutivos=0
                     continue
-                if not permitido(final_a,base_a) or not permitido(final_b,base_b):
+                if not navegavel(final_a,base_a,0) or not navegavel(final_b,base_b,1):
                     # Ambos podem redirecionar para exatamente a mesma página externa.
                     if final_a==final_b:externos.append((final_a,' → '.join(trilha)))
                     else:brutos.append(_diff_redir_page(ua,ub,final_a,final_b,trilha,nome_a,nome_b))
@@ -1009,6 +1106,11 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 if parar.is_set():
                     visitados.discard((ua,ub));fila.append((ua,ub,trilha));break
                 validar_itens(pa);validar_itens(pb)
+                filtro.observar(0,pa,final_a,raiz);filtro.observar(1,pb,final_b,raiz)
+                if not raiz and any(p.coleta.get('finalidade_pagina') for p in (pa,pb)) and filtro.avaliar((final_a,final_b,trilha),fase='pos_navegacao'):
+                    pendencias.append({'ambiente':nome_a+' / '+nome_b,'url':ua,'url_b':ub,
+                        'motivo':'Finalidade reconhecida no HTML; conteúdo fora da expansão, sem gerar DIVs de conteúdo'})
+                    terminar(ua,ub,'fora_escopo');continue
                 consecutivos=0
                 for env,pag in ((nome_a,pa),(nome_b,pb)):
                     if not pag.coleta.get('estavel') or pag.coleta.get('rolagem_limitada') or pag.coleta.get('avisos_componentes'):
@@ -1114,7 +1216,13 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     matches=[ib for ib in pb.itens if ia.controle_alvo and ib.controle_alvo and normalizar(ia.nome)==normalizar(ib.nome) and normalizar(ia.local)==normalizar(ib.local)]
                     if len(matches)==1:controles.append((ia,matches[0]))
                 if verificar_cliques and cliques_testados<MAX_CLIQUES:
-                    for ca,cb in escolher_candidatos(pares_links+controles,base_a,base_b,limite=min(2,MAX_CLIQUES-cliques_testados)):
+                    pares_cliques=[]
+                    for ca,cb in pares_links+controles:
+                        if ca.destino and cb.destino and (ca.destino,cb.destino)!=(base_a,base_b) and filtro.avaliar((ca.destino,cb.destino,trilha+[ca.nome]),ca.local+' '+cb.local):
+                            resultados_funcionais.append({'elemento':ca.nome,'conclusivo':False,'teste_executado':False,
+                                'motivo':'Referência comparada na origem; clique não executado por política de escopo'})
+                        else:pares_cliques.append((ca,cb))
+                    for ca,cb in escolher_candidatos(pares_cliques,base_a,base_b,limite=min(2,MAX_CLIQUES-cliques_testados)):
                         # A inspeção só é executada quando o usuário opta por ela.
                         cliques_testados+=1
                         with metricas.medir('cliques'):candidato=verificar_par(browser,pa,pb,ca,cb,nome_a,nome_b,base_a,base_b,log,diagnosticos=resultados_funcionais)
@@ -1142,10 +1250,11 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     pareados={id(i) for par in pares_links for i in par}
                     for env,pag,base in ((nome_a,pa,base_a),(nome_b,pb,base_b)):
                         for item in pag.itens:
-                            if id(item) not in pareados and item.destino and item.recurso=='navegacao' and not e_arquivo(item.destino) and permitido(item.destino,base):
+                            lado=0 if env==nome_a else 1
+                            if id(item) not in pareados and item.destino and item.recurso=='navegacao' and not e_arquivo(item.destino) and (navegavel(item.destino,base,lado) or filtro.escopos[lado].outro(item.destino)):
                                 u=url_limpa(item.destino)
                                 # Não inventa URL no ambiente oposto para referências sem par.
-                                propor((u,'',(trilha+[item.nome])[-12:]) if env==nome_a else ('',u,(trilha+[item.nome])[-12:]),item.posicao+' '+item.local,'sem_correspondencia_univoca')
+                                propor((u,'',(trilha+[item.nome])[-12:]) if env==nome_a else ('',u,(trilha+[item.nome])[-12:]),item.posicao+' '+item.local+' '+item.natureza,'sem_correspondencia_univoca')
                 pares_links.sort(key=lambda par: (0 if re.search(r'portaria|legisla|requerimento|normativ|servi',normalizar(par[0].nome)) else 2 if par[0].imagem_link else 1))
                 for ia,ib in pares_links:
                     from .urlpolicy import fragmento
@@ -1185,7 +1294,11 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                                 destino_final_a=ma.get('url'),destino_final_b=mb.get('url'),verificacao_destino=resultado_doc,
                                 descricao='Cabeçalhos e destinos documentais observados por HEAD. Acesso, tipo de recurso ou referência diferente; conteúdo dos documentos não lido.')
                             brutos.append(registro)
-                    externo=(not permitido(da,base_a) or not permitido(db,base_b))
+                    externo=(not navegavel(da,base_a,0) or not navegavel(db,base_b,1))
+                    if filtro.escopos[0].outro(da) or filtro.escopos[1].outro(db):
+                        if not link_equivalente(da,db,base_a,base_b):brutos.append(_diff_destino(pa,pb,ia,ib,nome_a,nome_b))
+                        propor((da,db,(trilha+[ia.nome])[-12:]),ia.local+' '+ib.local)
+                        continue
                     if externo:
                         if auditar_externos:
                             with metricas.medir('destinos'):verificacao=destinos.comparar(da,db,base_a,base_b)
@@ -1219,9 +1332,9 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                     if documental:
                         excluded['Documentos vinculados (não percorridos como HTML)']+=1
                         continue
-                    if permitido(da,base_a) and permitido(db,base_b):
+                    if (navegavel(da,base_a,0) or filtro.escopos[0].outro(da)) and (navegavel(db,base_b,1) or filtro.escopos[1].outro(db)):
                         if item_editorial(ia,pa) and item_editorial(ib,pb):escopo.editoriais_observados.add((da,db))
-                        propor((da,db,(trilha+[ia.nome])[-12:]),ia.posicao+' '+ia.local+' '+ib.posicao+' '+ib.local)
+                        propor((da,db,(trilha+[ia.nome])[-12:]),ia.posicao+' '+ia.local+' '+ib.posicao+' '+ib.local+' '+ia.natureza+' '+ib.natureza)
                     elif (urlsplit(da).netloc!=urlsplit(base_a).netloc and
                           urlsplit(db).netloc!=urlsplit(base_b).netloc):
                         if da==db and not e_arquivo(da):externos.append((da,' → '.join(trilha+[ia.nome])))
@@ -1234,7 +1347,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 time.sleep(.04)
             if parar.is_set():parada='Interrompida pelo usuário (resultado parcial preservado)'
             resumos_seguranca.emitir(bloqueios,log,final=True)
-            completos=not bool((dinamica and (candidatos or admitidos()>=limite_html)) or fila or parada or falhas or any(g.get('impacto_possivel',True) for g in bloqueios.values()) or pendencias or avisos_coleta or inteligencia.omissoes or any(x.get('classificacao')=='Verificação inconclusiva' for x in documentos_relatorio) or any(x.get('classificacao')=='VERIFICACAO_INCONCLUSIVA' for x in verificacoes_destinos) or any(not x.get('conclusivo') for x in resultados_funcionais))
+            completos=not bool(filtro.resumo()['pares_excluidos'] or (dinamica and (candidatos or admitidos()>=limite_html)) or fila or parada or falhas or any(g.get('impacto_possivel',True) for g in bloqueios.values()) or pendencias or avisos_coleta or inteligencia.omissoes or any(x.get('classificacao')=='Verificação inconclusiva' for x in documentos_relatorio) or any(x.get('classificacao')=='VERIFICACAO_INCONCLUSIVA' for x in verificacoes_destinos) or any(not x.get('conclusivo') for x in resultados_funcionais))
             if not (paginas_a and paginas_b):completos=False
             if parada:log('Varredura parcial: '+parada)
             emitir('processamento_final')
@@ -1296,7 +1409,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             metricas.finalizar()
             metricas.contagens['pares_por_minuto']=round(comparados()*60/metricas.duracao,4) if metricas.duracao else 0
             cobertura=resumo_cobertura()
-            resultado={'diagnosticos_pares':lista_diagnosticos(),**metricas.temporal(),'cobertura':cobertura,'motivo_encerramento':motivo_encerramento,'estados_pares':[{'par':list(k),'estado':v} for k,v in estados_pares.items()],'fila_pendente':[list(p) for p in fila],'segmentos_coleta':segmentos,'estado_execucao':'interrompido' if parar.is_set() else 'finalizado','andamento':dict(andamento),
+            resultado={'filtro_urls':filtro.resumo(True),'diagnosticos_pares':lista_diagnosticos(),**metricas.temporal(),'cobertura':cobertura,'motivo_encerramento':motivo_encerramento,'estados_pares':[{'par':list(k),'estado':v} for k,v in estados_pares.items()],'fila_pendente':[list(p) for p in fila],'segmentos_coleta':segmentos,'estado_execucao':'interrompido' if parar.is_set() else 'finalizado','andamento':dict(andamento),
                 'media_segundos_por_par':round(metricas.duracao/len(paginas_a),6) if paginas_a else None,
                 'requisicoes_por_par':round(metricas.resultado()['contagens']['requisicoes_total']/len(paginas_a),3) if paginas_a else None,
                 'versao':'1.5','ambientes':{nome_a:base_a,nome_b:base_b},

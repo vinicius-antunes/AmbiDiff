@@ -166,7 +166,20 @@ JS_EXTRAIR = r'''() => {
     }
     return steps.join(' > ');
   };
+  const paginationControl = el => {
+    const container=el.closest('.pagination,.pagination-bar,.lfr-pagination,[aria-label*=pagina i],[aria-label*=página i],[aria-label*=pagination i]');
+    const name=clean(el.innerText||el.getAttribute('aria-label')||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    const control=/^(primeir[oa]|anterior|proxim[oa]|ultim[oa]|first|previous|next|last|\d+)$/.test(name);
+    let parameter=false;
+    try{parameter=[...new URL(el.href).searchParams.keys()].some(k=>/(^|_)(cur|page|pagina|start|offset)$/i.test(k));}catch(e){}
+    return !!(container || (control && parameter));
+  };
   const ctx = el => {
+    if(paginationControl(el)){
+      const owner=el.closest('nav,[role="navigation"],.pagination,.pagination-bar,.lfr-pagination');
+      const label=clean(owner?.getAttribute('aria-label'));
+      return label && !/^(pagina[cç][aã]o|pagination)$/i.test(label)?'Paginação: '+label:'Paginação';
+    }
     const local=el.closest('section,article,li,tr,[role="tabpanel"],[role="region"],[class*="card" i]');
     const header=local?.querySelector('h1,h2,h3,[role="heading"],strong');
     const row=el.closest('li,tr');
@@ -204,14 +217,14 @@ JS_EXTRAIR = r'''() => {
   const add=(tipo,nome,chave,el,destino='',textoVisivel=true)=>{
     nome=clean(nome);chave=clean(chave);
     const entidade=nome&&nome.length>=2?editorialRef(el):'';
-    if(nome&&nome.length>=2)out.push({tipo,nome,chave,local:ctx(el),destino,
+    if(nome&&(nome.length>=2||paginationControl(el)))out.push({tipo,nome,chave,local:ctx(el),destino,
       controle_alvo:el.getAttribute('aria-controls')||'',
       posicao:posicao(el),seletor:selector(el),visivel_texto:textoVisivel,
       componente_id:(()=>{const p=el.closest('[data-component],[role="group"],fieldset,[class*="widget" i]');return p?selector(p):'';})(),
       secao_id:(()=>{const p=el.closest('section,article,[role="region"]');return p?selector(p):'';})(),
       imagem_link:el.tagName==='A'&&!textoVisivel&&!!el.querySelector('img'),
       natureza:entidade?'editorial':'estrutura',entidade,
-      funcao:el.getAttribute('role')||(el.tagName==='A'?'link':el.tagName.toLowerCase()),
+      funcao:paginationControl(el)?'paginacao':el.getAttribute('role')||(el.tagName==='A'?'link':el.tagName.toLowerCase()),
       estrutura:[el.tagName,el.getAttribute('role')||'',el.getAttribute('type')||'',
         el.hasAttribute('disabled'),el.getAttribute('aria-haspopup')||'',el.getAttribute('target')||'',
         [...el.children].map(x=>x.tagName).join(','),el.hasAttribute('onclick')?'dinamico':'estatico'].join('|')});
@@ -295,7 +308,43 @@ JS_EXTRAIR = r'''() => {
     if(avisos.length>=5)break;
   }
   const componentes_restritos=[...document.querySelectorAll('.g-recaptcha,iframe[src*="recaptcha"],script[src*="recaptcha"]')].map(e=>e.closest('form,[role="dialog"],[data-component]')).filter(Boolean).map(selector);
-  return {nome_site:clean(document.querySelector('meta[property="og:site_name"],meta[name="application-name"]')?.content),componentes_restritos,title:clean(document.title||document.querySelector('h1')?.textContent),itens:out,links,menus,avisos_ambiente:avisos};
+  // Evidências para admissão; não removem itens da comparação da página.
+  const main=document.querySelector('main,[role="main"]')||document.body;
+  const heading=clean(main.querySelector('h1,h2')?.textContent).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const administrative=/legislacao|resolucoes|portarias|normativos|documentos|listagem administrativa|servicos/.test(heading);
+  const temporal=/noticias|fotografias|fotos|galerias|videos|audios|radio|\btv\b|imprensa|arquivo editorial/.test(heading);
+  const cards=main.querySelectorAll('article time[datetime], [itemtype*="NewsArticle"] time, [itemtype*="ImageGallery"], [itemtype*="VideoGallery"]');
+  const editorial=!administrative&&(temporal||cards.length>=2);
+  const referencias_finalidade=[];
+  for(const a of main.querySelectorAll('a[href]')){
+    if(!visivel(a)||!/^https?:/.test(a.href))continue;
+    let purpose='';
+    if(paginationControl(a)&&new URL(a.href).pathname===location.pathname){
+      const region=a.closest('section,[role="region"],[class*="portlet-boundary"],[data-component]')||main;
+      const subject=clean(region.querySelector('h1,h2,h3')?.textContent).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()||heading;
+      const admin=/legislacao|resolucoes|portarias|normativos|documentos|listagem administrativa|servicos/.test(subject);
+      const media=/noticias|fotografias|fotos|galerias|videos|audios|radio|\btv\b|imprensa|arquivo editorial/.test(subject)||region.querySelectorAll('article time[datetime],[itemtype*="NewsArticle"] time').length>=2;
+      if(admin)purpose=/servicos/.test(subject)?'servico':'documental';
+      else if(media)purpose='listagem_editorial';
+    }else if(editorial&&!a.closest('nav,header,footer,aside')&&a.closest('article,[class*="card" i],figure')){
+      const card=a.closest('article,[class*="card" i],figure');
+      const region=card.closest('section,[role="region"],[class*="portlet-boundary"]');
+      const subject=clean(region?.querySelector('h1,h2,h3')?.textContent).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      const administrativeCard=/legislacao|resolucoes|portarias|normativos|documentos|servicos/.test(subject);
+      const mediaImage=/fotografias|fotos|galerias/.test(heading)&&card.querySelector('img');
+      if(!administrativeCard&&(card.querySelector('time[datetime],video,audio')||mediaImage))purpose='editorial_individual';
+    }
+    if(purpose)referencias_finalidade.push({url:a.href,finalidade:purpose});
+  }
+  const portal={canonical:document.querySelector('link[rel="canonical"]')?.href||'',
+    navegacao:[...new Set([...document.querySelectorAll('header nav a[href],header [role="navigation"] a[href],body > nav a[href]')].filter(a=>visivel(a)).map(a=>a.href))].slice(0,100)};
+  try{
+    const td=window.Liferay?.ThemeDisplay;
+    portal.group_id=String(td?.getScopeGroupId?.()||td?.getSiteGroupId?.()||'');
+    const friendly=td?.getLayoutRelativeURL?.();
+    if(friendly)portal.friendly_url=new URL(friendly,location.href).href;
+  }catch(e){} // API não disponível em todos os temas/versões.
+  return {portal,referencias_finalidade,finalidade_pagina:editorial?'listagem_editorial':'',nome_site:clean(document.querySelector('meta[property="og:site_name"],meta[name="application-name"]')?.content),componentes_restritos,title:clean(document.title||document.querySelector('h1')?.textContent),itens:out,links,menus,avisos_ambiente:avisos};
 }'''
 
 
