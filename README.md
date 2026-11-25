@@ -8,7 +8,7 @@ Ferramenta local para Windows que identifica diferenças de estrutura, navegaç�
 
 **Somente leitura · Chromium oculto · Relatórios locais**
 
-[Instalação](#instalação) · [Como usar](#primeira-comparação) · [Resultados](#entenda-os-resultados) · [Documentação](#documentação)
+[Instalação](#instalação) · [Como usar](#primeira-comparação) · [Resultados](#entenda-os-resultados) · [AmbiDiff IA](#análise-assistida-por-inteligência-artificial) · [Documentação](#documentação)
 
 </div>
 
@@ -98,6 +98,30 @@ O programa permite revisar ocorrências, selecionar DIVs e manter registros loca
 
 A exportação prepara o formato solicitado, evitando gerar todos os formatos desnecessariamente. O navegador gerencia o local de download; para escolher a pasta, habilite **“Perguntar onde salvar cada arquivo”** nas configurações dele.
 
+### Análise assistida por inteligência artificial
+
+O **AmbiDiff IA — Analisador Inteligente de Divergências** é um complemento opcional, utilizado no ChatGPT após a varredura. Ele ajuda a interpretar os resultados, mas não integra o motor de comparação local nem participa automaticamente da coleta.
+
+**Como utilizar:**
+
+1. No AmbiDiff, abra **Divergências** e selecione as DIVs que deseja investigar.
+2. Exporte as ocorrências selecionadas em **JSON**.
+3. No ChatGPT, abra o complemento **AmbiDiff IA**, caso tenha acesso autorizado, e anexe o JSON.
+4. Se necessário, inclua capturas de tela e o diagnóstico JSON da execução, devidamente sanitizados.
+5. Solicite uma análise técnica das divergências e revise as conclusões antes de encaminhá-las à equipe responsável.
+
+**O que a IA pode ajudar a identificar:**
+
+- Divergências estruturais e funcionais que merecem investigação prioritária.
+- Possíveis diferenças editoriais decorrentes de bases desatualizadas.
+- Possíveis falsos positivos, equivalências e falhas da automação.
+- Impacto, nível de confiança, evidências disponíveis e verificações recomendadas, preservando os IDs originais das DIVs.
+- Resumos técnicos e executivos para apoiar a revisão humana.
+
+A IA deve separar fatos observados de hipóteses, não assumir que PRD está correto e não tratar resultados parciais como uma varredura completa. Suas conclusões não substituem testes nos ambientes reais.
+
+**Privacidade:** utilize somente arquivos públicos devidamente sanitizados e com autorização para compartilhamento. Não envie credenciais, dados internos ou informações sensíveis. O uso do complemento é independente da execução local do AmbiDiff.
+
 ### Casos de uso
 
 O AmbiDiff pode apoiar **comparações entre produção e homologação**, conferência de menus e serviços após atualizações e verificações de sites associados a mudanças de infraestrutura.
@@ -149,9 +173,6 @@ Para alterações no JavaScript, utilize também `node --check web/static/app.js
 
 A manutenção deve preservar as funcionalidades existentes, criar regressões para correções importantes e distinguir resultados testados em fixtures de validações nos ambientes reais.
 
-### AmbiDiff IA (opcional)
-
-O **AmbiDiff IA** é um complemento separado para interpretar relatórios exportados, organizar prioridades e apoiar a revisão técnica. Ele **não é obrigatório** e não participa automaticamente das varreduras. Utilize-o somente com acesso autorizado e arquivos públicos devidamente sanitizados.
 
 ---
 
