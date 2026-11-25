@@ -70,6 +70,7 @@ def falhas_diagnosticas(resultado):
 
 
 def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
+    from .environments import identidades
     from .relevance import preparar
     resultado=preparar(resultado)
     eventos=resultado.get('eventos_diagnostico',[])
@@ -82,7 +83,7 @@ def montar_diagnostico(resultado:dict,logs:list[str]|None=None)->dict:
         if e.get('tipo')=='DOWNLOAD_DE_DOCUMENTO':erros_por_tipo['DOWNLOAD_DE_DOCUMENTO']+=1
     metas=resultado.get('meta_varredura',{})
     motivos={env:d.get('motivo_parada','') for env,d in metas.items() if d.get('motivo_parada')}
-    return {**{k:resultado.get(k) for k in ('iniciado_em','finalizado_em','duracao_segundos','andamento','media_segundos_por_par','requisicoes_por_par')},'grupos_relacionados':resultado.get('grupos_relacionados',[]),'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_classificados',resultado.get('editoriais_preservados',[])),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
+    return {**identidades(resultado),**{k:resultado.get(k) for k in ('iniciado_em','finalizado_em','duracao_segundos','andamento','media_segundos_por_par','requisicoes_por_par')},'grupos_relacionados':resultado.get('grupos_relacionados',[]),'diferencas_completas':resultado.get('divergencias',[]),'editoriais':resultado.get('editoriais_classificados',resultado.get('editoriais_preservados',[])),'resumo_relevancia':resultado.get('resumo_relevancia',{}),'versao':'1.5','gerado_em':datetime.now().isoformat(timespec='seconds'),
       'site_nome':resultado.get('site_nome',''),'ambientes':resultado.get('ambientes',{}),
       'situacao_analise':resultado.get('situacao_analise','inconclusivo'),'fila_execucao':resultado.get('fila_execucao',{}),
       'filtro_urls':resultado.get('filtro_urls',{}),'cobertura':resultado.get('cobertura',{}),'motivo_encerramento':resultado.get('motivo_encerramento',''),
@@ -116,6 +117,10 @@ def exportar_diagnostico(dados:dict,pasta:Path,run_id:str)->dict:
             'Divergências preservadas: '+str(dados.get('divergencias_preservadas',0)),
             'Motivos de parada: '+str(dados.get('interrupcao',{}).get('motivos',{})),'',
             'TIPOS DE EVENTOS:']
+    for campo in ('ambiente_a','ambiente_b'):
+        if campo in dados:
+            from .security import url_diagnostica
+            meta=dados[campo];linhas.insert(2,meta['rotulo']+' ['+meta['identificador']+']: '+url_diagnostica(meta['url']))
     linhas.extend(f'  {k}: {v}' for k,v in dados.get('falhas_por_tipo',{}).items())
     linhas+=['','MÉTRICAS E COBERTURA:',json.dumps(dados.get('metricas',{}),ensure_ascii=False),
              json.dumps(dados.get('otimizacao',{}),ensure_ascii=False),

@@ -14,6 +14,7 @@ CAMPOS=['classificacao','classificacao_automatica','motivo_relevancia','ids_agru
 
 
 def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None, formatos=('csv','html','json'), preparado=False)->dict:
+    from .environments import identidades,rotulo
     inicio_exportacao=time.perf_counter()
     from .relevance import preparar
     if not formatos or any(ext not in ('csv','html','json') for ext in formatos):raise ValueError('Formatos de exportação inválidos.')
@@ -22,6 +23,10 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None, 
     if not preparado:
         dados=preparar(dados,{r['id']:r['classificacao_manual'] for r in dados.get('divergencias',[]) if r.get('classificacao_manual')})
     completos=dados['divergencias']
+    dados.update(identidades(dados))
+    colunas_ambientes={}
+    for lado,meta in identidades(dados).items():
+        colunas_ambientes.update({lado+'_'+chave:meta[chave] for chave in ('identificador','tipo','url')})
     principais=[r for r in completos if r['classificacao'] not in ('baixa','editorial')]
     pasta.mkdir(parents=True,exist_ok=True)
     paths={ext:pasta/f'comparacao_{run_id}.{ext}' for ext in formatos}
@@ -31,14 +36,15 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None, 
         return "'"+s if s.lstrip().startswith(('=','+','-','@')) else s
     if 'csv' in formatos:
         with paths['csv'].open('w',encoding='utf-8-sig',newline='') as f:
-            writer=csv.DictWriter(f,fieldnames=['site_nome',*CAMPOS,'paginas_afetadas'],delimiter=';',extrasaction='ignore')
+            writer=csv.DictWriter(f,fieldnames=['site_nome',*CAMPOS,'paginas_afetadas',*colunas_ambientes],delimiter=';',extrasaction='ignore')
             writer.writeheader();ids_csv=set()
             editoriais=[dict(r,classificacao='editorial',motivo_relevancia='Contexto editorial classificado na coleta; não comprova base desatualizada.') for r in dados.get('registros_editoriais',[])] if dados.get('exportacao_completa') else []
             for r in [*[member for row in dados['divergencias'] for member in (row.get('itens_agrupados') or [row])],*editoriais] if dados.get('exportacao_completa') else dados['divergencias']:
                 if r.get('id') and r['id'] in ids_csv:continue
                 if r.get('id'):ids_csv.add(r['id'])
                 linha={'site_nome':csv_seguro(dados.get('site_nome','')),
-                       **{k:csv_seguro(r.get(k,'')) for k in CAMPOS}}
+                       **{k:csv_seguro(rotulo(r.get(k,''),dados) if k in ('presente_em','nao_identificado_em') else r.get(k,'')) for k in CAMPOS},
+                       **{k:csv_seguro(v) for k,v in colunas_ambientes.items()}}
                 linha['itens_resumo']=csv_seguro(' | '.join(x.get('elemento','') for x in r.get('itens_agrupados',[])))
                 linha['paginas_afetadas']=csv_seguro(' | '.join(o.get('url_presente','') for o in r.get('ocorrencias',[])))
                 writer.writerow(linha)
@@ -85,10 +91,10 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None, 
                     if (relative.startswith('evidencias_') and relative.endswith(f'_{env}.png')
                         and '..' not in relative and '/' in relative):
                         uri=incorporar(relative)
-                        if uri:pane=f'<img src="{uri}" alt="Captura de {esc(env)} para {esc(d.get("id",""))}">'
+                        if uri:pane=f'<img src="{uri}" alt="Captura de {esc(rotulo(env,dados))} para {esc(d.get("id",""))}">'
                         else:pane='<p>Captura indisponível ou fora do limite de incorporação.</p>'
                     status=esc((d.get('marcacoes') or {}).get(env,'Captura sem confirmação de presença do elemento'))
-                    boxes.append(f'<div class="capture-panel"><b>{esc(env)}</b>{pane}<small>{status}</small></div>')
+                    boxes.append(f'<div class="capture-panel"><b>{esc(rotulo(env,dados))}</b>{pane}<small>{status}</small></div>')
                 capt='<div class="capture-grid">'+''.join(boxes)+'</div><p><small>Contornos indicam elementos encontrados pelo seletor; ausência de contorno não comprova ausência do elemento.</small></p>'
             elif d.get('evidencia'):
                 img=d['evidencia']
@@ -103,7 +109,7 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None, 
                     if x.get('id')!=d.get('id'):
                         for env,relative in x.get('evidencias',{}).items():
                             uri=incorporar(relative)
-                            visuais+=f'<figure><img style="max-width:100%;max-height:450px" src="{uri}" alt="Captura de {esc(env)} para {esc(x.get("id"))}"><figcaption>{esc(env)} · {esc(x.get("id"))}</figcaption></figure>' if uri else '<p>Captura indisponível ou fora do limite de incorporação.</p>'
+                            visuais+=f'<figure><img style="max-width:100%;max-height:450px" src="{uri}" alt="Captura de {esc(rotulo(env,dados))} para {esc(x.get("id"))}"><figcaption>{esc(rotulo(env,dados))} · {esc(x.get("id"))}</figcaption></figure>' if uri else '<p>Captura indisponível ou fora do limite de incorporação.</p>'
                     membros.append('<section><p>'+esc(x.get('id'))+' · '+esc(x.get('elemento'))+' · '+link(x.get('referencia'))+'</p><p>'+esc(x.get('descricao'))+'</p>'+visuais+'</section>')
                 extra+='<details><summary>Itens e evidências do grupo</summary>'+''.join(membros)+'</details>'
             occurrences=d.get('ocorrencias',[])
@@ -115,12 +121,12 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None, 
             cards.append(f'''<article data-div-id="{escape(str(d.get('id','')),quote=True)}"><h3>{esc(d.get('id',''))} · {esc(d.get('categoria') or d.get('tipo',''))} <small>({esc(d.get('ocorrencias_total',1))} ocorrência(s))</small> <button type="button" class="copy-id">Copiar ID</button></h3>
             <p><b>Caminho:</b> {esc(d.get('caminho',''))}<br><b>Posição visual:</b> {esc(d.get('posicao') or 'Não determinada')}</p>
             <p>{descr}</p><p>Tag: {esc(d.get('tag_tecnica'))} · Confiança: {esc(d.get('grau_confianca'))}</p><p>{esc(d.get('justificativa_evidencia'))}</p><p>Classificação: {esc(d.get('classificacao'))} — {esc(d.get('motivo_relevancia'))}</p>{etiqueta}{extra}<p><b>Página A:</b> {link(d.get('url_presente'))}<br><b>Página B:</b> {link(d.get('url_comparada'))}</p>{capt}{occ}</article>''')
-        avisos=''.join(f'''<details><summary>{esc(x['ambiente'])} · {esc(x['tipo'])} ({x['quantidade']})</summary>
+        avisos=''.join(f'''<details><summary>{esc(rotulo(x['ambiente'],dados))} · {esc(x['tipo'])} ({x['quantidade']})</summary>
           <ul>{''.join('<li>'+esc(u)+'</li>' for u in x['exemplos'])}</ul></details>''' for x in dados.get('avisos_tecnicos',[]))
         external=''.join(f'''<details><summary>{esc(x['status'])} · {esc(x['url'])}</summary>
           <p>Origem: {esc(x['origem'])}</p><ul>{''.join('<li>'+esc(o['opcao'])+': '+esc(o['situacao'])+'</li>' for o in x.get('opcoes',[]))}</ul></details>'''
             for x in dados.get('verificacoes_externas',[]))
-        pendencias=''.join(f'<li>{esc(x.get("ambiente"))} · {link(x.get("url"))} — {esc(x.get("motivo"))}</li>' for x in dados.get('pendencias',[])[:100])
+        pendencias=''.join(f'<li>{esc(rotulo(x.get("ambiente"),dados))} · {link(x.get("url"))} — {esc(x.get("motivo"))}</li>' for x in dados.get('pendencias',[])[:100])
         ref_html=''.join(f'<li><b>{esc(x.get("elemento","Imagem"))}</b> — {esc(x.get("motivo","Referências diferentes"))}<p>Local: {esc(x.get("caminho",""))}; {esc(x.get("posicao",""))}</p> {link(x.get("destino_a"))} / {link(x.get("destino_b"))}</li>' for x in dados.get('referencias_pendentes',[]))
         state=dados.get('situacao_analise','parcial')
         fila=dados.get('fila_execucao',{})
@@ -128,7 +134,7 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None, 
         variations=dados.get('variacoes_dados',[])
         variance_html=''.join(f'<details><summary>{esc(v.get("categoria"))} — {v.get("quantidade_itens",0)} itens editoriais</summary>'
            + '<p>'+esc(v.get('motivo',''))+'</p><ul>'
-           + ''.join('<li>'+esc(z.get('tipo',''))+' · '+esc(z.get('elemento',''))+' ('+esc(z.get('ambiente',''))+')</li>' for z in v.get('exemplos',[]))
+           + ''.join('<li>'+esc(z.get('tipo',''))+' · '+esc(z.get('elemento',''))+' ('+esc(rotulo(z.get('ambiente',''),dados))+')</li>' for z in v.get('exemplos',[]))
            + '</ul></details>' for v in variations)
         diag_links=''
         if dados.get('id'):
@@ -181,16 +187,16 @@ def exportar(dados:dict,pasta:Path,run_id:str,*,evidencias_root:Path|None=None, 
         <p>Início: {esc(dados.get('iniciado_em','não disponível'))} · Fim do processamento: {esc(dados.get('finalizado_em','não disponível'))} · Duração: {esc(dados.get('duracao_segundos','não disponível'))} s</p>
         <p>Escopo: {esc(dados.get('escopo_exportacao','Relatório principal'))}</p>
         {cobertura_html}
-        <p>Ambientes: {' · '.join(esc(k)+': '+link(v) for k,v in dados.get('ambientes',{}).items())}</p>
+        <p>Ambientes: {' · '.join(esc(rotulo(k,dados))+': '+link(v) for k,v in dados.get('ambientes',{}).items())}</p>
         <p>Gerado em {esc(dados.get('gerado_em',''))} · Cobertura/análise: <b>{esc(state)}</b> · Fila admitida: <b>{esc(estado_fila)}</b></p>
         <p>{len(dados['divergencias'])} grupo(s) de divergência · {esc(dados.get('ocorrencias_brutas',len(dados['divergencias'])))} ocorrência(s) antes do agrupamento</p>
         <p>{('DIVs excluídas pelo revisor: '+str(dados['divergencias_ocultadas'])+'.') if dados.get('divergencias_ocultadas') else ''}</p>
-        <p>{' · '.join(esc(k)+': '+str(v)+' páginas lidas' for k,v in dados.get('paginas',{}).items())}</p>
+        <p>{' · '.join(esc(rotulo(k,dados))+': '+str(v)+' páginas lidas' for k,v in dados.get('paginas',{}).items())}</p>
         <div class="notice">URLs distintas para a mesma opção são registradas como divergências. Rotas internas distintas só são comparadas quando há evidências corroboradas de finalidade comum; associações ambíguas encerram somente o ramo. Diferenças não determinam qual ambiente está correto. {esc('A varredura não foi concluída em todas as páginas.' if state!='concluido' else '')}</div>
         <label for="search-div"><b>Pesquisar divergência por ID (DIV-0033, 0033, 33) ou texto:</b></label>
         <input type="search" id="search-div" class="search-div" placeholder="Ex.: DIV-0033 ou Radar">
         <h2>Equivalência, documentos e cobertura</h2><p>Equivalência estática não comprova funcionamento. Metadados não comprovam arquivos idênticos. Inspeções profundas omitidas limitam a cobertura.</p><details><summary>Resultados e métricas do modo {esc(dados.get("modo_varredura","atual"))}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{smart_html}</pre></details>
-        <h2>Variações editoriais informativas (base desatualizada declarada: {esc(dados.get('ambiente_desatualizado') or 'nenhuma')})</h2>{variance_html or '<p>Sem variações editoriais classificadas.</p>'}
+        <h2>Variações editoriais informativas (base desatualizada declarada: {esc(rotulo(dados.get('ambiente_desatualizado'),dados) or 'nenhuma')})</h2>{variance_html or '<p>Sem variações editoriais classificadas.</p>'}
         <p>Relatório principal omite baixa relevância e editoriais da lista prioritária. JSON contém todos os registros.</p>
         <details><summary>Diagnóstico completo — diferenças de baixa relevância</summary><pre>{esc(json.dumps({'baixa_relevancia':[r for r in completos if r['classificacao']=='baixa'],'editoriais':dados.get('editoriais_preservados',[])},ensure_ascii=False,indent=2))}</pre></details>
         <h2>Divergências agrupadas por categoria</h2>{''.join(cards) or '<p>Nenhuma divergência encontrada nas páginas verificadas.</p>'}

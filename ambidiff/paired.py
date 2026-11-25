@@ -540,6 +540,8 @@ def _salvar_evidencias(browser,registros,evidencias_dir,parar,log,nome_a='PRD',n
             except Exception:log('[Evidência] Limpeza do contexto já encerrado; demais recursos continuam sendo liberados.')
 
 def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',evidencias_dir=None, _preparar_contextos=None, auditar_externos=False, ambiente_desatualizado='', checkpoint=None, verificar_cliques=False, varredura_inteligente=False,observador=None,retomada=None,estrategia=None,orcamento_minutos=None):
+    from .environments import identificar,metadados
+    nome_a,nome_b,ambiente_desatualizado=identificar(nome_a,nome_b,ambiente_desatualizado)
     from playwright.sync_api import sync_playwright
     metricas=Metricas();metricas.parar=parar;inteligencia=Inteligencia(metricas);documentos=Documentos(metricas,parar,permitir_range=False,observacao_por_execucao=True)
     from .destinations import Destinos
@@ -847,6 +849,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
             'meta_varredura':{nome_a:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':parada or 'Execução ainda em andamento','referencias_excluidas':dict(excluded)},
               nome_b:{'visitadas':len(visitados),'pendentes':len(fila),'motivo_parada':parada or 'Execução ainda em andamento','referencias_excluidas':{}}},
             'ambiente_desatualizado':modo_defasado}
+        resultado.update(metadados(nome_a,nome_b,base_a,base_b))
         assinatura=metricas.tempos['checkpoint_assinatura_json']-assinatura_antes
         metricas.tempos['checkpoint_construcao_exclusiva']+=max(0,time.perf_counter()-inicio_snapshot-conversao-assinatura)
         return resultado
@@ -1438,6 +1441,7 @@ def executar_pareado(url_a,url_b,nome_a,nome_b,parar,log,progresso,site_nome='',
                 'limite_paginas':limite_html if dinamica else MAX_URLS_SEGURANCA,'profundidade':None}
             from .execution import resumir
             resultado['fila_execucao']=resumir(resultado)
+            resultado.update(metadados(nome_a,nome_b,base_a,base_b))
             return resultado
         except Exception as erro:
             if atual_par and tuple(atual_par[:2]) not in estados_pares:

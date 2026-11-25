@@ -216,7 +216,7 @@ class BrowserNextTests(unittest.TestCase):
         try:
             p.set_content(html)
             self.assertEqual(p.locator('#url-a').input_value(),'');self.assertEqual(p.locator('#url-b').input_value(),'')
-            self.assertEqual(p.locator('#nome-a option').count(),3);self.assertEqual(p.locator('#nome-b option').count(),3)
+            self.assertEqual(p.locator('#nome-a option').count(),3);self.assertEqual(p.locator('#nome-b option').count(),4)
             with patch.object(server.threading,'Thread') as th:
                 self.assertEqual(client.post('/api/comparar',json={'url_a':A,'url_b':B,'nome_a':'DES','nome_b':'DES'}).status_code,400);th.assert_not_called()
         finally:p.close()

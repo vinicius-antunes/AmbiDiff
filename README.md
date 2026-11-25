@@ -6,6 +6,8 @@
 
 Ferramenta local para Windows que identifica diferenças de estrutura, navegação, conteúdo e referências entre ambientes **PRD, DES, LAB e HOMOL**.
 
+Também permite comparar **PRD × PRD** em servidores diferentes: o Ambiente A é a referência e o Ambiente B é o comparado, sem presumir que algum deles esteja correto. Veja [identificação dos ambientes, evidências e compatibilidade](docs/prd-prd.md).
+
 **Somente leitura · Chromium oculto · Relatórios locais**
 
 [Instalação](#instalação) · [Como usar](#primeira-comparação) · [Resultados](#entenda-os-resultados) · [AmbiDiff IA](#análise-assistida-por-inteligência-artificial) · [Documentação](#documentação)

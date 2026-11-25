@@ -80,6 +80,9 @@ def validar(payload,urls=None):
     a,b=validacao_inicial(params.get('url_a',''),params.get('url_b',''))
     if urls and (a,b)!=tuple(urls):raise ValueError('Checkpoint de outros ambientes.')
     if params.get('nome_a')==params.get('nome_b'):raise ValueError('Ambientes do checkpoint inválidos.')
+    if params['nome_a'] in ('PRD_A','PRD_B') or params['nome_b'] in ('PRD_A','PRD_B'):
+        from .environments import identificar
+        identificar(params['nome_a'],params['nome_b'],params['ambiente_desatualizado'])
     fila=estado.get('fila');visitados=estado.get('visitados')
     if not isinstance(fila,list) or not isinstance(visitados,list):raise ValueError('Fila/visitados ausentes no checkpoint.')
     vistos=set()

@@ -164,6 +164,8 @@ def worker(params,run_id):
                            **({'retomada':params['retomada']} if params.get('retomada') else {}))
         if resultado is None:
             raise RuntimeError('A varredura não produziu relatório; consulte o diagnóstico.')
+        from ambidiff.environments import identidades
+        resultado.update(identidades(resultado))
         if params.get('retomada_de'):resultado['retomada_de']=params['retomada_de']
         from ambidiff.execution import resumir
         resultado['fila_execucao']=resumir(resultado)
@@ -189,6 +191,7 @@ def worker(params,run_id):
                  'paginas':resultado['paginas'],
                  'variacoes_dados':len(resultado.get('variacoes_dados',[])),
                  'ambiente_desatualizado':resultado.get('ambiente_desatualizado','')}
+        entrada.update(identidades(resultado))
         with LOCK:
             h=_hist();h.insert(0,entrada)
             atomic_json(HISTORY_PATH,h[:350])
@@ -280,14 +283,15 @@ def comparar():
             url_a,url_b=validacao_inicial(str(args.get('url_a','')).strip(),str(args.get('url_b','')).strip())
             nome_a=re.sub(r'[^A-Za-z0-9_-]','',str(args.get('nome_a','PRD')).upper())[:12] or 'PRD'
             nome_b=re.sub(r'[^A-Za-z0-9_-]','',str(args.get('nome_b','DES')).upper())[:12] or 'LAB'
-            if nome_b not in ('DES','LAB','HOMOL'):raise ValueError('Ambiente B deve ser DES, LAB ou HOMOL para novas execuções.')
-            if nome_a==nome_b:raise ValueError('Use nomes de ambientes diferentes.')
+            if nome_b not in ('DES','LAB','HOMOL','PRD'):raise ValueError('Ambiente B deve ser DES, LAB, HOMOL ou PRD para novas execuções.')
+            if nome_a in ('PRD_A','PRD_B'):raise ValueError('Selecione o tipo PRD; identificadores técnicos não são tipos de ambiente.')
             site_nome=str(args.get('site_nome','')).strip()[:120]
             if any(ord(c)<32 for c in site_nome):raise ValueError('Nome da comparação inválido.')
             from ambidiff.strategy import opcoes
             estrategia,orcamento=opcoes(args.get('estrategia','dinamica'),args.get('orcamento_minutos',0))
             desatualizado=str(args.get('ambiente_desatualizado','')).strip().upper()
-            if desatualizado not in ('',nome_a,nome_b):raise ValueError('Escolha um ambiente válido para a base desatualizada.')
+            from ambidiff.environments import identificar
+            nome_a,nome_b,desatualizado=identificar(nome_a,nome_b,desatualizado)
         except (ValueError,TypeError) as e:return jsonify(erro=str(e)),400
         PARAR.clear()
         inicio=time.monotonic()
@@ -304,6 +308,7 @@ def comparar():
                     verificar_cliques=(args.get('verificar_cliques') is True),
                     varredura_inteligente=(args.get('varredura_inteligente',True) is True),
                     estrategia=estrategia,orcamento_minutos=orcamento,ambiente_desatualizado=desatualizado)
+        if (nome_a,nome_b)==('PRD_A','PRD_B'):log('Iniciando comparação PRD × PRD: PRD_A (A, base) / PRD_B (B, comparado).')
         threading.Thread(target=worker,args=(params,run_id),daemon=True).start()
         return jsonify(ok=True,id=run_id)
 
@@ -393,7 +398,7 @@ def relatorio(run_id):
 def evidencia(run_id,nome):
     if not valid_run(run_id):
         return jsonify(erro='ID inválido'),400
-    if not re.fullmatch(r'DIV-[0-9]{4,5}(?:_(?:PRD|DES|LAB))?\.png',nome):
+    if not re.fullmatch(r'DIV-[0-9]{4,5}(?:_(?:PRD(?:_[AB])?|DES|LAB|HOMOL))?\.png',nome):
         return jsonify(erro='Nome inválido'),400
     return send_from_directory(PASTA/f'evidencias_{run_id}',nome,as_attachment=False)
 

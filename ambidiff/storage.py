@@ -256,7 +256,7 @@ def somente_selecionadas(report,ids):
     from copy import deepcopy
     # Exportar uma seleção não deve carregar DOM, grupos ou referências de DIVs
     # fora do escopo. Preserve apenas o contexto comum e os membros escolhidos.
-    contexto=('id','versao','site_nome','ambientes','gerado_em','iniciado_em',
+    contexto=('id','versao','site_nome','ambientes','ambiente_a','ambiente_b','gerado_em','iniciado_em',
         'finalizado_em','duracao_segundos','situacao_analise','estado_execucao','fila_execucao','falha_principal',
         'paginas','completo','meta_varredura','modo_varredura','ambiente_desatualizado',
         'retomada_de','site_id','cobertura','motivo_encerramento')

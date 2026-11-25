@@ -300,7 +300,7 @@ class Interface19Tests(unittest.TestCase):
     setUp=fixtures17.BrowserUI17Tests.setUp
     abrir=fixtures17.BrowserUI17Tests.abrir
     def test_ambiente_b_homol_e_configuracoes_internas(self):
-        self.assertEqual(self.p.locator('#nome-b option').evaluate_all('els=>els.map(e=>e.value)'),['DES','LAB','HOMOL'])
+        self.assertEqual(self.p.locator('#nome-b option').evaluate_all('els=>els.map(e=>e.value)'),['DES','LAB','HOMOL','PRD'])
         self.assertEqual(self.p.locator('#nome-b').input_value(),'DES')
         self.assertEqual(self.p.locator('#nome-a option[value="PRD"]').count(),1)
         self.assertEqual(self.p.locator('#estrategia,#orcamento-minutos,#varredura-inteligente,#headless').count(),0)
@@ -475,7 +475,8 @@ class Homol19Tests(unittest.TestCase):
                 params=worker.call_args.kwargs['args'][0];self.assertEqual(params['nome_b'],'HOMOL');self.assertEqual(params['url_b'],B)
             server.STATE['status']='pronto'
             with patch('web.server.threading.Thread') as worker:
-                self.assertEqual(client.post('/api/comparar',json={'url_a':A,'url_b':B,'nome_b':'PRD'}).status_code,400);worker.assert_not_called()
+                self.assertEqual(client.post('/api/comparar',json={'url_a':A,'url_b':B,'nome_b':'PRD'}).status_code,200)
+                params=worker.call_args.kwargs['args'][0];self.assertEqual((params['nome_a'],params['nome_b']),('PRD_A','PRD_B'))
             antigo={'id':RID,'versao':'1.5','ambientes':{'LAB':A,'PRD':B},'divergencias':[],'paginas':{'LAB':1,'PRD':1}}
             atomic_json(Path(td)/f'comparacao_{RID}.json',antigo)
             resp=client.get('/api/relatorio/'+RID);self.assertEqual(resp.status_code,200);self.assertEqual(resp.get_json()['ambientes'],antigo['ambientes'])
